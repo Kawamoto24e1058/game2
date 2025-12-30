@@ -6,6 +6,9 @@ let battleId = null;
 let playerIndex = null;
 let isMyTurn = false;
 
+// Constants
+const WEBSOCKET_RECONNECT_DELAY = 3000;
+
 // Initialize WebSocket connection
 function initWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -24,7 +27,7 @@ function initWebSocket() {
     
     ws.onclose = () => {
         console.log('WebSocket disconnected');
-        setTimeout(initWebSocket, 3000);
+        setTimeout(initWebSocket, WEBSOCKET_RECONNECT_DELAY);
     };
     
     ws.onerror = (error) => {

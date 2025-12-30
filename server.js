@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -80,7 +81,7 @@ app.post('/api/generate-technique', (req, res) => {
 wss.on('connection', (ws) => {
   console.log('New client connected');
   
-  ws.playerId = Math.random().toString(36).substr(2, 9);
+  ws.playerId = crypto.randomUUID();
   ws.isAlive = true;
   
   ws.on('pong', () => {
@@ -141,7 +142,7 @@ function findMatch(ws, techniques) {
 }
 
 function startBattle(player1, player2) {
-  const battleId = Math.random().toString(36).substr(2, 9);
+  const battleId = crypto.randomUUID();
   
   const battle = {
     id: battleId,
