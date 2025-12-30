@@ -18,11 +18,44 @@ npm install
 
 ## 実行方法
 
+### ローカル実行
+
 ```bash
 npm start
 ```
 
 サーバーが起動したら、ブラウザで `http://localhost:3000` を開いてください。
+
+### オンライン公開（URLで共有）
+
+このゲームを他の人と共有するために、以下の無料ホスティングサービスにデプロイできます：
+
+#### 🚀 Render (推奨)
+
+1. [Render](https://render.com) にアカウント作成
+2. "New +" → "Web Service" を選択
+3. このGitHubリポジトリを接続
+4. 自動的に `render.yaml` の設定が読み込まれます
+5. "Create Web Service" をクリック
+6. デプロイ完了後、公開URLが発行されます（例: `https://game2-battle-card.onrender.com`）
+
+#### 🚄 Railway
+
+1. [Railway](https://railway.app) にアカウント作成
+2. "New Project" → "Deploy from GitHub repo" を選択
+3. このリポジトリを選択
+4. 自動的にデプロイされ、公開URLが発行されます
+
+#### ⚡ Vercel
+
+1. [Vercel](https://vercel.com) にアカウント作成
+2. "Add New Project" でこのリポジトリをインポート
+3. 自動的にデプロイされます
+4. **注意**: VercelはWebSocketの制限があるため、マルチプレイヤー機能は制限される可能性があります
+
+**推奨**: RenderまたはRailwayを使用してください。両方ともWebSocketを完全にサポートしています。
+
+📖 **詳細なデプロイ手順**: [DEPLOYMENT.md](./DEPLOYMENT.md) を参照してください。
 
 ## 遊び方
 
