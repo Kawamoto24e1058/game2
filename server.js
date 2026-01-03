@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(express.json());
@@ -18,215 +19,173 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const STARTING_HP = 120;
 
+// Gemini API初期化
+const apiKey = process.env.GEMINI_API_KEY;
+if (!apiKey) {
+  console.error('⚠️ GEMINI_API_KEY が設定されていません');
+  process.exit(1);
+}
+const genAI = new GoogleGenerativeAI(apiKey);
+
 const randomQueue = [];
 const passwordRooms = new Map(); // password -> roomId
 const rooms = new Map(); // roomId -> room state
 
-function generateCard(word) {
-  const lower = word.toLowerCase();
+// =====================================
+// Gemini APIを使ったカード生成（非同期）
+// =====================================
+async function generateCard(word) {
   const original = word;
+  
+  const prompt = `あなたはカードゲームのAIです。ユーザーが入力した言葉から、そのカードの能力値を決定してください。
 
-  // 【弱気な言葉の検出】フレーズ全体を評価
-  const weaknessPhrases = [
-    /ため息|溜息|あくび|欠伸|sigh|yawn/i,
-    /つぶやき|ささやき|whisper|murmur/i,
-    /かすり傷|scratch|graze/i,
-    /軽い|弱い|小さい|tiny|weak|light|faint/i,
-    /寝る|眠い|sleepy|tired|drowsy/i,
-    /なでる|pat|stroke|gentle/i
-  ];
+【入力】${original}
 
-  let weaknessDetected = false;
-  for (const pattern of weaknessPhrases) {
-    if (pattern.test(original)) {
-      weaknessDetected = true;
-      break;
+【出力形式】以下のJSON形式で、絶対にこの形式を守って出力してください：
+{
+  "word": "ユーザーの入力した言葉",
+  "attack": 0-100の数値（攻撃力）,
+  "defense": 0-100の数値（防御力）,
+  "attribute": "light/dark/fire/water/thunder/earth/wind/heal のいずれか",
+  "effect": "attack/defense/heal/support のいずれか",
+  "supportType": "heal_boost/attack_boost/defense_boost/enemy_debuff/general_boost/null のいずれか",
+  "tier": "common/weapon/mythical のいずれか"
+}
+
+【評価ルール】
+1. 【主語が強くても述語が弱ければ弱くする】
+   - 例：「ドラゴンのため息」→ ドラゴン(強い)だが、ため息(弱い)なので、全体的に弱い（攻撃力15程度）
+   - 例：「神の祝福」→ 神(強い)＋祝福(サポート効果)で、support（防御力が高い）
+
+2. 【フレーズ全体のニュアンスを読み取る】
+   - 「つぶやき」「ため息」「あくび」「寝ぼけ」「なでる」などが含まれると、全体的に弱くしてください（5-15）
+   - 「古い」「錆びた」「壊れた」などが含まれると、本来の強さから-15程度
+
+3. 【tier の判定】
+   - mythical: 神話級・伝説級（excalibur, 神, ドラゴン, 大黒ホール, ビッグバンなど）→ 攻撃力80-100
+   - weapon: 現代兵器・強者（日本刀, 戦車, 魔法, 炎, 雷など）→ 攻撃力50-79
+   - common: 日用品・一般的な物（棒, 石, 拳, 本など）→ 攻撃力10-49
+
+4. 【effect の判定】
+   - "attack": 攻撃的な言葉（斬る, 爆発, 猛火など）
+   - "defense": 防御的な言葉（盾, ガード, 壁など）
+   - "heal": 回復的な言葉（癒し, 回復, 薬など）
+   - "support": サポート的な言葉（祝福, 応援, 強化など）
+
+5. 【supportType の判定】（effect が "support" の場合のみ）
+   - "heal_boost": HP回復系（癒し, 回復, 薬など）
+   - "attack_boost": 攻撃強化系（強化, 力, パワーなど）
+   - "defense_boost": 防御強化系（守る, 保護, 盾など）
+   - "enemy_debuff": 敵弱体化系（呪い, 弱体化, 封印など）
+   - "general_boost": 汎用系
+
+6. 【attribute の判定】
+   - "light": 光、聖、神聖、天使など
+   - "dark": 闇、影、呪いなど
+   - "fire": 炎、火、燃焼など
+   - "water": 水、氷、冷凍など
+   - "thunder": 雷、電撃、稲妻など
+   - "earth": 土、岩、地面など
+   - "wind": 風、空気、吹き飛ばすなど
+   - "heal": 治癒、回復など
+
+7. 【数値の決定】
+   - attack: effect が "attack" の場合に高い値。防御的だと低い
+   - defense: 防御効果が強いほど高い値。攻撃的だと低い
+   - サポート系は attack=60, defense=70 程度
+
+【例）**絶対にこのJSON形式に従ってください**
+入力：「ドラゴンのため息」
+出力：{
+  "word": "ドラゴンのため息",
+  "attack": 12,
+  "defense": 8,
+  "attribute": "wind",
+  "effect": "attack",
+  "supportType": null,
+  "tier": "common"
+}
+
+入力：「聖なる光の盾」
+出力：{
+  "word": "聖なる光の盾",
+  "attack": 20,
+  "defense": 85,
+  "attribute": "light",
+  "effect": "defense",
+  "supportType": null,
+  "tier": "weapon"
+}
+
+入力：「神の祝福」
+出力：{
+  "word": "神の祝福",
+  "attack": 30,
+  "defense": 80,
+  "attribute": "light",
+  "effect": "support",
+  "supportType": "defense_boost",
+  "tier": "mythical"
+}
+
+【JSON だけを出力してください。説明文やマークダウンは一切含めないでください】`;
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text().trim();
+    
+    // JSONをパース
+    const cardData = JSON.parse(responseText);
+    
+    // 必須フィールドの検証
+    if (!cardData.word || cardData.attack === undefined || cardData.defense === undefined) {
+      throw new Error('必須フィールドが不足しています');
     }
+
+    // レスポンス形成
+    return {
+      word: cardData.word,
+      attribute: cardData.attribute || 'neutral',
+      attack: Math.max(0, Math.min(100, Math.round(cardData.attack))),
+      defense: Math.max(0, Math.min(100, Math.round(cardData.defense))),
+      effect: cardData.effect || 'attack',
+      tier: cardData.tier || 'common',
+      supportType: cardData.supportType || null,
+      description: `${(cardData.attribute || 'NEUTRAL').toUpperCase()} [${(cardData.tier || 'common').toUpperCase()}] / ATK:${cardData.attack} DEF:${cardData.defense} / ${cardData.effect}${cardData.supportType ? ' (' + cardData.supportType + ')' : ''}`
+    };
+  } catch (error) {
+    console.error('❌ Gemini API エラー:', error);
+    // フォールバック: 簡単な強さ判定
+    return generateCardFallback(original);
   }
+}
 
-  // 【神話級・伝説級】80-100：歴史的・神話的・宇宙規模の存在
-  const mythicalTier = {
-    'excalibur': 98, 'エクスカリバー': 98, 'mjolnir': 97, 'ムジョルニア': 97,
-    'god': 95, 'goddess': 95, '神': 95, '女神': 95, 'zeus': 96, 'odin': 96,
-    'dragon': 92, 'ドラゴン': 92, 'phoenix': 90, 'フェニックス': 90,
-    'blackhole': 94, 'ブラックホール': 94, 'supernova': 93, '超新星': 93,
-    'big bang': 99, 'ビッグバン': 99, 'universe': 95, '宇宙': 95,
-    'nuke': 88, '核': 88, 'nuclear': 88, '原子爆弾': 88,
-    'titan': 85, 'タイタン': 85, 'leviathan': 87, 'リヴァイアサン': 87
-  };
-
-  // 【現代兵器・強者】50-79：戦争・武術・強力な道具
-  const weaponTier = {
-    'katana': 72, '日本刀': 72, 'sword': 70, '剣': 70, 'longsword': 68,
-    'tank': 75, '戦車': 75, 'cannon': 73, '大砲': 73,
-    'gun': 65, '銃': 65, 'rifle': 67, 'ライフル': 67,
-    'bomb': 70, '爆弾': 70, 'missile': 76, 'ミサイル': 76,
-    'lightning': 68, '稲妻': 68, 'thunder': 66, '雷': 66,
-    'tsunami': 74, '津波': 74, 'earthquake': 72, '地震': 72,
-    'volcano': 71, '火山': 71, 'lava': 69, 'マグマ': 69,
-    'tornado': 68, '竜巻': 68, 'hurricane': 70, 'ハリケーン': 70,
-    'axe': 62, '斧': 62, 'hammer': 60, 'ハンマー': 60,
-    'spear': 58, '槍': 58, 'bow': 55, '弓': 55, 'arrow': 53, '矢': 53,
-    'wizard': 64, '魔法使い': 64, 'sorcerer': 66, '魔術師': 66,
-    'knight': 63, '騎士': 63, 'warrior': 61, '戦士': 61,
-    'demon': 68, '悪魔': 68, 'devil': 70, 'デビル': 70,
-    'fire': 58, '炎': 58, 'flame': 56, 'blaze': 60,
-    'ice': 57, '氷': 57, 'frost': 55, '霜': 55,
-    'water': 52, '水': 52, 'ocean': 56, '海': 56,
-    'wind': 54, '風': 54, 'gale': 56, '疾風': 56,
-    'earth': 50, '土': 50, 'stone': 48, '石': 48
-  };
-
-  // 【日用品・一般】10-49：身近な物・弱い力
-  const commonTier = {
-    'stick': 18, '棒': 18, 'wooden stick': 15, '木の棒': 15,
-    'branch': 12, '枝': 12, 'twig': 8, '小枝': 8,
-    'rock': 22, '岩': 22, 'pebble': 10, '小石': 10,
-    'rope': 14, '縄': 14, 'string': 8, '糸': 8,
-    'punch': 28, 'パンチ': 28, 'kick': 30, 'キック': 30,
-    'slap': 12, '平手打ち': 12, 'poke': 8, '突く': 8,
-    'knife': 35, 'ナイフ': 35, 'dagger': 32, '短剣': 32,
-    'club': 25, '棍棒': 25, 'bat': 28, 'バット': 28,
-    'fist': 26, '拳': 26, 'hand': 15, '手': 15,
-    'book': 10, '本': 10, 'paper': 5, '紙': 5,
-    'pen': 6, 'ペン': 6, 'pencil': 5, '鉛筆': 5,
-    'chair': 20, '椅子': 20, 'table': 22, 'テーブル': 22,
-    'plate': 12, 'お皿': 12, 'tray': 14, 'お盆': 14,
-    'broom': 16, 'ほうき': 16, 'mop': 15, 'モップ': 15
-  };
-
-  // ベーススコア計算（厳格な格付け）
-  let baseStrength = 30; // デフォルト
+// フォールバック関数（APIエラー時）
+function generateCardFallback(word) {
+  const lower = word.toLowerCase();
+  let strength = 30;
   let tier = 'common';
-
-  // 神話級チェック
-  for (const [key, score] of Object.entries(mythicalTier)) {
-    if (lower.includes(key)) {
-      baseStrength = score;
-      tier = 'mythical';
-      break;
-    }
+  
+  if (/dragon|神|excalibur|phoenix/i.test(lower)) {
+    strength = 90;
+    tier = 'mythical';
+  } else if (/katana|sword|wizard|thunder|fire/i.test(lower)) {
+    strength = 65;
+    tier = 'weapon';
   }
-
-  // 武器級チェック
-  if (tier === 'common') {
-    for (const [key, score] of Object.entries(weaponTier)) {
-      if (lower.includes(key)) {
-        baseStrength = score;
-        tier = 'weapon';
-        break;
-      }
-    }
-  }
-
-  // 日用品級チェック
-  if (tier === 'common') {
-    for (const [key, score] of Object.entries(commonTier)) {
-      if (lower.includes(key)) {
-        baseStrength = score;
-        break;
-      }
-    }
-  }
-
-  // 複合語・修飾語による微調整
-  if (/ancient|legendary|sacred|holy|divine/i.test(word)) baseStrength = Math.min(100, baseStrength + 8);
-  if (/cursed|dark|evil|forbidden/i.test(word)) baseStrength = Math.min(100, baseStrength + 6);
-  if (/mega|ultra|super|hyper|giga/i.test(word)) baseStrength = Math.min(100, baseStrength + 12);
-  if (/mini|tiny|small|weak/i.test(word)) baseStrength = Math.max(5, baseStrength - 18);
-  if (/broken|rusty|old|damaged/i.test(word) && tier !== 'mythical') baseStrength = Math.max(5, baseStrength - 15);
-
-  // 多角的属性判定（光・闇を追加）
-  const attributes = [
-    { key: 'light', match: /(光|聖|holy|sacred|divine|angel|天使)/i },
-    { key: 'dark', match: /(闇|暗|dark|shadow|curse|evil|demon|悪魔)/i },
-    { key: 'fire', match: /(火|炎|burn|fire|flame|lava|magma|blaze|volcano)/i },
-    { key: 'water', match: /(水|氷|ice|aqua|water|freeze|tsunami|ocean|sea)/i },
-    { key: 'thunder', match: /(雷|電|thunder|shock|volt|lightning|storm)/i },
-    { key: 'earth', match: /(土|岩|stone|earth|rock|mountain|quake|ground)/i },
-    { key: 'wind', match: /(風|air|wind|storm|tornado|gale|hurricane)/i },
-    { key: 'heal', match: /(癒|回復|heal|cure|restore|medicine|potion|remedy)/i }
-  ];
-
-  let attribute = 'neutral';
-  for (const attr of attributes) {
-    if (attr.match.test(word)) {
-      attribute = attr.key;
-      break;
-    }
-  }
-
-  // 効果判定（多角的分析 + サポート強化）
-  let effect = 'attack';
-  let supportType = null;
-
-  if (/heal|癒|回復|cure|medicine|remedy|restore|regenerate|治療|薬/i.test(word)) {
-    effect = 'heal';
-  } else if (/defend|guard|盾|shield|protect|barrier|wall|armor|防|守/i.test(word)) {
-    effect = 'defense';
-  } else if (/support|補助|boost|enhance|aid|buff|strengthen|応援|祝福|blessing|prayer/i.test(word)) {
-    effect = 'support';
-    // サポートの種類を判定
-    if (/heal|回復|cure|medicine/i.test(word)) {
-      supportType = 'heal_boost';
-    } else if (/power|強化|boost|enhance|strengthen/i.test(word)) {
-      supportType = 'attack_boost';
-    } else if (/protect|shield|guard|防/i.test(word)) {
-      supportType = 'defense_boost';
-    } else if (/weaken|弱体|curse|呪/i.test(word)) {
-      supportType = 'enemy_debuff';
-    } else {
-      supportType = 'general_boost';
-    }
-  } else if (/attack|slash|strike|punch|kick|斬|撃|打/i.test(word)) {
-    effect = 'attack';
-  }
-
-  // 弱気検出時の数値強制低下
-  if (weaknessDetected) {
-    baseStrength = Math.min(15, Math.max(5, baseStrength * 0.15));
-    tier = 'common';
-  }
-
-  // 攻撃力・防御力の精密計算
-  let attack, defense;
-
-  if (effect === 'heal') {
-    attack = 0;
-    defense = Math.round(baseStrength * 0.7);
-  } else if (effect === 'defense') {
-    attack = Math.round(baseStrength * 0.45);
-    defense = Math.round(baseStrength * 1.3);
-  } else if (effect === 'support') {
-    attack = Math.round(baseStrength * 0.6);
-    defense = Math.round(baseStrength * 0.7);
-  } else {
-    // 攻撃効果（tier別で調整）
-    if (tier === 'mythical') {
-      attack = Math.round(baseStrength * 1.0);
-      defense = Math.round(baseStrength * 0.35);
-    } else if (tier === 'weapon') {
-      attack = Math.round(baseStrength * 0.95);
-      defense = Math.round(baseStrength * 0.4);
-    } else {
-      attack = Math.round(baseStrength * 0.9);
-      defense = Math.round(baseStrength * 0.45);
-    }
-  }
-
-  attack = Math.min(100, Math.max(0, attack));
-  defense = Math.min(100, Math.max(0, defense));
-
+  
+  if (/ため息|whisper|gentle/i.test(lower)) strength = Math.min(15, strength * 0.3);
+  
   return {
     word,
-    attribute,
-    attack,
-    defense,
-    effect,
+    attribute: /fire|炎/.test(lower) ? 'fire' : 'neutral',
+    attack: strength,
+    defense: Math.round(strength * 0.7),
+    effect: 'attack',
     tier,
-    supportType,
-    weaknessDetected,
-    description: `${attribute.toUpperCase()} [${tier}] / ATK:${attack} DEF:${defense} / ${effect}${supportType ? ' (' + supportType + ')' : ''}`
+    supportType: null,
+    description: `[${tier.toUpperCase()}] ATK:${strength} DEF:${Math.round(strength * 0.7)}`
   };
 }
 
@@ -311,7 +270,7 @@ function findPlayer(room, socketId) {
 
 function handlePlayWord(roomId, socket, word) {
   const room = rooms.get(roomId);
-  if (!room || !room.started || room.phase !== 'attack') return;
+  if (!room || !room.started) return;
   if (room.players[room.turnIndex].id !== socket.id) {
     socket.emit('errorMessage', { message: 'あなたのターンではありません' });
     return;
@@ -333,23 +292,28 @@ function handlePlayWord(roomId, socket, word) {
   const defender = getOpponent(room, socket.id);
   if (!attacker || !defender) return;
 
-  const card = generateCard(cleanWord);
-  room.usedWordsGlobal.add(lower);
-  attacker.usedWords.add(lower);
-  room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
-  room.phase = 'defense';
+  // 非同期でカード生成
+  generateCard(cleanWord).then(card => {
+    room.usedWordsGlobal.add(lower);
+    attacker.usedWords.add(lower);
+    room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
+    room.phase = 'defense';
 
-  io.to(roomId).emit('attackDeclared', {
-    attackerId: attacker.id,
-    defenderId: defender.id,
-    card
+    io.to(roomId).emit('attackDeclared', {
+      attackerId: attacker.id,
+      defenderId: defender.id,
+      card
+    });
+    updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
+  }).catch(error => {
+    console.error('カード生成エラー:', error);
+    socket.emit('errorMessage', { message: 'エラーが発生しました' });
   });
-  updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
 }
 
 function handleDefend(roomId, socket, word) {
   const room = rooms.get(roomId);
-  if (!room || !room.started || room.phase !== 'defense' || !room.pendingAttack) return;
+  if (!room || !room.started || !room.pendingAttack) return;
   if (room.pendingAttack.defenderId !== socket.id) {
     socket.emit('errorMessage', { message: 'あなたの防御フェーズではありません' });
     return;
@@ -372,76 +336,80 @@ function handleDefend(roomId, socket, word) {
   if (!attacker || !defender) return;
 
   const attackCard = room.pendingAttack.card;
-  const defenseCard = generateCard(cleanWord);
-  room.usedWordsGlobal.add(lower);
-  defender.usedWords.add(lower);
+  
+  // 非同期で防御カードを生成
+  generateCard(cleanWord).then(defenseCard => {
+    room.usedWordsGlobal.add(lower);
+    defender.usedWords.add(lower);
 
-  // 防御失敗ロジック：防御フェーズで攻撃カードを出した場合
-  let defenseFailed = false;
-  if (defenseCard.effect === 'attack') {
-    defenseFailed = true;
-  }
-
-  // 攻撃ブースト適用
-  let finalAttack = attackCard.attack;
-  if (attacker.attackBoost > 0) {
-    finalAttack = Math.round(finalAttack * (1 + attacker.attackBoost / 100));
-    attacker.attackBoost = 0; // 1回使用後リセット
-  }
-
-  let damage = 0;
-  if (defenseFailed) {
-    // 防御失敗：フルダメージ
-    damage = finalAttack;
-  } else {
-    // 通常ダメージ計算
-    let finalDefense = defenseCard.defense;
-    if (defender.defenseBoost > 0) {
-      finalDefense = Math.round(finalDefense * (1 + defender.defenseBoost / 100));
-      defender.defenseBoost = 0;
+    // 防御失敗ロジック：防御フェーズで攻撃カードを出した場合
+    let defenseFailed = false;
+    if (defenseCard.effect === 'attack') {
+      defenseFailed = true;
     }
-    damage = Math.max(0, finalAttack - finalDefense);
-  }
 
-  if (attackCard.effect === 'heal') {
-    attacker.hp = Math.min(STARTING_HP, attacker.hp + Math.round(attackCard.attack * 0.6));
-    damage = 0;
-  }
-  if (defenseCard.effect === 'heal' && !defenseFailed) {
-    defender.hp = Math.min(STARTING_HP, defender.hp + Math.round(defenseCard.defense * 0.5));
-  }
+    // 攻撃ブースト適用
+    let finalAttack = attackCard.attack;
+    if (attacker.attackBoost > 0) {
+      finalAttack = Math.round(finalAttack * (1 + attacker.attackBoost / 100));
+      attacker.attackBoost = 0;
+    }
 
-  defender.hp = Math.max(0, defender.hp - damage);
+    let damage = 0;
+    if (defenseFailed) {
+      damage = finalAttack;
+    } else {
+      // 通常ダメージ計算
+      let finalDefense = defenseCard.defense;
+      if (defender.defenseBoost > 0) {
+        finalDefense = Math.round(finalDefense * (1 + defender.defenseBoost / 100));
+        defender.defenseBoost = 0;
+      }
+      damage = Math.max(0, finalAttack - finalDefense);
+    }
 
-  let winnerId = null;
-  if (defender.hp <= 0) {
-    winnerId = attacker.id;
-  }
+    if (attackCard.effect === 'heal') {
+      attacker.hp = Math.min(STARTING_HP, attacker.hp + Math.round(attackCard.attack * 0.6));
+      damage = 0;
+    }
+    if (defenseCard.effect === 'heal' && !defenseFailed) {
+      defender.hp = Math.min(STARTING_HP, defender.hp + Math.round(defenseCard.defense * 0.5));
+    }
 
-  room.pendingAttack = null;
-  room.phase = 'attack';
-  room.turnIndex = room.players.findIndex(p => p.id === defender.id);
+    defender.hp = Math.max(0, defender.hp - damage);
 
-  const hp = {};
-  room.players.forEach(p => { hp[p.id] = p.hp; });
+    let winnerId = null;
+    if (defender.hp <= 0) {
+      winnerId = attacker.id;
+    }
 
-  io.to(roomId).emit('turnResolved', {
-    attackerId: attacker.id,
-    defenderId: defender.id,
-    attackCard,
-    defenseCard,
-    damage,
-    hp,
-    defenseFailed,
-    nextTurn: winnerId ? null : room.players[room.turnIndex].id,
-    winnerId
+    room.pendingAttack = null;
+    room.turnIndex = (room.turnIndex + 1) % room.players.length;
+
+    const hp = {};
+    room.players.forEach(p => { hp[p.id] = p.hp; });
+
+    io.to(roomId).emit('turnResolved', {
+      attackerId: attacker.id,
+      defenderId: defender.id,
+      attackCard,
+      defenseCard,
+      damage,
+      hp,
+      defenseFailed,
+      nextTurn: winnerId ? null : room.players[room.turnIndex].id,
+      winnerId
+    });
+
+    if (winnerId) {
+      updateStatus(roomId, `${attacker.name} の勝利！`);
+    } else {
+      updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
+    }
+  }).catch(error => {
+    console.error('防御カード生成エラー:', error);
+    socket.emit('errorMessage', { message: 'エラーが発生しました' });
   });
-
-  if (winnerId) {
-    updateStatus(roomId, `${attacker.name} の勝利！`);
-  } else {
-    updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
-  }
 }
 
 function removeFromQueues(socketId) {
@@ -557,17 +525,17 @@ io.on('connection', (socket) => {
     startBattle(roomId);
   });
 
-  socket.on('playWord', ({ word }) => {
+  socket.on('playWord', async ({ word }) => {
     const roomId = socket.data.roomId;
-    handlePlayWord(roomId, socket, word);
+    await handlePlayWord(roomId, socket, word);
   });
 
-  socket.on('defendWord', ({ word }) => {
+  socket.on('defendWord', async ({ word }) => {
     const roomId = socket.data.roomId;
-    handleDefend(roomId, socket, word);
+    await handleDefend(roomId, socket, word);
   });
 
-  socket.on('supportAction', ({ word }) => {
+  socket.on('supportAction', async ({ word }) => {
     const roomId = socket.data.roomId;
     const room = rooms.get(roomId);
     if (!room || !room.started) return;
@@ -596,38 +564,42 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const card = generateCard(cleanWord);
-    room.usedWordsGlobal.add(lower);
-    player.usedWords.add(lower);
-    player.supportUsed++;
+    try {
+      const card = await generateCard(cleanWord);
+      room.usedWordsGlobal.add(lower);
+      player.usedWords.add(lower);
+      player.supportUsed++;
 
-    // サポート効果適用
-    if (card.supportType === 'heal_boost') {
-      player.hp = Math.min(STARTING_HP, player.hp + 30);
-    } else if (card.supportType === 'attack_boost') {
-      player.attackBoost = 50; // 次ターン攻撃力50%アップ
-    } else if (card.supportType === 'defense_boost') {
-      player.defenseBoost = 40;
-    } else if (card.supportType === 'enemy_debuff') {
-      const opponent = getOpponent(room, socket.id);
-      if (opponent) opponent.hp = Math.max(0, opponent.hp - 15);
-    } else {
-      player.hp = Math.min(STARTING_HP, player.hp + 20);
+      // サポート効果適用
+      if (card.supportType === 'heal_boost') {
+        player.hp = Math.min(STARTING_HP, player.hp + 30);
+      } else if (card.supportType === 'attack_boost') {
+        player.attackBoost = 50;
+      } else if (card.supportType === 'defense_boost') {
+        player.defenseBoost = 40;
+      } else if (card.supportType === 'enemy_debuff') {
+        const opponent = getOpponent(room, socket.id);
+        if (opponent) opponent.hp = Math.max(0, opponent.hp - 15);
+      } else {
+        player.hp = Math.min(STARTING_HP, player.hp + 20);
+      }
+
+      const hp = {};
+      room.players.forEach(p => { hp[p.id] = p.hp; });
+
+      io.to(roomId).emit('supportUsed', {
+        playerId: player.id,
+        card,
+        hp,
+        supportRemaining: 3 - player.supportUsed
+      });
+
+      room.turnIndex = (room.turnIndex + 1) % room.players.length;
+      updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
+    } catch (error) {
+      console.error('サポートカード生成エラー:', error);
+      socket.emit('errorMessage', { message: 'エラーが発生しました' });
     }
-
-    const hp = {};
-    room.players.forEach(p => { hp[p.id] = p.hp; });
-
-    io.to(roomId).emit('supportUsed', {
-      playerId: player.id,
-      card,
-      hp,
-      supportRemaining: 3 - player.supportUsed
-    });
-
-    // ターン交代
-    room.turnIndex = (room.turnIndex + 1) % room.players.length;
-    updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
   });
 
   socket.on('disconnect', () => {
