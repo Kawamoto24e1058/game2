@@ -323,12 +323,26 @@ function initSocket() {
   socket.on('status', ({ message }) => setStatus(message));
 
   socket.on('matchCancelled', ({ message }) => {
+    console.log('🚫 マッチングがキャンセルされました');
+    
+    // 状態を完全にリセット
     roomId = null;
     currentTurn = null;
     isHost = false;
+    playerId = null;
+    myHp = 0;
+    opponentHp = 0;
     supportRemaining = 3;
+    
+    // ホーム画面に戻る
     showSection('homeSection');
     setStatus(message || 'マッチングをキャンセルしました');
+    
+    // 入力欄をクリア
+    const attackInput = document.getElementById('attackWordInput');
+    const defenseInput = document.getElementById('defenseModalInput');
+    if (attackInput) attackInput.value = '';
+    if (defenseInput) defenseInput.value = '';
   });
 }
 
@@ -407,10 +421,18 @@ function submitSupport() {
 }
 
 function cancelMatching() {
-  if (socket) {
+  console.log('🚫 キャンセルボタンが押されました');
+  
+  if (socket && socket.connected) {
     socket.emit('cancelMatching');
+    console.log('  → サーバーにcancelMatchingを送信');
+  } else {
+    console.warn('  ⚠️ socketが接続されていません');
   }
+  
+  // UIを即座にホームに戻す
   showSection('homeSection');
+  setStatus('マッチングをキャンセルしています...');
 }
 
 function bindUI() {
