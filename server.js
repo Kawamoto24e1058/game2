@@ -297,8 +297,8 @@ wss.on('close', () => {
   clearInterval(interval);
 });
 
-// Start server
-server.listen(PORT, () => {
+// Start server (bind 0.0.0.0 for Render/public clouds)
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Open http://localhost:${PORT} in your browser`);
 });
