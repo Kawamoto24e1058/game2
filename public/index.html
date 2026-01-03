@@ -1,70 +1,89 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>オンラインバトルカードゲーム</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>オンラインバトルカードゲーム</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>🎮 オンラインバトルカードゲーム</h1>
-        
-        <!-- Word Input Section -->
-        <div id="inputSection" class="section">
-            <h2>言葉を入力して技を生成</h2>
-            <p class="description">言葉を入力してください。AIがその言葉から強力な技を生成します！</p>
-            
-            <div class="input-group">
-                <input type="text" id="wordInput" placeholder="例: 炎、雷、癒し、ドラゴン..." maxlength="20">
-                <button onclick="generateTechnique()" class="btn btn-primary">技を生成</button>
-            </div>
-            
-            <div id="techniquesList" class="techniques-list"></div>
-            
-            <button id="battleBtn" onclick="findMatch()" class="btn btn-battle" disabled>
-                オンラインバトル開始 (3つの技が必要)
-            </button>
+  <div class="container">
+    <h1>🎮 オンラインバトルカードゲーム</h1>
+
+    <div id="homeSection" class="section">
+      <h2>ホーム</h2>
+      <p class="description">プレイヤー名を入力し、マッチ方式を選んでください。</p>
+      <div class="input-group" style="flex-direction: column; gap: 12px; align-items: stretch;">
+        <input type="text" id="playerNameInput" placeholder="プレイヤー名" maxlength="20">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <label><input type="radio" name="matchType" value="random" checked> 誰とでもマッチ</label>
+          <label><input type="radio" name="matchType" value="password"> パスワードでマッチ</label>
         </div>
-        
-        <!-- Battle Section -->
-        <div id="battleSection" class="section hidden">
-            <h2>バトル中</h2>
-            
-            <div class="battle-status">
-                <div id="statusMessage" class="status-message"></div>
-            </div>
-            
-            <div class="battle-arena">
-                <div class="player-area">
-                    <h3>あなた</h3>
-                    <div class="health-bar">
-                        <div id="playerHealth" class="health-fill" style="width: 100%">
-                            <span id="playerHealthText">100</span>
-                        </div>
-                    </div>
-                    <div id="playerTechniques" class="battle-techniques"></div>
-                </div>
-                
-                <div class="vs-divider">VS</div>
-                
-                <div class="player-area">
-                    <h3>相手</h3>
-                    <div class="health-bar">
-                        <div id="opponentHealth" class="health-fill" style="width: 100%">
-                            <span id="opponentHealthText">100</span>
-                        </div>
-                    </div>
-                    <div id="opponentTechniques" class="battle-techniques opponent"></div>
-                </div>
-            </div>
-            
-            <div id="battleLog" class="battle-log"></div>
-            
-            <button onclick="returnToMenu()" class="btn btn-secondary">メニューに戻る</button>
+        <input type="text" id="passwordInput" placeholder="パスワード (任意)" maxlength="20" style="display:none;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button id="randomMatchBtn" class="btn btn-primary">誰とでもマッチ</button>
+          <button id="passwordMatchBtn" class="btn btn-primary">パスワードでマッチ</button>
         </div>
+      </div>
     </div>
-    
-    <script src="game.js"></script>
+
+    <div id="waitingSection" class="section hidden">
+      <h2>ウェイティングルーム</h2>
+      <p id="waitingInfo" class="description"></p>
+      <div id="playerList" class="battle-log"></div>
+      <button id="startBattleBtn" class="btn btn-battle" disabled>バトル開始</button>
+      <button id="backHomeBtn" class="btn btn-secondary">ホームに戻る</button>
+    </div>
+
+    <div id="battleSection" class="section hidden">
+      <h2>バトル</h2>
+      <div class="battle-status">
+        <div id="statusMessage" class="status-message"></div>
+      </div>
+      <div class="battle-arena">
+        <div class="player-area">
+          <h3>あなた</h3>
+          <div class="health-bar">
+            <div id="myHealthFill" class="health-fill"><span id="myHealthText">100</span></div>
+          </div>
+        </div>
+        <div class="vs-divider">VS</div>
+        <div class="player-area">
+          <h3>相手</h3>
+          <div class="health-bar">
+            <div id="opHealthFill" class="health-fill"><span id="opHealthText">100</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section" style="margin-top: 10px;">
+        <h3>攻撃フェーズ</h3>
+        <div class="input-group">
+          <input type="text" id="attackWordInput" placeholder="攻撃の言葉" maxlength="20">
+          <button id="attackBtn" class="btn btn-primary">攻撃する</button>
+        </div>
+        <small>同じ言葉の再利用は禁止です。</small>
+      </div>
+
+      <div class="section" style="margin-top: 10px;">
+        <h3>防御フェーズ</h3>
+        <div class="input-group">
+          <input type="text" id="defenseWordInput" placeholder="防御の言葉" maxlength="20">
+          <button id="defenseBtn" class="btn btn-secondary">防御する</button>
+        </div>
+      </div>
+
+      <div id="battleLog" class="battle-log"></div>
+    </div>
+
+    <div id="resultSection" class="section hidden">
+      <h2>リザルト</h2>
+      <p id="resultMessage" class="description"></p>
+      <button id="returnHomeBtn" class="btn btn-primary">ホームに戻る</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" integrity="sha384-7L6vUytzszbmWzxubUoil58x2oylZMhUlCT3VkOITkkpFmS6r30YIOCwRv7OZPAo" crossorigin="anonymous"></script>
+  <script src="game.js"></script>
 </body>
 </html>

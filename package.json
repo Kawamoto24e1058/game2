@@ -7,11 +7,17 @@
     "start": "node server.js",
     "dev": "node server.js"
   },
-  "keywords": ["game", "card", "battle", "online", "ai"],
+  "keywords": [
+    "game",
+    "card",
+    "battle",
+    "online",
+    "ai"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "ws": "^8.14.2"
+    "socket.io": "^4.8.3"
   }
 }

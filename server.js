@@ -1,304 +1,387 @@
 const express = require('express');
 const http = require('http');
-const WebSocket = require('ws');
 const path = require('path');
 const crypto = require('crypto');
+const { Server } = require('socket.io');
 
 const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+  }
+});
 
 const PORT = process.env.PORT || 3000;
+const STARTING_HP = 120;
 
-// Middleware
-app.use(express.json());
-app.use(express.static('public'));
+const randomQueue = [];
+const passwordRooms = new Map(); // password -> roomId
+const rooms = new Map(); // roomId -> room state
 
-// Game state
-const waitingPlayers = [];
-const activeBattles = new Map();
+function generateCard(word) {
+  const lower = word.toLowerCase();
+  const len = word.length;
+  const vowels = (word.match(/[aeiouAEIOUぁ-んー]/g) || []).length;
+  const consonants = Math.max(1, len - vowels);
 
-// AI-based technique generator
-function generateTechnique(word) {
-  const wordLower = word.toLowerCase();
-  const wordLength = word.length;
-  
-  // Calculate base stats based on word characteristics
-  const basepower = Math.min(100, wordLength * 10 + Math.floor(Math.random() * 20));
-  const vowelCount = (word.match(/[aeiouAEIOU]/g) || []).length;
-  const consonantCount = wordLength - vowelCount;
-  
-  // Determine technique type based on word characteristics
-  let type = 'normal';
-  let special = '';
-  
-  if (wordLower.includes('fire') || wordLower.includes('burn') || wordLower.includes('flame')) {
-    type = 'fire';
-    special = 'burn';
-  } else if (wordLower.includes('water') || wordLower.includes('ice') || wordLower.includes('freeze')) {
-    type = 'water';
-    special = 'freeze';
-  } else if (wordLower.includes('thunder') || wordLower.includes('electric') || wordLower.includes('shock')) {
-    type = 'electric';
-    special = 'paralyze';
-  } else if (wordLower.includes('heal') || wordLower.includes('cure') || wordLower.includes('restore')) {
-    type = 'heal';
-    special = 'heal';
-  } else if (consonantCount > vowelCount * 2) {
-    type = 'physical';
-    special = 'critical';
-  } else if (vowelCount > consonantCount) {
-    type = 'magic';
-    special = 'penetrate';
-  }
-  
-  // Generate technique name with creative AI-like transformation
-  const techName = word.charAt(0).toUpperCase() + word.slice(1) + ' Strike';
-  
-  return {
-    name: techName,
-    originalWord: word,
-    power: basepower,
-    type: type,
-    special: special,
-    description: `A ${type} technique generated from the word "${word}"`
-  };
-}
+  const attributes = [
+    { key: 'fire', match: /(火|炎|burn|fire|flame)/i },
+    { key: 'water', match: /(水|氷|ice|aqua|water|freeze)/i },
+    { key: 'thunder', match: /(雷|電|thunder|shock|volt)/i },
+    { key: 'earth', match: /(土|岩|stone|earth)/i },
+    { key: 'wind', match: /(風|air|wind|storm)/i },
+    { key: 'heal', match: /(癒|回復|heal|cure|restore)/i }
+  ];
 
-// API endpoint for technique generation
-app.post('/api/generate-technique', (req, res) => {
-  const { word } = req.body;
-  
-  if (!word || word.trim().length === 0) {
-    return res.status(400).json({ error: 'Word is required' });
-  }
-  
-  const technique = generateTechnique(word.trim());
-  res.json({ technique });
-});
-
-// WebSocket connection handling
-wss.on('connection', (ws) => {
-  console.log('New client connected');
-  
-  ws.playerId = crypto.randomUUID();
-  ws.isAlive = true;
-  
-  ws.on('pong', () => {
-    ws.isAlive = true;
-  });
-  
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      handleMessage(ws, data);
-    } catch (error) {
-      console.error('Error parsing message:', error);
+  let attribute = 'neutral';
+  for (const attr of attributes) {
+    if (attr.match.test(word)) {
+      attribute = attr.key;
+      break;
     }
+  }
+
+  let effect = 'attack';
+  if (/heal|癒|回復/i.test(word)) effect = 'heal';
+  else if (/守|盾|defend|guard/i.test(word)) effect = 'defense';
+  else if (/支援|補助|support|boost/i.test(word)) effect = 'support';
+
+  const attack = Math.min(70, 20 + len * 3 + Math.floor(Math.random() * 12) + (consonants > vowels ? 5 : 0));
+  const defense = Math.min(60, 15 + vowels * 2 + Math.floor(Math.random() * 10) + (effect === 'defense' ? 10 : 0));
+
+  return {
+    word,
+    attribute,
+    attack,
+    defense,
+    effect,
+    description: `${attribute} / ATK:${attack} DEF:${defense} / ${effect}`
+  };
+}
+
+function createRoom(players, mode, password) {
+  const roomId = crypto.randomUUID();
+  const room = {
+    id: roomId,
+    mode,
+    password: password || null,
+    players: players.map((p, idx) => ({
+      id: p.socket.id,
+      name: p.name,
+      socketId: p.socket.id,
+      hp: STARTING_HP,
+      usedWords: new Set(),
+      isHost: idx === 0
+    })),
+    hostId: players[0].socket.id,
+    started: false,
+    turnIndex: 0,
+    phase: 'waiting',
+    pendingAttack: null,
+    usedWordsGlobal: new Set()
+  };
+
+  rooms.set(roomId, room);
+  players.forEach(({ socket }) => {
+    socket.join(roomId);
+    socket.data.roomId = roomId;
+    socket.emit('joinedRoom', {
+      roomId,
+      players: room.players.map(pl => ({ id: pl.id, name: pl.name })),
+      isHost: socket.id === room.hostId,
+      playerId: socket.id
+    });
   });
-  
-  ws.on('close', () => {
-    console.log('Client disconnected');
-    handleDisconnect(ws);
+
+  broadcastWaiting(roomId);
+  return room;
+}
+
+function broadcastWaiting(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  io.to(roomId).emit('waitingUpdate', {
+    players: room.players.map(p => ({ id: p.id, name: p.name })),
+    canStart: room.players.length >= 2,
+    hostId: room.hostId
   });
-  
-  // Send player ID
-  ws.send(JSON.stringify({
-    type: 'connected',
-    playerId: ws.playerId
-  }));
-});
-
-function handleMessage(ws, data) {
-  switch (data.type) {
-    case 'findMatch':
-      findMatch(ws, data.techniques);
-      break;
-    case 'useTechnique':
-      useTechnique(ws, data.techniqueIndex);
-      break;
-    case 'cancelSearch':
-      cancelSearch(ws);
-      break;
-  }
 }
 
-function findMatch(ws, techniques) {
-  ws.techniques = techniques;
-  ws.health = 100;
-  
-  if (waitingPlayers.length > 0) {
-    // Match found
-    const opponent = waitingPlayers.shift();
-    startBattle(ws, opponent);
-  } else {
-    // Add to waiting queue
-    waitingPlayers.push(ws);
-    ws.send(JSON.stringify({
-      type: 'searching',
-      message: 'Searching for opponent...'
-    }));
-  }
+function startBattle(roomId) {
+  const room = rooms.get(roomId);
+  if (!room || room.started || room.players.length < 2) return;
+  room.started = true;
+  room.phase = 'attack';
+  room.turnIndex = Math.floor(Math.random() * room.players.length);
+  room.players.forEach(p => { p.hp = STARTING_HP; });
+
+  io.to(roomId).emit('battleStarted', {
+    roomId,
+    players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp })),
+    turn: room.players[room.turnIndex].id
+  });
+  updateStatus(roomId, `バトル開始！先攻: ${room.players[room.turnIndex].name}`);
 }
 
-function startBattle(player1, player2) {
-  const battleId = crypto.randomUUID();
-  
-  const battle = {
-    id: battleId,
-    players: [player1, player2],
-    currentTurn: 0,
-    turnCount: 0
-  };
-  
-  activeBattles.set(battleId, battle);
-  player1.battleId = battleId;
-  player2.battleId = battleId;
-  
-  // Notify both players
-  const player1Data = {
-    type: 'battleStart',
-    battleId: battleId,
-    playerIndex: 0,
-    opponentTechniques: player2.techniques.map(t => ({ name: t.name, type: t.type })),
-    message: 'Battle started! Your turn.'
-  };
-  
-  const player2Data = {
-    type: 'battleStart',
-    battleId: battleId,
-    playerIndex: 1,
-    opponentTechniques: player1.techniques.map(t => ({ name: t.name, type: t.type })),
-    message: 'Battle started! Waiting for opponent...'
-  };
-  
-  player1.send(JSON.stringify(player1Data));
-  player2.send(JSON.stringify(player2Data));
+function updateStatus(roomId, message) {
+  io.to(roomId).emit('status', { message });
 }
 
-function useTechnique(ws, techniqueIndex) {
-  const battleId = ws.battleId;
-  const battle = activeBattles.get(battleId);
-  
-  if (!battle) {
+function getOpponent(room, socketId) {
+  return room.players.find(p => p.id !== socketId);
+}
+
+function findPlayer(room, socketId) {
+  return room.players.find(p => p.id === socketId);
+}
+
+function handlePlayWord(roomId, socket, word) {
+  const room = rooms.get(roomId);
+  if (!room || !room.started || room.phase !== 'attack') return;
+  if (room.players[room.turnIndex].id !== socket.id) {
+    socket.emit('errorMessage', { message: 'あなたのターンではありません' });
     return;
   }
-  
-  const playerIndex = battle.players.indexOf(ws);
-  
-  if (battle.currentTurn !== playerIndex) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Not your turn!'
-    }));
+
+  const cleanWord = (word || '').trim();
+  if (!cleanWord) {
+    socket.emit('errorMessage', { message: '言葉を入力してください' });
     return;
   }
-  
-  const attacker = battle.players[playerIndex];
-  const defender = battle.players[1 - playerIndex];
-  const technique = attacker.techniques[techniqueIndex];
-  
-  if (!technique) {
+
+  const lower = cleanWord.toLowerCase();
+  if (room.usedWordsGlobal.has(lower)) {
+    socket.emit('errorMessage', { message: 'その言葉は既に使用されています' });
     return;
   }
-  
-  // Calculate damage
-  let damage = technique.power;
-  
-  // Apply special effects
-  if (technique.special === 'critical' && Math.random() > 0.7) {
-    damage *= 1.5;
+
+  const attacker = findPlayer(room, socket.id);
+  const defender = getOpponent(room, socket.id);
+  if (!attacker || !defender) return;
+
+  const card = generateCard(cleanWord);
+  room.usedWordsGlobal.add(lower);
+  attacker.usedWords.add(lower);
+  room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
+  room.phase = 'defense';
+
+  io.to(roomId).emit('attackDeclared', {
+    attackerId: attacker.id,
+    defenderId: defender.id,
+    card
+  });
+  updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
+}
+
+function handleDefend(roomId, socket, word) {
+  const room = rooms.get(roomId);
+  if (!room || !room.started || room.phase !== 'defense' || !room.pendingAttack) return;
+  if (room.pendingAttack.defenderId !== socket.id) {
+    socket.emit('errorMessage', { message: 'あなたの防御フェーズではありません' });
+    return;
   }
-  
-  if (technique.special === 'heal') {
-    attacker.health = Math.min(100, attacker.health + damage / 2);
+
+  const cleanWord = (word || '').trim();
+  if (!cleanWord) {
+    socket.emit('errorMessage', { message: '防御の言葉を入力してください' });
+    return;
+  }
+
+  const lower = cleanWord.toLowerCase();
+  if (room.usedWordsGlobal.has(lower)) {
+    socket.emit('errorMessage', { message: 'その言葉は既に使用されています' });
+    return;
+  }
+
+  const attacker = findPlayer(room, room.pendingAttack.attackerId);
+  const defender = findPlayer(room, socket.id);
+  if (!attacker || !defender) return;
+
+  const attackCard = room.pendingAttack.card;
+  const defenseCard = generateCard(cleanWord);
+  room.usedWordsGlobal.add(lower);
+  defender.usedWords.add(lower);
+
+  let damage = Math.max(0, attackCard.attack - defenseCard.defense);
+
+  if (attackCard.effect === 'heal') {
+    attacker.hp = Math.min(STARTING_HP, attacker.hp + Math.round(attackCard.attack * 0.6));
     damage = 0;
   }
-  
-  defender.health = Math.max(0, defender.health - damage);
-  
-  battle.turnCount++;
-  
-  // Check for winner
-  let winner = null;
-  if (defender.health <= 0) {
-    winner = playerIndex;
+  if (attackCard.effect === 'support') {
+    damage += 5;
   }
-  
-  // Send battle update
-  const battleUpdate = {
-    type: 'battleUpdate',
-    attacker: playerIndex,
-    technique: technique.name,
-    damage: damage,
-    player1Health: battle.players[0].health,
-    player2Health: battle.players[1].health,
-    special: technique.special,
-    winner: winner,
-    turnCount: battle.turnCount
-  };
-  
-  battle.players.forEach(player => {
-    player.send(JSON.stringify(battleUpdate));
+  if (defenseCard.effect === 'heal') {
+    defender.hp = Math.min(STARTING_HP, defender.hp + Math.round(defenseCard.defense * 0.5));
+  }
+  if (defenseCard.effect === 'support') {
+    damage = Math.max(0, damage - 5);
+  }
+
+  defender.hp = Math.max(0, defender.hp - damage);
+
+  let winnerId = null;
+  if (defender.hp <= 0) {
+    winnerId = attacker.id;
+  }
+
+  room.pendingAttack = null;
+  room.phase = 'attack';
+  room.turnIndex = room.players.findIndex(p => p.id === defender.id);
+
+  const hp = {};
+  room.players.forEach(p => { hp[p.id] = p.hp; });
+
+  io.to(roomId).emit('turnResolved', {
+    attackerId: attacker.id,
+    defenderId: defender.id,
+    attackCard,
+    defenseCard,
+    damage,
+    hp,
+    nextTurn: winnerId ? null : room.players[room.turnIndex].id,
+    winnerId
   });
-  
-  if (winner !== null) {
-    // Battle ended
-    activeBattles.delete(battleId);
-    battle.players.forEach(player => {
-      delete player.battleId;
-    });
+
+  if (winnerId) {
+    updateStatus(roomId, `${attacker.name} の勝利！`);
   } else {
-    // Switch turn
-    battle.currentTurn = 1 - battle.currentTurn;
+    updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
   }
 }
 
-function cancelSearch(ws) {
-  const index = waitingPlayers.indexOf(ws);
-  if (index > -1) {
-    waitingPlayers.splice(index, 1);
-  }
-}
+function removeFromQueues(socketId) {
+  const idx = randomQueue.findIndex(p => p.socket.id === socketId);
+  if (idx >= 0) randomQueue.splice(idx, 1);
 
-function handleDisconnect(ws) {
-  cancelSearch(ws);
-  
-  if (ws.battleId) {
-    const battle = activeBattles.get(ws.battleId);
-    if (battle) {
-      const opponent = battle.players.find(p => p !== ws);
-      if (opponent) {
-        opponent.send(JSON.stringify({
-          type: 'opponentDisconnected',
-          message: 'Opponent disconnected. You win!'
-        }));
-        delete opponent.battleId;
+  for (const [pwd, roomId] of passwordRooms) {
+    const room = rooms.get(roomId);
+    if (room && room.players.some(p => p.id === socketId) && !room.started) {
+      room.players = room.players.filter(p => p.id !== socketId);
+      broadcastWaiting(roomId);
+      if (room.players.length === 0) {
+        rooms.delete(roomId);
+        passwordRooms.delete(pwd);
       }
-      activeBattles.delete(ws.battleId);
     }
   }
 }
 
-// Heartbeat to detect broken connections
-const interval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) {
-      handleDisconnect(ws);
-      return ws.terminate();
-    }
-    
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
+function handleDisconnect(socket) {
+  removeFromQueues(socket.id);
+  const roomId = socket.data.roomId;
+  if (!roomId) return;
+  const room = rooms.get(roomId);
+  if (!room) return;
 
-wss.on('close', () => {
-  clearInterval(interval);
+  room.players = room.players.filter(p => p.id !== socket.id);
+
+  if (!room.started) {
+    broadcastWaiting(roomId);
+    if (room.players.length === 0) {
+      rooms.delete(roomId);
+      if (room.password) passwordRooms.delete(room.password);
+    }
+    return;
+  }
+
+  const remaining = room.players[0];
+  if (remaining) {
+    io.to(roomId).emit('opponentLeft', { winnerId: remaining.id, message: `${remaining.name} の勝利 (相手離脱)` });
+  }
+  rooms.delete(roomId);
+  if (room.password) passwordRooms.delete(room.password);
+}
+
+io.on('connection', (socket) => {
+  socket.on('joinGame', ({ name, mode, password }) => {
+    const playerName = (name || '').trim();
+    if (!playerName) {
+      socket.emit('errorMessage', { message: 'プレイヤー名を入力してください' });
+      return;
+    }
+
+    const playerEntry = { socket, name: playerName };
+
+    if (mode === 'password' && password) {
+      let roomId = passwordRooms.get(password);
+      let room = roomId ? rooms.get(roomId) : null;
+      if (!room) {
+        room = createRoom([playerEntry], 'password', password);
+        passwordRooms.set(password, room.id);
+      } else if (room.started) {
+        socket.emit('errorMessage', { message: 'このルームでは既にバトルが開始されています' });
+        return;
+      } else {
+        room.players.push({
+          id: socket.id,
+          name: playerName,
+          socketId: socket.id,
+          hp: STARTING_HP,
+          usedWords: new Set(),
+          isHost: false
+        });
+        socket.join(room.id);
+        socket.data.roomId = room.id;
+        socket.emit('joinedRoom', {
+          roomId: room.id,
+          players: room.players.map(p => ({ id: p.id, name: p.name })),
+          isHost: false,
+          playerId: socket.id
+        });
+        broadcastWaiting(room.id);
+      }
+      return;
+    }
+
+    if (mode === 'random') {
+      if (randomQueue.length > 0) {
+        const opponent = randomQueue.shift();
+        createRoom([opponent, playerEntry], 'random', null);
+      } else {
+        randomQueue.push(playerEntry);
+        socket.emit('waitingUpdate', { players: [{ id: socket.id, name: playerName }], canStart: false });
+      }
+      return;
+    }
+
+    socket.emit('errorMessage', { message: 'マッチ方式を選択してください' });
+  });
+
+  socket.on('requestStart', () => {
+    const roomId = socket.data.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (socket.id !== room.hostId) {
+      socket.emit('errorMessage', { message: 'ホストのみ開始できます' });
+      return;
+    }
+    if (room.players.length < 2) {
+      socket.emit('errorMessage', { message: '2人以上で開始できます' });
+      return;
+    }
+    startBattle(roomId);
+  });
+
+  socket.on('playWord', ({ word }) => {
+    const roomId = socket.data.roomId;
+    handlePlayWord(roomId, socket, word);
+  });
+
+  socket.on('defendWord', ({ word }) => {
+    const roomId = socket.data.roomId;
+    handleDefend(roomId, socket, word);
+  });
+
+  socket.on('disconnect', () => {
+    handleDisconnect(socket);
+  });
 });
 
-// Start server (bind 0.0.0.0 for Render/public clouds)
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Open http://localhost:${PORT} in your browser`);
 });
