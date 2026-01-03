@@ -65,8 +65,21 @@ function showGuardAnimation() {
   setTimeout(() => guardText.remove(), 1500);
 }
 
-// カットイン演出表示
-function showCutin(card, duration = 2500) {
+function buildCutinFlavor({ affinity, defenseCard, defenseFailed }) {
+  const notes = [];
+  if (affinity?.relation === 'advantage') {
+    notes.push('効果はばつぐんだ！');
+  } else if (affinity?.relation === 'disadvantage') {
+    notes.push('いまひとつの相性だ...');
+  }
+  if (defenseCard?.hasReflect && !defenseFailed) {
+    notes.push('反射ダメージ発動！');
+  }
+  return notes.join(' / ');
+}
+
+// カットイン演出表示（任意で追加コメントを表示）
+function showCutin(card, duration = 2500, extraComment = '') {
   return new Promise((resolve) => {
     const cutinModal = document.getElementById('cutinModal');
     const cutinWord = document.getElementById('cutinWord');
@@ -79,7 +92,9 @@ function showCutin(card, duration = 2500) {
     cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}] ${card.effect.toUpperCase()}`;
     cutinSpecial.textContent = `特殊効果: ${card.specialEffect || 'なし'}`;
-    cutinComment.textContent = card.judgeComment || '審判: 良好';
+    const comments = [card.judgeComment || '審判: 良好'];
+    if (extraComment) comments.push(extraComment);
+    cutinComment.textContent = comments.join(' / ');
 
     cutinModal.classList.remove('hidden');
 
@@ -180,7 +195,8 @@ function renderWaiting(players, canStart, hostId) {
     list.appendChild(row);
   });
   const startBtn = document.getElementById('startBattleBtn');
-  startBtn.disabled = !(isHost && canStart);
+  // 全員が開始できるよう、人数条件のみで有効化
+  startBtn.disabled = !canStart;
 }
 
 function initSocket() {
@@ -250,13 +266,15 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, hp, nextTurn, winnerId, defenseFailed }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, hp, nextTurn, winnerId, defenseFailed, affinity }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
 
-    // 防御カードのカットイン
+    const cutinFlavor = buildCutinFlavor({ affinity, defenseCard, defenseFailed });
+
+    // 防御カードのカットイン（相性・反射の一言付き）
     if (defenseCard) {
-      await showCutin(defenseCard, 2000);
+      await showCutin(defenseCard, 2000, cutinFlavor);
     }
 
     // 防御失敗メッセージ
@@ -276,6 +294,12 @@ function initSocket() {
 
     updateHealthBars(meHp, opHp);
     appendLog(`攻撃: ${attackCard.word} (${attackCard.effect}) / 防御: ${defenseCard.word} (${defenseCard.effect})`, 'info');
+
+    if (affinity) {
+      const relation = affinity.relation || 'neutral';
+      appendLog(`属性相性: ${attackCard.attribute} vs ${defenseCard.attribute} → x${affinity.multiplier ?? 1} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
+    }
+
     appendLog(`ダメージ: ${damage}`, 'damage');
 
     if (winnerId) {
@@ -435,6 +459,34 @@ function cancelMatching() {
   setStatus('マッチングをキャンセルしています...');
 }
 
+function initAffinityPanel() {
+  const toggle = document.getElementById('affinityToggle');
+  const panel = document.getElementById('affinityPanel');
+  const closeBtn = document.getElementById('affinityClose');
+  if (!toggle || !panel) return;
+
+  const hide = () => panel.classList.add('hidden');
+  const togglePanel = () => panel.classList.toggle('hidden');
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePanel();
+  });
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hide();
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!panel.classList.contains('hidden') && !panel.contains(e.target) && !toggle.contains(e.target)) {
+      hide();
+    }
+  });
+}
+
 function bindUI() {
   document.getElementById('matchCardRandom').addEventListener('click', () => selectMatchMode('random'));
   document.getElementById('matchCardPassword').addEventListener('click', () => selectMatchMode('password'));
@@ -458,6 +510,7 @@ function bindUI() {
 
 document.addEventListener('DOMContentLoaded', () => {
   bindUI();
+  initAffinityPanel();
   initSocket();
   showSection('homeSection');
   toggleInputs(false);

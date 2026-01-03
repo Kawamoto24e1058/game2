@@ -77,6 +77,25 @@
           <div id="statusMessage" class="status-message"></div>
         </div>
         <div id="turnIndicator" class="turn-indicator">あなたのターン</div>
+        <div class="affinity-helper">
+          <button id="affinityToggle" class="affinity-btn">？ 属性相性</button>
+          <div id="affinityPanel" class="affinity-panel hidden">
+            <div class="affinity-header">
+              <span>属性相性チャート</span>
+              <button id="affinityClose" class="affinity-close">×</button>
+            </div>
+            <div class="affinity-grid">
+              <div class="affinity-row"><span class="affinity-attr fire">火</span><span>→ 土に強い</span><span>← 水に弱い</span></div>
+              <div class="affinity-row"><span class="affinity-attr earth">土</span><span>→ 風に強い</span><span>← 火に弱い</span></div>
+              <div class="affinity-row"><span class="affinity-attr wind">風</span><span>→ 雷に強い</span><span>← 土に弱い</span></div>
+              <div class="affinity-row"><span class="affinity-attr thunder">雷</span><span>→ 水に強い</span><span>← 風に弱い</span></div>
+              <div class="affinity-row"><span class="affinity-attr water">水</span><span>→ 火に強い</span><span>← 雷に弱い</span></div>
+              <div class="affinity-row"><span class="affinity-attr light">光</span><span>↔ 闇と相互弱点</span></div>
+              <div class="affinity-row"><span class="affinity-attr dark">闇</span><span>↔ 光と相互弱点</span></div>
+            </div>
+            <div class="affinity-note">強: x1.5 / 弱: x0.5。光と闇は互いに大ダメージ。</div>
+          </div>
+        </div>
       </div>
 
       <div id="effectContainer" class="effect-container"></div>

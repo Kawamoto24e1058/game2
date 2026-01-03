@@ -31,6 +31,31 @@ const waitingPlayers = [];
 const passwordRooms = new Map(); // password -> roomId
 const rooms = new Map(); // roomId -> room state
 
+// 属性相性（5すくみ + 光/闇相互弱点）
+function getAffinity(attackerAttr, defenderAttr) {
+  const strongAgainst = {
+    fire: 'earth',
+    earth: 'wind',
+    wind: 'thunder',
+    thunder: 'water',
+    water: 'fire',
+    light: 'dark',
+    dark: 'light'
+  };
+
+  const atk = (attackerAttr || '').toLowerCase();
+  const def = (defenderAttr || '').toLowerCase();
+
+  if (strongAgainst[atk] === def) {
+    "judgeComment": "審判の査定理由（属性選択理由、数値根拠、specialEffect の物質的特徴からの導出理由を含む）", \
+    "hasReflect": true/false （反射効果がある場合は true。サボテンを含む場合は必ず true）\
+  }
+  if (strongAgainst[def] === atk) {
+    return { multiplier: 0.5, relation: 'disadvantage', isEffective: false };
+  }
+  return { multiplier: 1.0, relation: 'neutral', isEffective: false };
+}
+
 // =====================================
 // Gemini APIを使ったカード生成（非同期）
 // =====================================
@@ -50,6 +75,14 @@ async function generateCard(word, intent = 'neutral') {
         : '通常査定。文脈から最適な役割を選べ。';
   
   const prompt = `あなたは世界一のゲームデザイナーであり、冷徹な審判です。ユーザーが入力した言葉の物質的特徴（トゲがある、冷たい、重い、神聖である等）を検索・分析し、その特徴をそのまま特殊効果の名前にしてください。感情を排し、言葉の「物質的・概念的特性」を深掘りし、その特性に即した数値と特殊効果を査定してください。
+
+【サボテン特別規定】
+- 入力に「サボテン」が含まれる場合、specialEffect に必ず「受けたダメージの20%を反射するトゲの呪い」を含めること。
+- この場合、出力JSONに hasReflect: true を含めること。
+- 反射率 20% を厳守。
+
+【物理特性最優先の変換】
+- 氷: 凍結/滑りやすさを効果化。ゴム: 絶縁/弾性。神・聖: 浄化/光。重い物体: 衝撃/圧殺。鋭い物体: 反射/出血。毒・腐食: 毒ダメージ。必ず物理・概念特性を最優先で特殊効果に落とし込むこと。
 
 **【特殊効果の命名規則】**
 物質的特徴を【】で囲み、効果の名前として明示する。
@@ -204,6 +237,8 @@ async function generateCard(word, intent = 'neutral') {
 - **specialEffect は必ず【】で効果名を囲み、物質的特徴を反映させること。例: 【トゲの反射】、【凍結】、【吸血】**
 - **specialEffect は必ず「反射/状態異常/属性ガード/ドレイン/カウンター/特殊干渉」のいずれかのカテゴリに基づくこと。**
 - **「攻撃力+○%」「防御力+○%」のような単純な数値上昇は、言葉が直接それを指し示さない限り禁止。**
+- **サボテンを含む場合、specialEffect に20%反射を明記し、hasReflect: true を必ず含めること。**
+- **反射効果がある場合は hasReflect を true に設定すること。**
 - judgeComment には、属性選択理由、数値、specialEffect の根拠（物質的特徴から導いた理由、どのカテゴリに該当するか）を全て含めること。
 
 **【記述例】**
@@ -253,6 +288,7 @@ async function generateCard(word, intent = 'neutral') {
                            !cardData.specialEffect.match(/攻撃力.*\+|防御力.*\+/)) 
                            ? cardData.specialEffect 
                            : '【微弱反射】被ダメージの3%を反射';
+    const hasReflect = cardData.hasReflect === true || /反射/.test(specialEffect) || /cactus|サボテン/.test(original);
     const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
 
     return {
@@ -264,8 +300,9 @@ async function generateCard(word, intent = 'neutral') {
       tier,
       supportType,
       specialEffect,
+      hasReflect,
       judgeComment: cardData.judgeComment || '審判のコメントなし',
-      description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${supportType ? ' (' + supportType + ')' : ''} / ${specialEffect}`
+      description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${supportType ? ' (' + supportType + ')' : ''} / ${specialEffect}${hasReflect ? ' / hasReflect' : ''}`
     };
   } catch (error) {
     console.error('❌ Gemini API エラー:', error);
@@ -300,7 +337,8 @@ function generateCardFallback(word) {
   
   // 特殊効果判定（特殊能力特化型・【】命名規則）
   let specialEffect = '【微弱反射】被ダメージの3%を反射';
-  if (/毒|poison|ヘビ|蛇/.test(lower)) specialEffect = '【猛毒】3ターンの間、毎ターンHP-3';
+  if (/サボテン|cactus/.test(lower)) specialEffect = '【トゲの反射】受けたダメージの20%を反射するトゲの呪い';
+  else if (/毒|poison|ヘビ|蛇/.test(lower)) specialEffect = '【猛毒】3ターンの間、毎ターンHP-3';
   else if (/氷|ice|凍/.test(lower)) specialEffect = '【凍結】相手次ターン行動不能（確率20%）';
   else if (/雷|thunder|電/.test(lower)) specialEffect = '【麻痺】相手の回避不能化（1ターン）';
   else if (/火|fire|炎/.test(lower)) specialEffect = '【火傷】2ターンの間、毎ターンHP-2';
@@ -311,6 +349,8 @@ function generateCardFallback(word) {
   else if (/霧|fog|煙/.test(lower)) specialEffect = '【視界妨害】相手の命中率-15%';
   else if (/風|wind/.test(lower)) specialEffect = '【回避上昇】自身の回避率+12%';
   else if (/重|gravity|圧/.test(lower)) specialEffect = '【重圧】相手の全ステータス-8%（1ターン）';
+
+  const hasReflect = /サボテン|cactus/.test(lower) || /反射/.test(specialEffect);
   
   return {
     word,
@@ -322,6 +362,7 @@ function generateCardFallback(word) {
     supportType: null,
     judgeComment: 'フォールバック: 簡易推定。特性不明のため汎用反射効果を付与。物質的特徴から【】命名。',
     specialEffect,
+    hasReflect,
     description: `[${tier.toUpperCase()}] ATK:${strength} DEF:${defVal} / ${specialEffect}`
   };
 }
@@ -492,6 +533,10 @@ function handleDefend(roomId, socket, word) {
       attacker.attackBoost = 0;
     }
 
+    // 属性相性補正
+    const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
+    finalAttack = Math.round(finalAttack * affinity.multiplier);
+
     let damage = 0;
     if (defenseFailed) {
       damage = finalAttack;
@@ -532,6 +577,7 @@ function handleDefend(roomId, socket, word) {
       attackCard,
       defenseCard,
       damage,
+      affinity,
       hp,
       defenseFailed,
       nextTurn: winnerId ? null : room.players[room.turnIndex].id,
@@ -719,10 +765,6 @@ io.on('connection', (socket) => {
     const roomId = socket.data.roomId;
     const room = rooms.get(roomId);
     if (!room) return;
-    if (socket.id !== room.hostId) {
-      socket.emit('errorMessage', { message: 'ホストのみ開始できます' });
-      return;
-    }
     if (room.players.length < 2) {
       socket.emit('errorMessage', { message: '2人以上で開始できます' });
       return;
