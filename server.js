@@ -49,7 +49,15 @@ async function generateCard(word, intent = 'neutral') {
         ? '現在はサポート用途。回復・強化・弱体化を優先ロールとせよ。'
         : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは世界一厳しいカードゲームの「冷徹な審判」です。感情を排し、言葉の「物質的・概念的特性」を深掘りし、その特性に即した数値と特殊効果を査定してください。
+  const prompt = `あなたは世界一のゲームデザイナーであり、冷徹な審判です。ユーザーが入力した言葉の物質的特徴（トゲがある、冷たい、重い、神聖である等）を検索・分析し、その特徴をそのまま特殊効果の名前にしてください。感情を排し、言葉の「物質的・概念的特性」を深掘りし、その特性に即した数値と特殊効果を査定してください。
+
+**【特殊効果の命名規則】**
+物質的特徴を【】で囲み、効果の名前として明示する。
+例：
+- サボテンの盾 → specialEffect: "【トゲの反射】防御時に受けたダメージの20%を相手に与える。"
+- 氷の壁 → specialEffect: "【凍結の壁】攻撃を受けた際、25%の確率で相手を1ターン行動不能にする。"
+- 吸血鬼 → specialEffect: "【吸血】与えたダメージの30%をHP回復する。"
+- 鏡の盾 → specialEffect: "【完全反射】被ダメージの15%を相手に返す。"
 
 コンテキスト: ${intentNote}
 
@@ -62,39 +70,92 @@ async function generateCard(word, intent = 'neutral') {
    - 例: 氷 → 冷却し滑りやすく凍結させる。
    - 例: 盾(サボテン製) → 植物素材で柔らかい。
    - 例: ライオンの毛 → 本体でないので攻防は極低。
-2. 特殊効果設計（必須）：抽出した特性に基づいて specialEffect を必ず生成する。**"none" や空欄は絶対禁止。如何なる言葉にも必ず特殊効果を付与せよ。**
-   - 物理的特性の例：
-     * サボテン → 「トゲによる反射ダメージ 5%」
-     * 氷 → 「凍結：相手次ターン行動不能 20%」
-     * 鋼鉄の門 → 「物理ダメージ軽減 30%」
-     * ゴム → 「雷属性完全無効」
-     * 重い石 → 「衝撃ダメージ +15%」
-     * 透明なガラス → 「光属性ダメージ +10%」
-   - 生物的特性の例：
-     * ライオンの毛 → 「威嚇：相手攻撃力 -5」
-     * 毒蛇 → 「毒付与：毎ターン HP-3」
-     * コウモリ → 「吸血：与ダメージの 20% HP回復」
-     * 植物 → 「光合成：毎ターン HP+2」
-   - 概念的特性の例：
-     * 希望 → 「士気高揚：次ターン攻撃力 +15%」
-     * 絶望 → 「沈静：相手防御力 -20%」
-     * 時間 → 「時間停止：相手行動遅延 10%」
-     * 夢 → 「幻惑：命中率 -10%」
-   - 日常品でも必ず効果を：
-     * ため息 → 「脅力付与：相手攻撃力 -3」
-     * 紙 → 「軽量：回避率 +5%」
-     * 水 → 「消火：火属性ダメージ -30%」
-   - **いかなる場合でも、反射/回復/軽減/強化/弱体化/状態異常/属性ガード/確率変化などから必ず一つ選んで効果を生成せよ。**
+2. 特殊効果設計（必須・特殊能力特化型）：抽出した特性に基づいて specialEffect を必ず生成する。**"none" や空欄は絶対禁止。如何なる言葉にも必ず特殊効果を付与せよ。**
+   
+   **【重要原則】単純な「攻撃力アップ」「防御力アップ」は禁止。言葉が直接それを指し示す場合（例: 力の薬、鋼の鎧）を除き、必ずゲームメカニクスへの干渉効果を生成すること。**
+   
+   **【効果カテゴリと生成例】**
+   
+   A. **反射（Reflect）**: 受けたダメージの一部を相手に返す
+     * サボテン → 「【トゲ反射】被ダメージの8%を反射」
+     * 鏡 → 「【完全反射】被ダメージの15%を反射」
+     * スパイクシールド → 「【鋭刺反射】被ダメージの12%を反射」
+     * ハリネズミ → 「【針反射】被ダメージの6%を反射」
+   
+   B. **状態異常（Ailment）**: 相手に持続的な悪影響を与える
+     * 毒蛇 → 「【猛毒】相手は3ターンの間、毎ターンHP-4」
+     * 氷 → 「【凍結】相手次ターン行動不能（確率25%）」
+     * 雷 → 「【麻痺】相手の回避不能化（1ターン）」
+     * 睡眠薬 → 「【眠り】相手次ターン攻撃力-50%」
+     * 炎 → 「【火傷】相手は2ターンの間、毎ターンHP-3」
+   
+   C. **属性相性（Attribute Guard）**: 特定属性からの大幅ダメージ軽減
+     * 耐火服 → 「【炎耐性】火属性ダメージを60%軽減」
+     * 水の壁 → 「【火属性無効化】火属性ダメージを80%軽減」
+     * ゴム → 「【絶縁体】雷属性ダメージを完全無効」
+     * 聖なる盾 → 「【闇耐性】闇属性ダメージを50%軽減」
+   
+   D. **ドレイン（Drain）**: 与えたダメージで自己回復
+     * 吸血鬼 → 「【吸血】与ダメージの30%をHP回復」
+     * 注射器 → 「【吸引】与ダメージの20%をHP回復」
+     * 寄生虫 → 「【寄生】与ダメージの25%をHP回復」
+     * 生命奪取 → 「【生命吸収】与ダメージの40%をHP回復」
+   
+   E. **カウンター（Counter）**: 条件下で強力な反撃
+     * 罠 → 「【反撃】被ダメージ時、相手に固定15ダメージ」
+     * 逆転 → 「【起死回生】HP50%以下時、次攻撃威力2倍」
+     * カウンターパンチ → 「【反撃拳】防御成功時、相手に固定20ダメージ」
+   
+   F. **特殊干渉（Special Interference）**: その他のゲームメカニクス干渉
+     * 霧 → 「【視界妨害】相手の命中率-20%」
+     * 風 → 「【回避上昇】自身の回避率+15%」
+     * 時間 → 「【時間遅延】相手のターン開始を1秒遅らせる」
+     * 影 → 「【透明化】次ターン被ダメージ-30%」
+     * 重力 → 「【重圧】相手の全ステータス-10%（1ターン）」
+   
+   G. **日常品・弱い言葉も必ず効果を付与**:
+     * ため息 → 「【脱力伝播】相手攻撃力-5（固定）」
+     * 紙 → 「【軽量化】回避率+8%」
+     * 水 → 「【消火効果】火属性ダメージ-40%」
+     * 石ころ → 「【つまづき】相手の次攻撃命中率-10%」
+   
+   **【効果生成時の必須ルール】**
+   - 必ず上記カテゴリA～Gのいずれかから選択
+   - 効果名は【】で囲み、物質的特徴を反映させる
+   - 具体的な数値・確率・ターン数を明記
+   - 言葉の物理的・概念的特性から論理的に導出
+   - 「攻撃力+○%」「防御力+○%」は原則禁止（直接的な強化アイテムを除く）
 3. 数値調整：特性に合わせて attack/defense を上下させる（例: サボテンの盾は柔らかいので防御を下げつつ反射効果を付与）。
-4. 属性判定（必須）：言葉の物理的・概念的特性から最もふさわしい属性を必ず選択する。**選択肢は fire/water/wind/earth/thunder/light/dark のみ。neutral は禁止。**
-   - fire（火）: 燃焼・高温・爆発・マグマ・太陽など（例: 火山、爆弾、フェニックス）
-   - water（水）: 液体・海・氷・冷却・流動など（例: 津波、深海、氷河）
-   - wind（風）: 気流・竜巻・速度・自由など（例: 暴風、疾風、翼）
-   - earth（土）: 大地・岩石・植物・重量・安定など（例: 世界樹、山脈、岩盤）
-   - thunder（雷）: 電気・稲妻・高速・麻痺など（例: 雷神、プラズマ、電撃）
-   - light（光）: 神聖・浄化・癒し・輝きなど（例: 天使、聖剣、太陽光）
-   - dark（闇）: 呪い・死・影・吸収など（例: 死神、暗黒魔法、奈落）
-   - 複合的特性を持つ場合は、最も支配的な要素を選ぶ。
+4. 属性判定（必須・AI独断決定）：言葉の物理的・概念的特性から最もふさわしい属性を**AIが独断で1つ必ず決定**する。**選択肢は fire/water/wind/earth/thunder/light/dark の7つのみ。neutral やその他の属性は一切禁止。**
+   
+   **【属性選択基準】**
+   - **fire（火）**: 燃焼・高温・爆発・マグマ・太陽・熱・炎上
+     例: 火山、爆弾、フェニックス、溶岩、灼熱、太陽光線
+   
+   - **water（水）**: 液体・海・氷・冷却・流動・湿気・凍結
+     例: 津波、深海、氷河、雨、水流、霧
+   
+   - **wind（風）**: 気流・竜巻・速度・自由・軽さ・嵐
+     例: 暴風、疾風、翼、台風、突風
+   
+   - **earth（土）**: 大地・岩石・植物・重量・安定・鉱物
+     例: 世界樹、山脈、岩盤、森林、大地、石
+   
+   - **thunder（雷）**: 電気・稲妻・高速・麻痺・プラズマ
+     例: 雷神、プラズマ、電撃、雷鳴、電流
+   
+   - **light（光）**: 神聖・浄化・癒し・輝き・希望・聖なる力
+     例: 天使、聖剣、太陽光、神聖魔法、希望の光
+   
+   - **dark（闇）**: 呪い・死・影・吸収・絶望・邪悪
+     例: 死神、暗黒魔法、奈落、呪術、闇の力
+   
+   **【判定ルール】**
+   - 複合的特性を持つ場合は、最も支配的な要素を選ぶ
+   - 判断に迷った場合でも、必ず7属性のいずれか1つを選択
+   - 抽象的な概念（例: 時間、運命）でも、イメージに最も近い属性を選ぶ
+   - 日常品でも必ず属性を割り当てる（例: 紙→wind、石→earth）
+   
 5. シナジー評価：複合語の組み合わせを厳密に評価し、響きだけで誇張しない。
 6. 役割判定：攻撃=破壊・加害、防御=遮断・吸収・耐久、サポート=回復・強化/弱体化。
    - **防御フェーズ判定（重要）**：
@@ -123,10 +184,39 @@ async function generateCard(word, intent = 'neutral') {
   "judgeComment": "物理・化学・生物・概念特性から数値・属性・効果・specialEffect の全てを導いた理由を20-80文字で冷徹に説明"
 }
 
-【重要】
-- JSON のみを返す。説明文やマークダウンは禁止。
-- **specialEffect は "none" や空欄は絶対禁止。如何なる言葉でも必ず具体的でユニークな効果を生成すること。"none" や "なし" や "特になし" などは全て禁止。**
-- judgeComment には、数値だけでなく specialEffect の根拠（なぜその効果なのか）も必ず含めること。`;
+【出力形式】
+以下のJSON形式以外は一切出力しないでください。説明文、マークダウン、コメントなど、JSON以外の文字列は絶対に禁止です。
+
+{
+  "attack": 数値（0-100の整数）,
+  "defense": 数値（0-100の整数）,
+  "attribute": "属性（fire/water/wind/earth/thunder/light/dark のいずれか1つ）",
+  "role": "Attack/Defense/Support のいずれか",
+  "specialEffect": "【効果名】効果の具体的なゲーム内挙動の説明",
+  "judgeComment": "審判の査定理由（属性選択理由、数値根拠、specialEffect の物質的特徴からの導出理由を含む）"
+}
+
+【重要な制約】
+- JSON のみを返す。説明文やマークダウンは絶対禁止。
+- **attribute は必ず fire/water/wind/earth/thunder/light/dark のいずれか1つ。neutral やその他の値は絶対禁止。**
+- **role は Attack/Defense/Support のいずれか1つ。**
+- **specialEffect は "none" や空欄は絶対禁止。如何なる言葉でも必ず具体的でユニークな効果を生成すること。**
+- **specialEffect は必ず【】で効果名を囲み、物質的特徴を反映させること。例: 【トゲの反射】、【凍結】、【吸血】**
+- **specialEffect は必ず「反射/状態異常/属性ガード/ドレイン/カウンター/特殊干渉」のいずれかのカテゴリに基づくこと。**
+- **「攻撃力+○%」「防御力+○%」のような単純な数値上昇は、言葉が直接それを指し示さない限り禁止。**
+- judgeComment には、属性選択理由、数値、specialEffect の根拠（物質的特徴から導いた理由、どのカテゴリに該当するか）を全て含めること。
+
+**【記述例】**
+入力: "サボテンの盾"
+出力:
+{
+  "attack": 15,
+  "defense": 45,
+  "attribute": "earth",
+  "role": "Defense",
+  "specialEffect": "【トゲの反射】防御時に受けたダメージの20%を相手に与える。",
+  "judgeComment": "サボテンは植物だがトゲを持つ。守るだけでなく痛みを与える性質を評価した。earth属性は植物由来。"
+}`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -134,26 +224,39 @@ async function generateCard(word, intent = 'neutral') {
     const responseText = result.response.text().trim();
     const cardData = JSON.parse(responseText);
 
-    if (!cardData.word || cardData.attack === undefined || cardData.defense === undefined || !cardData.specialEffect || !cardData.judgeComment) {
+    // 必須フィールドのチェック（新形式に対応）
+    if (cardData.attack === undefined || cardData.defense === undefined || !cardData.specialEffect || !cardData.judgeComment) {
       throw new Error('必須フィールドが不足しています');
     }
 
     const attackVal = Math.max(0, Math.min(100, Math.round(cardData.attack)));
     const defenseVal = Math.max(0, Math.min(100, Math.round(cardData.defense)));
-    const role = (cardData.role || cardData.effect || 'attack').toLowerCase();
+    
+    // role の正規化（Attack/Defense/Support → attack/defense/support）
+    let role = 'attack';
+    if (cardData.role) {
+      const roleLower = cardData.role.toLowerCase();
+      if (roleLower === 'attack' || roleLower === 'defense' || roleLower === 'support') {
+        role = roleLower;
+      } else if (roleLower === 'heal') {
+        role = 'heal';
+      }
+    }
+    
     const supportType = cardData.supportEffect || cardData.supportType || null;
     const attribute = cardData.attribute || 'earth';
     const specialEffect = (cardData.specialEffect && 
                            cardData.specialEffect !== 'none' && 
                            cardData.specialEffect.trim() !== '' &&
                            cardData.specialEffect !== 'なし' &&
-                           cardData.specialEffect !== '特になし') 
+                           cardData.specialEffect !== '特になし' &&
+                           !cardData.specialEffect.match(/攻撃力.*\+|防御力.*\+/)) 
                            ? cardData.specialEffect 
-                           : '基礎効果：全ステータス +5%';
+                           : '【微弱反射】被ダメージの3%を反射';
     const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
 
     return {
-      word: cardData.word,
+      word: original,  // 入力された元の単語を使用
       attribute,
       attack: attackVal,
       defense: defenseVal,
@@ -195,6 +298,20 @@ function generateCardFallback(word) {
   else if (/light|光|聖|天使|神/.test(lower)) attribute = 'light';
   else if (/dark|闇|死|呪|影/.test(lower)) attribute = 'dark';
   
+  // 特殊効果判定（特殊能力特化型・【】命名規則）
+  let specialEffect = '【微弱反射】被ダメージの3%を反射';
+  if (/毒|poison|ヘビ|蛇/.test(lower)) specialEffect = '【猛毒】3ターンの間、毎ターンHP-3';
+  else if (/氷|ice|凍/.test(lower)) specialEffect = '【凍結】相手次ターン行動不能（確率20%）';
+  else if (/雷|thunder|電/.test(lower)) specialEffect = '【麻痺】相手の回避不能化（1ターン）';
+  else if (/火|fire|炎/.test(lower)) specialEffect = '【火傷】2ターンの間、毎ターンHP-2';
+  else if (/吸血|vampire|ドレイン/.test(lower)) specialEffect = '【吸血】与ダメージの25%をHP回復';
+  else if (/盾|shield|防/.test(lower)) specialEffect = '【頑強】被ダメージ-15%';
+  else if (/鏡|mirror|反射/.test(lower)) specialEffect = '【完全反射】被ダメージの12%を反射';
+  else if (/トゲ|針|spike/.test(lower)) specialEffect = '【刺反射】被ダメージの8%を反射';
+  else if (/霧|fog|煙/.test(lower)) specialEffect = '【視界妨害】相手の命中率-15%';
+  else if (/風|wind/.test(lower)) specialEffect = '【回避上昇】自身の回避率+12%';
+  else if (/重|gravity|圧/.test(lower)) specialEffect = '【重圧】相手の全ステータス-8%（1ターン）';
+  
   return {
     word,
     attribute,
@@ -203,9 +320,9 @@ function generateCardFallback(word) {
     effect: 'attack',
     tier,
     supportType: null,
-    judgeComment: 'フォールバック: 簡易推定。特性不明のため汎用効果を付与。',
-    specialEffect: '汎用強化：全ステータス+3%',
-    description: `[${tier.toUpperCase()}] ATK:${strength} DEF:${defVal} / 汎用強化：全ステータス+3%`
+    judgeComment: 'フォールバック: 簡易推定。特性不明のため汎用反射効果を付与。物質的特徴から【】命名。',
+    specialEffect,
+    description: `[${tier.toUpperCase()}] ATK:${strength} DEF:${defVal} / ${specialEffect}`
   };
 }
 
