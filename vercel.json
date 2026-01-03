@@ -1,5 +1,14 @@
 {
   "version": 2,
+  "public": "public",
+  "routes": [
+    { "src": "/api/(.*)", "dest": "https://create-cards.onrender.com/api/$1" },
+    { "src": "/ws", "dest": "https://create-cards.onrender.com" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}{
+  "version": 2,
   "builds": [
     {
       "src": "server.js",
