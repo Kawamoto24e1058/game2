@@ -11,8 +11,8 @@ const WEBSOCKET_RECONNECT_DELAY = 3000;
 
 // Initialize WebSocket connection
 function initWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    // Fixed WebSocket endpoint for Render
+    const wsUrl = 'wss://create-cards.onrender.com';
     
     ws = new WebSocket(wsUrl);
     
