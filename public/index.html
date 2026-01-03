@@ -37,6 +37,11 @@
 
     <div id="battleSection" class="section hidden">
       <h2>バトル</h2>
+      <!-- ターンバナー -->
+      <div id="turnBanner" class="turn-banner hidden">
+        <div id="turnBannerText" class="turn-banner-text">あなたのターン！</div>
+      </div>
+      
       <div id="turnIndicator" class="turn-indicator">あなたのターン</div>
       <div class="battle-status">
         <div id="statusMessage" class="status-message"></div>
@@ -83,9 +88,11 @@
     <!-- カットイン演出用モーダル -->
     <div id="cutinModal" class="cutin-overlay hidden">
       <div class="cutin-content">
+        <div class="cutin-judge-title">⚡ 審判結果 ⚡</div>
         <div class="cutin-word" id="cutinWord"></div>
         <div class="cutin-stats" id="cutinStats"></div>
         <div class="cutin-tier" id="cutinTier"></div>
+        <div class="cutin-comment" id="cutinComment"></div>
       </div>
     </div>
 

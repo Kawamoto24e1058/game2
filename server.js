@@ -152,6 +152,7 @@ async function generateCard(word) {
       effect: cardData.effect || 'attack',
       tier: cardData.tier || 'common',
       supportType: cardData.supportType || null,
+      judgeComment: cardData.judgeComment || '審判のコメントなし',
       description: `${(cardData.attribute || 'NEUTRAL').toUpperCase()} [${(cardData.tier || 'common').toUpperCase()}] / ATK:${cardData.attack} DEF:${cardData.defense} / ${cardData.effect}${cardData.supportType ? ' (' + cardData.supportType + ')' : ''}`
     };
   } catch (error) {

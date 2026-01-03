@@ -425,6 +425,39 @@ h2 {
     opacity: 0.8;
 }
 
+/* ターンバナー（画面上部に大きく表示） */
+.turn-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1500;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 25px;
+    text-align: center;
+    box-shadow: 0 8px 30px rgba(102, 126, 234, 0.6);
+    animation: slideDown 0.5s ease-out;
+}
+
+.turn-banner-text {
+    font-size: 36px;
+    font-weight: 900;
+    color: white;
+    text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    letter-spacing: 3px;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
 .effect-container {
     position: relative;
     height: 120px;
@@ -599,6 +632,15 @@ h2 {
     color: white;
 }
 
+.cutin-judge-title {
+    font-size: 24px;
+    font-weight: bold;
+    color: #ffd700;
+    margin-bottom: 20px;
+    text-shadow: 0 0 20px rgba(255, 215, 0, 1);
+    letter-spacing: 5px;
+}
+
 .cutin-word {
     font-size: 64px;
     font-weight: 900;
@@ -624,6 +666,20 @@ h2 {
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 3px;
+    margin-bottom: 15px;
+}
+
+.cutin-comment {
+    font-size: 18px;
+    color: #ffffff;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 15px 25px;
+    border-radius: 15px;
+    margin-top: 20px;
+    border: 2px solid #ffd700;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+    animation: fadeIn 0.8s ease-out 0.5s both;
 }
 
 @keyframes cutinZoom {

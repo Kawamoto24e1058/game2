@@ -67,16 +67,18 @@ function showGuardAnimation() {
 }
 
 // カットイン演出表示
-function showCutin(card, duration = 2000) {
+function showCutin(card, duration = 2500) {
   return new Promise((resolve) => {
     const cutinModal = document.getElementById('cutinModal');
     const cutinWord = document.getElementById('cutinWord');
     const cutinStats = document.getElementById('cutinStats');
     const cutinTier = document.getElementById('cutinTier');
+    const cutinComment = document.getElementById('cutinComment');
 
     cutinWord.textContent = card.word;
     cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}] ${card.effect.toUpperCase()}`;
+    cutinComment.textContent = card.judgeComment || '審判: 良好';
 
     cutinModal.classList.remove('hidden');
 
@@ -100,14 +102,37 @@ function updateSupportCounter() {
 
 function updateTurnIndicator(isMyTurn) {
   const indicator = document.getElementById('turnIndicator');
+  const turnBanner = document.getElementById('turnBanner');
+  const turnBannerText = document.getElementById('turnBannerText');
+  const attackInput = document.getElementById('attackWordInput');
+  const attackBtn = document.getElementById('attackBtn');
+  const supportBtn = document.getElementById('supportBtn');
+  
   if (isMyTurn) {
-    indicator.textContent = '🟢 あなたのターンです！';
+    indicator.textContent = '🔵 あなたのターンです！';
     indicator.classList.remove('opponent-turn');
     indicator.classList.add('my-turn');
+    
+    // バナー表示
+    turnBannerText.textContent = 'あなたのターン！';
+    turnBanner.classList.remove('hidden');
+    setTimeout(() => {
+      turnBanner.classList.add('hidden');
+    }, 2000);
+    
+    // 入力を有効化
+    if (attackInput) attackInput.disabled = false;
+    if (attackBtn) attackBtn.disabled = false;
+    if (supportBtn) supportBtn.disabled = (supportRemaining <= 0);
   } else {
-    indicator.textContent = '⏳ 相手のターンを待機中...';
+    indicator.textContent = '⌛ 相手のターンを待機中...';
     indicator.classList.remove('my-turn');
     indicator.classList.add('opponent-turn');
+    
+    // 入力を無効化
+    if (attackInput) attackInput.disabled = true;
+    if (attackBtn) attackBtn.disabled = true;
+    if (supportBtn) supportBtn.disabled = true;
   }
 }
 
