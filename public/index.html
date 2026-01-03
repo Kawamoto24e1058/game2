@@ -8,28 +8,48 @@
 </head>
 <body>
   <div class="container">
-    <h1>🎮 オンラインバトルカードゲーム</h1>
+    <header class="hero">
+      <div class="hero-text">
+        <p class="hero-kicker">Nintendo Pop Style</p>
+        <h1>オンラインバトルカードゲーム</h1>
+        <p class="hero-sub">好きな言葉がカードになる！ ポップでワクワクするリアルタイムバトル。</p>
+      </div>
+      <div class="hero-badge">Gemini 深層審判</div>
+    </header>
 
-    <div id="homeSection" class="section">
-      <h2>ホーム</h2>
-      <p class="description">プレイヤー名を入力し、マッチ方式を選んでください。</p>
-      <div class="input-group" style="flex-direction: column; gap: 12px; align-items: stretch;">
-        <input type="text" id="playerNameInput" placeholder="プレイヤー名" maxlength="20">
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <label><input type="radio" name="matchType" value="random" checked> 誰とでもマッチ</label>
-          <label><input type="radio" name="matchType" value="password"> パスワードでマッチ</label>
+    <div id="homeSection" class="section card">
+      <h2>マッチングを開始</h2>
+      <p class="description">プレイヤー名を入力し、対戦方法を選んで出発しよう！</p>
+      <div class="home-grid">
+        <div class="input-stack">
+          <label class="input-label" for="playerNameInput">プレイヤー名</label>
+          <input type="text" id="playerNameInput" class="mega-input" placeholder="あなたの名前" maxlength="20">
+          <div class="password-wrap hidden" id="passwordWrap">
+            <label class="input-label" for="passwordInput">パスワード</label>
+            <input type="text" id="passwordInput" class="mega-input" placeholder="合言葉を入力" maxlength="20">
+          </div>
         </div>
-        <input type="text" id="passwordInput" placeholder="パスワード (任意)" maxlength="20" style="display:none;">
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button id="randomMatchBtn" class="btn btn-primary">誰とでもマッチ</button>
-          <button id="passwordMatchBtn" class="btn btn-primary">パスワードでマッチ</button>
+        <div class="match-cards">
+          <div class="match-card selected" data-mode="random" id="matchCardRandom">
+            <div class="match-icon">🌐</div>
+            <div class="match-title">誰とでも</div>
+            <div class="match-desc">ランダムマッチで世界の誰かと即対戦！</div>
+          </div>
+          <div class="match-card" data-mode="password" id="matchCardPassword">
+            <div class="match-icon">🔒</div>
+            <div class="match-title">パスワード</div>
+            <div class="match-desc">友だちと合言葉でマッチしよう。</div>
+          </div>
         </div>
+      </div>
+      <div class="home-actions">
+        <button id="matchStartBtn" class="btn btn-primary">マッチを開始！</button>
       </div>
     </div>
 
-    <div id="matchingSection" class="section hidden">
+    <div id="matchingSection" class="section card hidden">
       <h2>マッチング待機中...</h2>
-      <p id="matchingMessage" class="description">相手を探しています。しばらくお待ちください。</p>
+      <p id="matchingMessage" class="description">対戦相手をさがしています...</p>
       <div class="matching-indicator">
         <div class="spinner"></div>
         <div class="matching-text">Searching...</div>
@@ -37,25 +57,28 @@
       <button id="cancelMatchingBtn" class="btn btn-secondary">マッチングをキャンセル</button>
     </div>
 
-    <div id="waitingSection" class="section hidden">
+    <div id="waitingSection" class="section card hidden">
       <h2>ウェイティングルーム</h2>
       <p id="waitingInfo" class="description"></p>
       <div id="playerList" class="battle-log"></div>
-      <button id="startBattleBtn" class="btn btn-battle" disabled>バトル開始</button>
-      <button id="waitingCancelBtn" class="btn btn-secondary">マッチングをキャンセル</button>
+      <div class="home-actions">
+        <button id="startBattleBtn" class="btn btn-battle" disabled>バトル開始</button>
+        <button id="waitingCancelBtn" class="btn btn-secondary">マッチングをキャンセル</button>
+      </div>
     </div>
 
-    <div id="battleSection" class="section hidden">
-      <h2>バトル</h2>
-      <!-- ターンバナー -->
-      <div id="turnBanner" class="turn-banner hidden">
-        <div id="turnBannerText" class="turn-banner-text">あなたのターン！</div>
+    <div id="battleSection" class="section card hidden">
+      <div id="turnBanner" class="turn-banner">
+        <div id="turnBannerText" class="turn-banner-text">あなたの番</div>
       </div>
-      
-      <div id="turnIndicator" class="turn-indicator">あなたのターン</div>
-      <div class="battle-status">
-        <div id="statusMessage" class="status-message"></div>
+
+      <div class="battle-top">
+        <div class="battle-status">
+          <div id="statusMessage" class="status-message"></div>
+        </div>
+        <div id="turnIndicator" class="turn-indicator">あなたのターン</div>
       </div>
+
       <div id="effectContainer" class="effect-container"></div>
       <div class="battle-arena">
         <div class="player-area">
@@ -73,22 +96,24 @@
         </div>
       </div>
 
-      <div class="section" style="margin-top: 10px;">
-        <h3>攻撃フェーズ</h3>
-        <div class="input-group">
-          <input type="text" id="attackWordInput" placeholder="攻撃またはサポートの言葉" maxlength="20">
-          <button id="attackBtn" class="btn btn-primary">攻撃する</button>
-          <button id="supportBtn" class="btn btn-support">🌟 サポート</button>
+      <div class="battle-inputs">
+        <div class="phase-card">
+          <div class="phase-title">攻撃 / サポート</div>
+          <div class="input-group">
+            <input type="text" id="attackWordInput" class="mega-input" placeholder="攻撃またはサポートの言葉" maxlength="20">
+            <button id="attackBtn" class="btn btn-primary">攻撃する</button>
+            <button id="supportBtn" class="btn btn-support">🌟 サポート</button>
+          </div>
+          <div id="supportCounter" class="support-counter">サポート残り: <span id="supportRemaining">3</span>/3</div>
+          <small>同じ言葉の再利用は禁止です。</small>
         </div>
-        <div id="supportCounter" class="support-counter">サポート残り: <span id="supportRemaining">3</span>/3</div>
-        <small>同じ言葉の再利用は禁止です。</small>
-      </div>
 
-      <div class="section" style="margin-top: 10px;">
-        <h3>防御フェーズ</h3>
-        <div class="input-group">
-          <input type="text" id="defenseWordInput" placeholder="防御の言葉" maxlength="20">
-          <button id="defenseBtn" class="btn btn-secondary">防御する</button>
+        <div class="phase-card">
+          <div class="phase-title">防御</div>
+          <div class="input-group">
+            <input type="text" id="defenseWordInput" class="mega-input" placeholder="防御の言葉" maxlength="20">
+            <button id="defenseBtn" class="btn btn-secondary">防御する</button>
+          </div>
         </div>
       </div>
 
@@ -109,18 +134,19 @@
 
     <!-- Defense Popup Modal -->
     <div id="defenseModal" class="modal-overlay hidden">
-      <div class="modal-content">
-        <h2>⚔️ 防御フェーズ ⚔️</h2>
+      <div class="modal-content pop-defense">
+        <div class="modal-icon">❗</div>
+        <h2>防御フェーズ</h2>
         <p id="defenseModalMessage" class="modal-message">相手の攻撃を防御してください！</p>
         <div class="modal-input-group">
           <input type="text" id="defenseModalInput" placeholder="防御の言葉を入力" maxlength="20">
           <button id="defenseModalBtn" class="btn btn-primary">防御実行</button>
         </div>
-        <small>同じ言葉の再利用は禁止です</small>
+        <small>攻撃ワードを入れると防御失敗になります</small>
       </div>
     </div>
 
-    <div id="resultSection" class="section hidden">
+    <div id="resultSection" class="section card hidden">
       <h2>リザルト</h2>
       <p id="resultMessage" class="description"></p>
       <button id="returnHomeBtn" class="btn btn-primary">ホームに戻る</button>

@@ -97,7 +97,7 @@ function updateSupportCounter() {
   }
   const supportBtn = document.getElementById('supportBtn');
   if (supportBtn) {
-    supportBtn.disabled = (supportRemaining <= 0 || currentTurn !== playerId);
+    supportBtn.disabled = supportRemaining <= 0 || currentTurn !== playerId;
   }
 }
 
@@ -108,43 +108,29 @@ function updateTurnIndicator(isMyTurn) {
   const attackInput = document.getElementById('attackWordInput');
   const attackBtn = document.getElementById('attackBtn');
   const supportBtn = document.getElementById('supportBtn');
-  
+
   if (isMyTurn) {
     indicator.textContent = '🔵 あなたのターンです！';
     indicator.classList.remove('opponent-turn');
     indicator.classList.add('my-turn');
-    
-    // バナー表示
-    turnBannerText.textContent = 'あなたのターン！';
-    turnBanner.classList.remove('hidden');
-    setTimeout(() => {
-      turnBanner.classList.add('hidden');
-    }, 2000);
-    
-    // 入力を有効化
+    turnBannerText.textContent = 'あなたの番';
+    turnBanner.classList.remove('opponent');
+    turnBanner.classList.add('mine');
+
     if (attackInput) attackInput.disabled = false;
     if (attackBtn) attackBtn.disabled = false;
-    if (supportBtn) supportBtn.disabled = (supportRemaining <= 0);
+    if (supportBtn) supportBtn.disabled = supportRemaining <= 0;
   } else {
     indicator.textContent = '⌛ 相手のターンを待機中...';
     indicator.classList.remove('my-turn');
     indicator.classList.add('opponent-turn');
-    
-    // 入力を無効化
+    turnBannerText.textContent = '相手の番';
+    turnBanner.classList.remove('mine');
+    turnBanner.classList.add('opponent');
+
     if (attackInput) attackInput.disabled = true;
     if (attackBtn) attackBtn.disabled = true;
     if (supportBtn) supportBtn.disabled = true;
-  }
-}
-
-function updateSupportCounter() {
-  const supportRemainingEl = document.getElementById('supportRemaining');
-  if (supportRemainingEl) {
-    supportRemainingEl.textContent = supportRemaining;
-  }
-  const supportBtn = document.getElementById('supportBtn');
-  if (supportBtn) {
-    supportBtn.disabled = (supportRemaining <= 0 || currentTurn !== playerId);
   }
 }
 
@@ -436,8 +422,9 @@ function cancelMatching() {
 }
 
 function bindUI() {
-  document.getElementById('randomMatchBtn').addEventListener('click', () => join('random'));
-  document.getElementById('passwordMatchBtn').addEventListener('click', () => join('password'));
+  document.getElementById('matchCardRandom').addEventListener('click', () => selectMatchMode('random'));
+  document.getElementById('matchCardPassword').addEventListener('click', () => selectMatchMode('password'));
+  document.getElementById('matchStartBtn').addEventListener('click', startMatch);
   document.getElementById('startBattleBtn').addEventListener('click', requestStart);
   document.getElementById('waitingCancelBtn').addEventListener('click', cancelMatching);
   document.getElementById('cancelMatchingBtn').addEventListener('click', cancelMatching);
@@ -454,13 +441,6 @@ function bindUI() {
   if (supportBtn) {
     supportBtn.addEventListener('click', submitSupport);
   }
-
-  document.getElementsByName('matchType').forEach(r => {
-    r.addEventListener('change', (e) => {
-      const pwdInput = document.getElementById('passwordInput');
-      pwdInput.style.display = e.target.value === 'password' ? 'block' : 'none';
-    });
-  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -469,3 +449,23 @@ document.addEventListener('DOMContentLoaded', () => {
   showSection('homeSection');
   toggleInputs(false, false);
 });
+
+// マッチタイプ選択（新UI）
+let selectedMode = 'random';
+function selectMatchMode(mode) {
+  selectedMode = mode;
+  const randomCard = document.getElementById('matchCardRandom');
+  const passwordCard = document.getElementById('matchCardPassword');
+  randomCard.classList.toggle('selected', mode === 'random');
+  passwordCard.classList.toggle('selected', mode === 'password');
+  const wrap = document.getElementById('passwordWrap');
+  wrap.classList.toggle('hidden', mode !== 'password');
+}
+
+function startMatch() {
+  if (selectedMode === 'password' && !document.getElementById('passwordInput').value.trim()) {
+    alert('パスワードを入力してください');
+    return;
+  }
+  join(selectedMode);
+}
