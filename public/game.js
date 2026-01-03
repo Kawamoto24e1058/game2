@@ -8,6 +8,8 @@ let isHost = false;
 let currentTurn = null;
 let myHp = 0;
 let opponentHp = 0;
+let supportRemaining = 3;
+let supportRemaining = 3;
 
 // 演出関数群
 function showFloatingText(x, y, text, type = 'damage') {
@@ -64,6 +66,38 @@ function showGuardAnimation() {
   setTimeout(() => guardText.remove(), 1500);
 }
 
+// カットイン演出表示
+function showCutin(card, duration = 2000) {
+  return new Promise((resolve) => {
+    const cutinModal = document.getElementById('cutinModal');
+    const cutinWord = document.getElementById('cutinWord');
+    const cutinStats = document.getElementById('cutinStats');
+    const cutinTier = document.getElementById('cutinTier');
+
+    cutinWord.textContent = card.word;
+    cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
+    cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}] ${card.effect.toUpperCase()}`;
+
+    cutinModal.classList.remove('hidden');
+
+    setTimeout(() => {
+      cutinModal.classList.add('hidden');
+      resolve();
+    }, duration);
+  });
+}
+
+function updateSupportCounter() {
+  const supportRemainingEl = document.getElementById('supportRemaining');
+  if (supportRemainingEl) {
+    supportRemainingEl.textContent = supportRemaining;
+  }
+  const supportBtn = document.getElementById('supportBtn');
+  if (supportBtn) {
+    supportBtn.disabled = (supportRemaining <= 0 || currentTurn !== playerId);
+  }
+}
+
 function updateTurnIndicator(isMyTurn) {
   const indicator = document.getElementById('turnIndicator');
   if (isMyTurn) {
@@ -74,6 +108,17 @@ function updateTurnIndicator(isMyTurn) {
     indicator.textContent = '⏳ 相手のターンを待機中...';
     indicator.classList.remove('my-turn');
     indicator.classList.add('opponent-turn');
+  }
+}
+
+function updateSupportCounter() {
+  const supportRemainingEl = document.getElementById('supportRemaining');
+  if (supportRemainingEl) {
+    supportRemainingEl.textContent = supportRemaining;
+  }
+  const supportBtn = document.getElementById('supportBtn');
+  if (supportBtn) {
+    supportBtn.disabled = (supportRemaining <= 0 || currentTurn !== playerId);
   }
 }
 
@@ -159,6 +204,8 @@ function initSocket() {
     const op = players.find(p => p.id !== playerId);
     updateHealthBars(me ? me.hp : 100, op ? op.hp : 100);
     currentTurn = turn;
+    supportRemaining = 3;
+    updateSupportCounter();
     const myTurn = currentTurn === playerId;
     updateTurnIndicator(myTurn);
     toggleInputs(myTurn, false);
@@ -166,23 +213,39 @@ function initSocket() {
     appendLog('バトル開始！', 'info');
   });
 
-  socket.on('attackDeclared', ({ attackerId, defenderId, card }) => {
+  socket.on('attackDeclared', async ({ attackerId, defenderId, card }) => {
     const isAttacker = attackerId === playerId;
     const isDefender = defenderId === playerId;
+    
+    // カットイン演出
+    await showCutin(card, 2000);
+    
     appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${card.attribute}) ATK:${card.attack}`, 'damage');
     flashAttackEffect();
-    toggleInputs(false, isDefender);
+    toggleInputs(false, false);
+    
     if (isDefender) {
-      setStatus('防御の言葉を入力してください！');
-      document.getElementById('defenseWordInput').focus();
+      // 防御ポップアップモーダル表示
+      showDefenseModal(card);
     } else {
       setStatus('相手の防御を待っています...');
+      updateTurnIndicator(false);
     }
   });
 
-  socket.on('turnResolved', ({ attackerId, defenderId, attackCard, defenseCard, damage, hp, nextTurn, winnerId }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, hp, nextTurn, winnerId, defenseFailed }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
+
+    // 防御カードのカットイン
+    if (defenseCard) {
+      await showCutin(defenseCard, 2000);
+    }
+
+    // 防御失敗メッセージ
+    if (defenseFailed) {
+      appendLog('⚠️ 防御失敗！攻撃カードを使用したためフルダメージ！', 'damage');
+    }
 
     // ダメージ表示
     if (damage > 0) {
@@ -212,6 +275,26 @@ function initSocket() {
     updateTurnIndicator(myTurn);
     toggleInputs(myTurn, false);
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
+  });
+
+  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining }) => {
+    await showCutin(card, 2000);
+    
+    const isMe = supportPlayerId === playerId;
+    appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${card.supportType})`, 'info');
+    
+    if (isMe) {
+      supportRemaining = newRemaining;
+      updateSupportCounter();
+    }
+    
+    myHp = hp[playerId];
+    const opponentId = Object.keys(hp).find(id => id !== playerId);
+    opponentHp = hp[opponentId];
+    
+    updateHealthBars(myHp, opponentHp);
+    
+    toggleInputs(true, false);
   });
 
   socket.on('opponentLeft', ({ message }) => {
@@ -254,6 +337,49 @@ function submitDefense() {
   document.getElementById('defenseWordInput').value = '';
 }
 
+function showDefenseModal(attackCard) {
+  const modal = document.getElementById('defenseModal');
+  const message = document.getElementById('defenseModalMessage');
+  message.textContent = `相手が「${attackCard.word}」で攻撃してきた！ 防御してください！`;
+  modal.classList.remove('hidden');
+  document.getElementById('defenseModalInput').focus();
+  setStatus('⚔️ 防御フェーズ - 言葉を入力してください ⚔️');
+  updateTurnIndicator(false);
+}
+
+function hideDefenseModal() {
+  const modal = document.getElementById('defenseModal');
+  modal.classList.add('hidden');
+  document.getElementById('defenseModalInput').value = '';
+}
+
+function submitDefenseModal() {
+  const word = document.getElementById('defenseModalInput').value.trim();
+  if (!word) {
+    alert('防御の言葉を入力してください！');
+    return;
+  }
+  socket.emit('defendWord', { word });
+  hideDefenseModal();
+  setStatus('防御を送信しました...');
+}
+function submitSupport() {
+  const word = document.getElementById('attackWordInput').value.trim();
+  if (!word) {
+    alert('サポートの言葉を入力してください');
+    return;
+  }
+  if (supportRemaining <= 0) {
+    alert('サポートはこの試合で使用できません');
+    return;
+  }
+  document.getElementById('attackBtn').disabled = true;
+  document.getElementById('supportBtn').disabled = true;
+  document.getElementById('attackWordInput').disabled = true;
+  
+  socket.emit('supportAction', { word });
+  document.getElementById('attackWordInput').value = '';
+}
 function bindUI() {
   document.getElementById('randomMatchBtn').addEventListener('click', () => join('random'));
   document.getElementById('passwordMatchBtn').addEventListener('click', () => join('password'));
@@ -262,6 +388,16 @@ function bindUI() {
   document.getElementById('returnHomeBtn').addEventListener('click', () => location.reload());
   document.getElementById('attackBtn').addEventListener('click', submitAttack);
   document.getElementById('defenseBtn').addEventListener('click', submitDefense);
+  document.getElementById('defenseModalBtn').addEventListener('click', submitDefenseModal);
+  document.getElementById('defenseModalInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') submitDefenseModal();
+  });
+
+  // サポートボタンのハンドラー
+  const supportBtn = document.getElementById('supportBtn');
+  if (supportBtn) {
+    supportBtn.addEventListener('click', submitSupport);
+  }
 
   document.getElementsByName('matchType').forEach(r => {
     r.addEventListener('change', (e) => {

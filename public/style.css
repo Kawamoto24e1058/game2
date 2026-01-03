@@ -120,6 +120,31 @@ h2 {
     background: #5a6268;
 }
 
+.btn-support {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    font-weight: bold;
+    box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+}
+
+.btn-support:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
+    transform: translateY(-2px);
+}
+
+.support-counter {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #f5576c;
+    font-weight: bold;
+    text-align: center;
+}
+
+#supportRemaining {
+    font-size: 18px;
+    color: #ff1744;
+}
+
 .techniques-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -467,5 +492,150 @@ h2 {
     }
     75% {
         transform: translateX(10px);
+    }
+}
+
+/* Modal Overlay & Defense Popup */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 20px;
+    padding: 40px;
+    box-shadow: 0 15px 50px rgba(0,0,0,0.5);
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    animation: popIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.modal-content h2 {
+    color: #ff6b6b;
+    font-size: 2em;
+    margin-bottom: 20px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+}
+
+.modal-message {
+    font-size: 1.2em;
+    color: #333;
+    margin-bottom: 25px;
+}
+
+.modal-input-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.modal-input-group input {
+    flex: 1;
+    padding: 15px;
+    font-size: 1.1em;
+    border: 2px solid #667eea;
+    border-radius: 8px;
+    outline: none;
+}
+
+.modal-input-group input:focus {
+    border-color: #764ba2;
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes popIn {
+    0% {
+        transform: scale(0.5);
+        opacity: 0;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* カットイン演出 */
+.cutin-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.cutin-content {
+    text-align: center;
+    animation: cutinZoom 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    color: white;
+}
+
+.cutin-word {
+    font-size: 64px;
+    font-weight: 900;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 20px;
+    text-shadow: 0 0 30px rgba(102, 126, 234, 0.8);
+}
+
+.cutin-stats {
+    font-size: 28px;
+    font-weight: bold;
+    color: #ffd700;
+    margin-bottom: 10px;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
+}
+
+.cutin-tier {
+    font-size: 20px;
+    color: #ff6b6b;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+}
+
+@keyframes cutinZoom {
+    0% {
+        transform: scale(0) rotateZ(-30deg);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2) rotateZ(5deg);
+    }
+    100% {
+        transform: scale(1) rotateZ(0deg);
+        opacity: 1;
     }
 }

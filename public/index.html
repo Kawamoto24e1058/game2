@@ -61,9 +61,11 @@
       <div class="section" style="margin-top: 10px;">
         <h3>攻撃フェーズ</h3>
         <div class="input-group">
-          <input type="text" id="attackWordInput" placeholder="攻撃の言葉" maxlength="20">
+          <input type="text" id="attackWordInput" placeholder="攻撃またはサポートの言葉" maxlength="20">
           <button id="attackBtn" class="btn btn-primary">攻撃する</button>
+          <button id="supportBtn" class="btn btn-support">🌟 サポート</button>
         </div>
+        <div id="supportCounter" class="support-counter">サポート残り: <span id="supportRemaining">3</span>/3</div>
         <small>同じ言葉の再利用は禁止です。</small>
       </div>
 
@@ -76,6 +78,28 @@
       </div>
 
       <div id="battleLog" class="battle-log"></div>
+    </div>
+
+    <!-- カットイン演出用モーダル -->
+    <div id="cutinModal" class="cutin-overlay hidden">
+      <div class="cutin-content">
+        <div class="cutin-word" id="cutinWord"></div>
+        <div class="cutin-stats" id="cutinStats"></div>
+        <div class="cutin-tier" id="cutinTier"></div>
+      </div>
+    </div>
+
+    <!-- Defense Popup Modal -->
+    <div id="defenseModal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <h2>⚔️ 防御フェーズ ⚔️</h2>
+        <p id="defenseModalMessage" class="modal-message">相手の攻撃を防御してください！</p>
+        <div class="modal-input-group">
+          <input type="text" id="defenseModalInput" placeholder="防御の言葉を入力" maxlength="20">
+          <button id="defenseModalBtn" class="btn btn-primary">防御実行</button>
+        </div>
+        <small>同じ言葉の再利用は禁止です</small>
+      </div>
     </div>
 
     <div id="resultSection" class="section hidden">
