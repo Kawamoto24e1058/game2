@@ -27,7 +27,7 @@ if (!apiKey) {
 }
 const genAI = new GoogleGenerativeAI(apiKey);
 
-const randomQueue = [];
+const waitingPlayers = [];
 const passwordRooms = new Map(); // password -> roomId
 const rooms = new Map(); // roomId -> room state
 
@@ -37,26 +37,28 @@ const rooms = new Map(); // roomId -> room state
 async function generateCard(word) {
   const original = word;
   
-  const prompt = `あなたは世界一厳しいカードゲームの「冷徹な審判」です。感情を排し、言葉全体の文脈を解剖し、物理的・化学的・生物学的特徴からゲーム効果を生成してください。甘い評価は禁止。
+  const prompt = `あなたは世界一厳しいカードゲームの「冷徹な審判」です。感情を排し、言葉の「物質的・概念的特性」を深掘りし、その特性に即した数値と特殊効果を査定してください。
 
 評価対象ワード: "${original}"
 
-【分析手順】
-1. 構成要素の抽出と特徴調査：「${original}」を構成する名詞・素材・生物・概念を分解し、物理的・化学的・生物学的・概念的性質を特定する。
-  - 例: サボテン → 多肉質でトゲがある → 防御低め＋トゲ反射5%。
-  - 例: ゴム → 電気を通しにくい → 雷無効。
-  - 例: 氷 → 冷却し凍結させる → 次ターン相手を凍結(行動不能)。
-  - 例: 盾(サボテン製) → 植物素材で柔らかい → 防御力を通常より低く、トゲ反射付与。
-  - 例: ライオンの毛 → 本体でないため攻防は極めて低い。
-2. シナジー評価：複合語の組み合わせが実際に与える効果を厳密に算定し、響きの強さだけで誇張しない。
-3. 役割判定：攻撃=破壊・加害、 防御=遮断・吸収、 サポート=回復・強化/弱体化。文脈から最も自然な役割を選ぶ。
-4. 数値化ポリシー：
+【特性抽出と査定手順】
+1. 物質的・概念的特性の抽出：「${original}」を構成する名詞・素材・生物・概念を分解し、物理的・化学的・生物学的・概念的性質を特定する。
+   - 例: サボテン → 多肉質でトゲがある。
+   - 例: ゴム → 電気を通しにくい絶縁体。
+   - 例: 氷 → 冷却し滑りやすく凍結させる。
+   - 例: 盾(サボテン製) → 植物素材で柔らかい。
+   - 例: ライオンの毛 → 本体でないので攻防は極低。
+2. 特殊効果設計：抽出した特性に基づいて specialEffect を必ず生成する。サボテンなら「防御時にトゲ反射ダメージ」、氷なら「相手を凍結させ次ターン行動不能」など、特性に即したユニークな効果にすること。
+3. 数値調整：特性に合わせて attack/defense を上下させる（例: サボテンの盾は柔らかいので防御を下げつつ反射効果を付与）。
+4. シナジー評価：複合語の組み合わせを厳密に評価し、響きだけで誇張しない。
+5. 役割判定：攻撃=破壊・加害、防御=遮断・吸収、サポート=回復・強化/弱体化。最も自然な役割を選ぶ。
+6. 数値化ポリシー：
    0-10   : 日常品／ゴミ／弱気（ため息・垢・毛など）
    11-40  : 一般武器・小動物・初級魔法
    41-70  : 伝説武器・大型モンスター・中級魔法・自然現象
    71-90  : 神話級存在・究極魔法・天変地異
    91-100 : 世界崩壊・概念的死・時空破壊（極稀）
-5. 防御失敗ポリシー：防御フェーズで攻撃的／破壊的な語は必ず role: "attack" と判定し、防御失敗の原因となること。
+7. 防御失敗ポリシー：防御フェーズで攻撃的／破壊的な語は必ず role: "attack" と判定し、防御失敗の原因とする。
 
 【出力フォーマット】必ず JSON のみで出力。キーは固定：
 {
@@ -67,12 +69,12 @@ async function generateCard(word) {
   "specialEffect": "言葉固有のユニーク効果（例: トゲ反射5%、雷無効、凍結など）",
   "attribute": "light/dark/fire/water/thunder/earth/wind/neutral",
   "role": "attack/defense/heal/support",
-  "judgeComment": "物理・化学・生物特徴から数値と効果を導いた理由を20-80文字で冷徹に説明"
+  "judgeComment": "物理・化学・生物・概念特性から数値と効果を導いた理由を20-80文字で冷徹に説明"
 }
 
 【重要】
 - JSON のみを返す。説明文やマークダウンは禁止。
-- 構成要素の物理・化学・生物特徴を踏まえた specialEffect を必ず付与。`;
+- 特性に基づく specialEffect と、その理由である judgeComment を必ず含める。`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -80,7 +82,7 @@ async function generateCard(word) {
     const responseText = result.response.text().trim();
     const cardData = JSON.parse(responseText);
 
-    if (!cardData.word || cardData.attack === undefined || cardData.defense === undefined) {
+    if (!cardData.word || cardData.attack === undefined || cardData.defense === undefined || !cardData.specialEffect || !cardData.judgeComment) {
       throw new Error('必須フィールドが不足しています');
     }
 
@@ -361,9 +363,9 @@ function handleDefend(roomId, socket, word) {
   });
 }
 
-function removeFromQueues(socketId) {
-  const idx = randomQueue.findIndex(p => p.socket.id === socketId);
-  if (idx >= 0) randomQueue.splice(idx, 1);
+function removeFromWaiting(socketId) {
+  const idx = waitingPlayers.findIndex(p => p.socket.id === socketId);
+  if (idx >= 0) waitingPlayers.splice(idx, 1);
 
   const processedRooms = new Set();
 
@@ -397,10 +399,12 @@ function removeFromQueues(socketId) {
       }
     }
   }
+
+  broadcastWaitingQueue();
 }
 
 function handleDisconnect(socket) {
-  removeFromQueues(socket.id);
+  removeFromWaiting(socket.id);
   const roomId = socket.data.roomId;
   if (!roomId) return;
   const room = rooms.get(roomId);
@@ -433,7 +437,7 @@ function handleCancelMatch(socket) {
     return;
   }
 
-  removeFromQueues(socket.id);
+  removeFromWaiting(socket.id);
   if (roomId) {
     socket.leave(roomId);
     socket.data.roomId = null;
@@ -442,8 +446,17 @@ function handleCancelMatch(socket) {
   socket.emit('matchCancelled', { message: 'マッチングをキャンセルしました' });
 }
 
+function broadcastWaitingQueue() {
+  const payload = {
+    players: waitingPlayers.map(p => ({ id: p.socket.id, name: p.name })),
+    canStart: false,
+    hostId: null
+  };
+  waitingPlayers.forEach(p => p.socket.emit('waitingUpdate', payload));
+}
+
 io.on('connection', (socket) => {
-  socket.on('joinGame', ({ name, mode, password }) => {
+  socket.on('startMatching', ({ name, mode, password }) => {
     const playerName = (name || '').trim();
     if (!playerName) {
       socket.emit('errorMessage', { message: 'プレイヤー名を入力してください' });
@@ -451,6 +464,9 @@ io.on('connection', (socket) => {
     }
 
     const playerEntry = { socket, name: playerName };
+
+    // 二重登録防止
+    removeFromWaiting(socket.id);
 
     if (mode === 'password' && password) {
       let roomId = passwordRooms.get(password);
@@ -483,18 +499,19 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (mode === 'random') {
-      if (randomQueue.length > 0) {
-        const opponent = randomQueue.shift();
-        createRoom([opponent, playerEntry], 'random', null);
-      } else {
-        randomQueue.push(playerEntry);
-        socket.emit('waitingUpdate', { players: [{ id: socket.id, name: playerName }], canStart: false });
-      }
-      return;
+    // デフォルトはランダムマッチ
+    if (waitingPlayers.length > 0) {
+      const opponent = waitingPlayers.shift();
+      createRoom([opponent, playerEntry], 'random', null);
+    } else {
+      waitingPlayers.push(playerEntry);
+      broadcastWaitingQueue();
     }
+  });
 
-    socket.emit('errorMessage', { message: 'マッチ方式を選択してください' });
+  // 後方互換: 旧イベント名も受け付ける
+  socket.on('joinGame', (payload) => {
+    socket.emit('errorMessage', { message: 'このクライアントは更新が必要です。再読込してください。' });
   });
 
   socket.on('requestStart', () => {
@@ -589,8 +606,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('cancelMatching', () => {
+    handleCancelMatch(socket);
+    broadcastWaitingQueue();
+  });
+
+  // 後方互換
   socket.on('cancelMatch', () => {
     handleCancelMatch(socket);
+    broadcastWaitingQueue();
   });
 
   socket.on('disconnect', () => {

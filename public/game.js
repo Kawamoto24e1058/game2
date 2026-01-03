@@ -165,11 +165,9 @@ function setStatus(message) {
   document.getElementById('statusMessage').textContent = message;
 }
 
-function toggleInputs(canAttack, canDefend) {
+function toggleInputs(canAttack) {
   document.getElementById('attackWordInput').disabled = !canAttack;
   document.getElementById('attackBtn').disabled = !canAttack;
-  document.getElementById('defenseWordInput').disabled = !canDefend;
-  document.getElementById('defenseBtn').disabled = !canDefend;
 }
 
 function renderWaiting(players, canStart, hostId) {
@@ -227,7 +225,7 @@ function initSocket() {
     updateSupportCounter();
     const myTurn = currentTurn === playerId;
     updateTurnIndicator(myTurn);
-    toggleInputs(myTurn, false);
+    toggleInputs(myTurn);
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
     appendLog('バトル開始！', 'info');
   });
@@ -241,7 +239,7 @@ function initSocket() {
     
     appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${card.attribute}) ATK:${card.attack}`, 'damage');
     flashAttackEffect();
-    toggleInputs(false, false);
+    toggleInputs(false);
     
     if (isDefender) {
       // 防御ポップアップモーダル表示
@@ -292,7 +290,7 @@ function initSocket() {
     currentTurn = nextTurn;
     const myTurn = currentTurn === playerId;
     updateTurnIndicator(myTurn);
-    toggleInputs(myTurn, false);
+    toggleInputs(myTurn);
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
@@ -313,7 +311,7 @@ function initSocket() {
     
     updateHealthBars(myHp, opponentHp);
     
-    toggleInputs(true, false);
+    toggleInputs(true);
   });
 
   socket.on('opponentLeft', ({ message }) => {
@@ -351,7 +349,7 @@ function join(matchType) {
     setTimeout(() => join(matchType), 200);
     return;
   }
-  socket.emit('joinGame', { name: playerName, mode: matchType, password: matchType === 'password' ? password : undefined });
+  socket.emit('startMatching', { name: playerName, mode: matchType, password: matchType === 'password' ? password : undefined });
 }
 
 function requestStart() {
@@ -362,12 +360,6 @@ function submitAttack() {
   const word = document.getElementById('attackWordInput').value.trim();
   socket.emit('playWord', { word });
   document.getElementById('attackWordInput').value = '';
-}
-
-function submitDefense() {
-  const word = document.getElementById('defenseWordInput').value.trim();
-  socket.emit('defendWord', { word });
-  document.getElementById('defenseWordInput').value = '';
 }
 
 function showDefenseModal(attackCard) {
@@ -416,7 +408,7 @@ function submitSupport() {
 
 function cancelMatching() {
   if (socket) {
-    socket.emit('cancelMatch');
+    socket.emit('cancelMatching');
   }
   showSection('homeSection');
 }
@@ -430,7 +422,6 @@ function bindUI() {
   document.getElementById('cancelMatchingBtn').addEventListener('click', cancelMatching);
   document.getElementById('returnHomeBtn').addEventListener('click', () => location.reload());
   document.getElementById('attackBtn').addEventListener('click', submitAttack);
-  document.getElementById('defenseBtn').addEventListener('click', submitDefense);
   document.getElementById('defenseModalBtn').addEventListener('click', submitDefenseModal);
   document.getElementById('defenseModalInput').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') submitDefenseModal();
@@ -447,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindUI();
   initSocket();
   showSection('homeSection');
-  toggleInputs(false, false);
+  toggleInputs(false);
 });
 
 // マッチタイプ選択（新UI）
