@@ -9,7 +9,6 @@ let currentTurn = null;
 let myHp = 0;
 let opponentHp = 0;
 let supportRemaining = 3;
-let supportRemaining = 3;
 
 // 演出関数群
 function showFloatingText(x, y, text, type = 'damage') {
@@ -73,11 +72,13 @@ function showCutin(card, duration = 2500) {
     const cutinWord = document.getElementById('cutinWord');
     const cutinStats = document.getElementById('cutinStats');
     const cutinTier = document.getElementById('cutinTier');
+    const cutinSpecial = document.getElementById('cutinSpecial');
     const cutinComment = document.getElementById('cutinComment');
 
     cutinWord.textContent = card.word;
     cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}] ${card.effect.toUpperCase()}`;
+    cutinSpecial.textContent = `特殊効果: ${card.specialEffect || 'なし'}`;
     cutinComment.textContent = card.judgeComment || '審判: 良好';
 
     cutinModal.classList.remove('hidden');
@@ -148,7 +149,7 @@ function updateSupportCounter() {
 }
 
 function showSection(id) {
-  ['homeSection', 'waitingSection', 'battleSection', 'resultSection'].forEach(sec => {
+  ['homeSection', 'matchingSection', 'waitingSection', 'battleSection', 'resultSection'].forEach(sec => {
     document.getElementById(sec).classList.add('hidden');
   });
   document.getElementById(id).classList.remove('hidden');
@@ -219,8 +220,15 @@ function initSocket() {
   });
 
   socket.on('waitingUpdate', ({ players = [], canStart = false, hostId }) => {
-    renderWaiting(players, canStart, hostId);
-    document.getElementById('waitingInfo').textContent = `参加人数: ${players.length}人`;
+    if (roomId) {
+      showSection('waitingSection');
+      renderWaiting(players, canStart, hostId);
+      document.getElementById('waitingInfo').textContent = `参加人数: ${players.length}人`;
+    } else {
+      showSection('matchingSection');
+      const matchingMessage = document.getElementById('matchingMessage');
+      matchingMessage.textContent = `参加待ち: ${players.length}人。相手を待っています...`;
+    }
   });
 
   socket.on('battleStarted', ({ players, turn }) => {
@@ -329,6 +337,15 @@ function initSocket() {
   });
 
   socket.on('status', ({ message }) => setStatus(message));
+
+  socket.on('matchCancelled', ({ message }) => {
+    roomId = null;
+    currentTurn = null;
+    isHost = false;
+    supportRemaining = 3;
+    showSection('homeSection');
+    setStatus(message || 'マッチングをキャンセルしました');
+  });
 }
 
 function join(matchType) {
@@ -338,6 +355,11 @@ function join(matchType) {
     alert('プレイヤー名を入力してください');
     return;
   }
+  const matchingMessage = document.getElementById('matchingMessage');
+  matchingMessage.textContent = matchType === 'password'
+    ? '指定されたパスワードで相手を探しています...'
+    : '相手を探しています...';
+  showSection('matchingSection');
   if (!socket || !socket.connected) {
     initSocket();
     setTimeout(() => join(matchType), 200);
@@ -405,11 +427,20 @@ function submitSupport() {
   socket.emit('supportAction', { word });
   document.getElementById('attackWordInput').value = '';
 }
+
+function cancelMatching() {
+  if (socket) {
+    socket.emit('cancelMatch');
+  }
+  showSection('homeSection');
+}
+
 function bindUI() {
   document.getElementById('randomMatchBtn').addEventListener('click', () => join('random'));
   document.getElementById('passwordMatchBtn').addEventListener('click', () => join('password'));
   document.getElementById('startBattleBtn').addEventListener('click', requestStart);
-  document.getElementById('backHomeBtn').addEventListener('click', () => location.reload());
+  document.getElementById('waitingCancelBtn').addEventListener('click', cancelMatching);
+  document.getElementById('cancelMatchingBtn').addEventListener('click', cancelMatching);
   document.getElementById('returnHomeBtn').addEventListener('click', () => location.reload());
   document.getElementById('attackBtn').addEventListener('click', submitAttack);
   document.getElementById('defenseBtn').addEventListener('click', submitDefense);

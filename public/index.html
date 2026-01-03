@@ -27,12 +27,22 @@
       </div>
     </div>
 
+    <div id="matchingSection" class="section hidden">
+      <h2>マッチング待機中...</h2>
+      <p id="matchingMessage" class="description">相手を探しています。しばらくお待ちください。</p>
+      <div class="matching-indicator">
+        <div class="spinner"></div>
+        <div class="matching-text">Searching...</div>
+      </div>
+      <button id="cancelMatchingBtn" class="btn btn-secondary">マッチングをキャンセル</button>
+    </div>
+
     <div id="waitingSection" class="section hidden">
       <h2>ウェイティングルーム</h2>
       <p id="waitingInfo" class="description"></p>
       <div id="playerList" class="battle-log"></div>
       <button id="startBattleBtn" class="btn btn-battle" disabled>バトル開始</button>
-      <button id="backHomeBtn" class="btn btn-secondary">ホームに戻る</button>
+      <button id="waitingCancelBtn" class="btn btn-secondary">マッチングをキャンセル</button>
     </div>
 
     <div id="battleSection" class="section hidden">
@@ -92,6 +102,7 @@
         <div class="cutin-word" id="cutinWord"></div>
         <div class="cutin-stats" id="cutinStats"></div>
         <div class="cutin-tier" id="cutinTier"></div>
+        <div class="cutin-special" id="cutinSpecial"></div>
         <div class="cutin-comment" id="cutinComment"></div>
       </div>
     </div>

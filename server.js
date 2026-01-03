@@ -37,132 +37,76 @@ const rooms = new Map(); // roomId -> room state
 async function generateCard(word) {
   const original = word;
   
-  const prompt = `あなたはカードゲームのAIです。ユーザーが入力した言葉から、そのカードの能力値を決定してください。
+  const prompt = `あなたは世界一厳しいカードゲームの「冷徹な審判」です。感情を排し、言葉全体の文脈を解剖し、物理的・化学的・生物学的特徴からゲーム効果を生成してください。甘い評価は禁止。
 
-【入力】${original}
+評価対象ワード: "${original}"
 
-【出力形式】以下のJSON形式で、絶対にこの形式を守って出力してください：
+【分析手順】
+1. 構成要素の抽出と特徴調査：「${original}」を構成する名詞・素材・生物を分解し、それぞれの物理的・化学的・生物学的性質を特定する。
+   - 例: サボテン → 多肉質でトゲがある → 触れるとダメージ反射。
+   - 例: ゴム → 電気を通しにくい → 雷属性を無効化。
+   - 例: 氷 → 冷却し凍結させる → 次ターン相手を凍結(行動不能)。
+   - 例: 盾(サボテン製) → 植物素材で柔らかい → 防御力を通常より低く、ただしトゲ反射を付与。
+2. シナジー評価：複合語の組み合わせが実際に与える効果を厳密に算定し、単なる響きの強さで誇張しない。
+3. 数値化ポリシー：
+   0-10   : 日常品／ゴミ／弱気（ため息・垢・毛など）
+   11-40  : 一般武器・小動物・初級魔法
+   41-70  : 伝説武器・大型モンスター・中級魔法・自然現象
+   71-90  : 神話級存在・究極魔法・天変地異
+   91-100 : 世界崩壊・概念的死・時空破壊（極稀）
+4. 防御失敗ポリシー：防御フェーズで攻撃的／破壊的な語は必ず role: "attack" と判定し、防御失敗の原因となること。
+
+【出力フォーマット】必ず JSON のみで出力。キーは固定：
 {
-  "word": "ユーザーの入力した言葉",
-  "attack": 0-100の数値（攻撃力）,
-  "defense": 0-100の数値（防御力）,
-  "attribute": "light/dark/fire/water/thunder/earth/wind/heal のいずれか",
-  "effect": "attack/defense/heal/support のいずれか",
-  "supportType": "heal_boost/attack_boost/defense_boost/enemy_debuff/general_boost/null のいずれか",
-  "tier": "common/weapon/mythical のいずれか"
+  "word": "入力文字列",
+  "attack": 0-100 の整数,
+  "defense": 0-100 の整数,
+  "supportEffect": "heal_boost/attack_boost/defense_boost/enemy_debuff/general_boost/null",
+  "specialEffect": "言葉固有のユニーク効果（例: トゲ反射5%、雷無効、凍結など）",
+  "attribute": "light/dark/fire/water/thunder/earth/wind/neutral",
+  "role": "attack/defense/heal/support",
+  "judgeComment": "物理・化学・生物特徴から数値と効果を導いた理由を20-80文字で冷徹に説明"
 }
 
-【評価ルール】
-1. 【主語が強くても述語が弱ければ弱くする】
-   - 例：「ドラゴンのため息」→ ドラゴン(強い)だが、ため息(弱い)なので、全体的に弱い（攻撃力15程度）
-   - 例：「神の祝福」→ 神(強い)＋祝福(サポート効果)で、support（防御力が高い）
-
-2. 【フレーズ全体のニュアンスを読み取る】
-   - 「つぶやき」「ため息」「あくび」「寝ぼけ」「なでる」などが含まれると、全体的に弱くしてください（5-15）
-   - 「古い」「錆びた」「壊れた」などが含まれると、本来の強さから-15程度
-
-3. 【tier の判定】
-   - mythical: 神話級・伝説級（excalibur, 神, ドラゴン, 大黒ホール, ビッグバンなど）→ 攻撃力80-100
-   - weapon: 現代兵器・強者（日本刀, 戦車, 魔法, 炎, 雷など）→ 攻撃力50-79
-   - common: 日用品・一般的な物（棒, 石, 拳, 本など）→ 攻撃力10-49
-
-4. 【effect の判定】
-   - "attack": 攻撃的な言葉（斬る, 爆発, 猛火など）
-   - "defense": 防御的な言葉（盾, ガード, 壁など）
-   - "heal": 回復的な言葉（癒し, 回復, 薬など）
-   - "support": サポート的な言葉（祝福, 応援, 強化など）
-
-5. 【supportType の判定】（effect が "support" の場合のみ）
-   - "heal_boost": HP回復系（癒し, 回復, 薬など）
-   - "attack_boost": 攻撃強化系（強化, 力, パワーなど）
-   - "defense_boost": 防御強化系（守る, 保護, 盾など）
-   - "enemy_debuff": 敵弱体化系（呪い, 弱体化, 封印など）
-   - "general_boost": 汎用系
-
-6. 【attribute の判定】
-   - "light": 光、聖、神聖、天使など
-   - "dark": 闇、影、呪いなど
-   - "fire": 炎、火、燃焼など
-   - "water": 水、氷、冷凍など
-   - "thunder": 雷、電撃、稲妻など
-   - "earth": 土、岩、地面など
-   - "wind": 風、空気、吹き飛ばすなど
-   - "heal": 治癒、回復など
-
-7. 【数値の決定】
-   - attack: effect が "attack" の場合に高い値。防御的だと低い
-   - defense: 防御効果が強いほど高い値。攻撃的だと低い
-   - サポート系は attack=60, defense=70 程度
-
-【例）**絶対にこのJSON形式に従ってください**
-入力：「ドラゴンのため息」
-出力：{
-  "word": "ドラゴンのため息",
-  "attack": 12,
-  "defense": 8,
-  "attribute": "wind",
-  "effect": "attack",
-  "supportType": null,
-  "tier": "common"
-}
-
-入力：「聖なる光の盾」
-出力：{
-  "word": "聖なる光の盾",
-  "attack": 20,
-  "defense": 85,
-  "attribute": "light",
-  "effect": "defense",
-  "supportType": null,
-  "tier": "weapon"
-}
-
-入力：「神の祝福」
-出力：{
-  "word": "神の祝福",
-  "attack": 30,
-  "defense": 80,
-  "attribute": "light",
-  "effect": "support",
-  "supportType": "defense_boost",
-  "tier": "mythical"
-}
-
-【JSON だけを出力してください。説明文やマークダウンは一切含めないでください】`;
+【重要】
+- JSON のみを返す。説明文やマークダウンは禁止。
+- 構成要素の物理・化学・生物特徴を踏まえた specialEffect を必ず付与。`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent(prompt);
     const responseText = result.response.text().trim();
-    
-    // JSONをパース
     const cardData = JSON.parse(responseText);
-    
-    // 必須フィールドの検証
+
     if (!cardData.word || cardData.attack === undefined || cardData.defense === undefined) {
       throw new Error('必須フィールドが不足しています');
     }
 
-    // レスポンス形成
+    const attackVal = Math.max(0, Math.min(100, Math.round(cardData.attack)));
+    const defenseVal = Math.max(0, Math.min(100, Math.round(cardData.defense)));
+    const role = (cardData.role || cardData.effect || 'attack').toLowerCase();
+    const supportType = cardData.supportEffect || cardData.supportType || null;
+    const attribute = cardData.attribute || 'neutral';
+    const specialEffect = cardData.specialEffect || 'none';
+    const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
+
     return {
       word: cardData.word,
-      attribute: cardData.attribute || 'neutral',
-      attack: Math.max(0, Math.min(100, Math.round(cardData.attack))),
-      defense: Math.max(0, Math.min(100, Math.round(cardData.defense))),
-      effect: cardData.effect || 'attack',
-      tier: cardData.tier || 'common',
-      supportType: cardData.supportType || null,
+      attribute,
+      attack: attackVal,
+      defense: defenseVal,
+      effect: role,
+      tier,
+      supportType,
+      specialEffect,
       judgeComment: cardData.judgeComment || '審判のコメントなし',
-      description: `${(cardData.attribute || 'NEUTRAL').toUpperCase()} [${(cardData.tier || 'common').toUpperCase()}] / ATK:${cardData.attack} DEF:${cardData.defense} / ${cardData.effect}${cardData.supportType ? ' (' + cardData.supportType + ')' : ''}`
+      description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${supportType ? ' (' + supportType + ')' : ''} / ${specialEffect}`
     };
   } catch (error) {
     console.error('❌ Gemini API エラー:', error);
-    // フォールバック: 簡単な強さ判定
     return generateCardFallback(original);
   }
 }
-
-// フォールバック関数（APIエラー時）
 function generateCardFallback(word) {
   const lower = word.toLowerCase();
   let strength = 30;
@@ -186,6 +130,8 @@ function generateCardFallback(word) {
     effect: 'attack',
     tier,
     supportType: null,
+    judgeComment: 'フォールバック: 簡易推定',
+    specialEffect: 'none',
     description: `[${tier.toUpperCase()}] ATK:${strength} DEF:${Math.round(strength * 0.7)}`
   };
 }
@@ -417,14 +363,35 @@ function removeFromQueues(socketId) {
   const idx = randomQueue.findIndex(p => p.socket.id === socketId);
   if (idx >= 0) randomQueue.splice(idx, 1);
 
+  const processedRooms = new Set();
+
   for (const [pwd, roomId] of passwordRooms) {
     const room = rooms.get(roomId);
     if (room && room.players.some(p => p.id === socketId) && !room.started) {
       room.players = room.players.filter(p => p.id !== socketId);
+      if (room.hostId === socketId) {
+        room.hostId = room.players[0]?.id || null;
+      }
       broadcastWaiting(roomId);
+      processedRooms.add(roomId);
       if (room.players.length === 0) {
         rooms.delete(roomId);
         passwordRooms.delete(pwd);
+      }
+    }
+  }
+
+  for (const [roomId, room] of rooms) {
+    if (processedRooms.has(roomId)) continue;
+    if (room && room.players.some(p => p.id === socketId) && !room.started) {
+      room.players = room.players.filter(p => p.id !== socketId);
+      if (room.hostId === socketId) {
+        room.hostId = room.players[0]?.id || null;
+      }
+      broadcastWaiting(roomId);
+      if (room.players.length === 0) {
+        rooms.delete(roomId);
+        if (room.password) passwordRooms.delete(room.password);
       }
     }
   }
@@ -454,6 +421,23 @@ function handleDisconnect(socket) {
   }
   rooms.delete(roomId);
   if (room.password) passwordRooms.delete(room.password);
+}
+
+function handleCancelMatch(socket) {
+  const roomId = socket.data.roomId;
+  const room = roomId ? rooms.get(roomId) : null;
+  if (room && room.started) {
+    socket.emit('errorMessage', { message: 'バトル開始後はキャンセルできません' });
+    return;
+  }
+
+  removeFromQueues(socket.id);
+  if (roomId) {
+    socket.leave(roomId);
+    socket.data.roomId = null;
+  }
+
+  socket.emit('matchCancelled', { message: 'マッチングをキャンセルしました' });
 }
 
 io.on('connection', (socket) => {
@@ -601,6 +585,10 @@ io.on('connection', (socket) => {
       console.error('サポートカード生成エラー:', error);
       socket.emit('errorMessage', { message: 'エラーが発生しました' });
     }
+  });
+
+  socket.on('cancelMatch', () => {
+    handleCancelMatch(socket);
   });
 
   socket.on('disconnect', () => {
