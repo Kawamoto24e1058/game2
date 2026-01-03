@@ -25,16 +25,48 @@ const rooms = new Map(); // roomId -> room state
 function generateCard(word) {
   const lower = word.toLowerCase();
   const len = word.length;
-  const vowels = (word.match(/[aeiouAEIOUぁ-んー]/g) || []).length;
-  const consonants = Math.max(1, len - vowels);
 
+  // 言葉の意味の深い理解に基づく強度スコア算出
+  const strengthMap = {
+    // 最高峰（80-100）：神話的・宇宙規模
+    'god': 95, 'goddess': 95, 'universe': 95, 'big bang': 95, '神': 95, 'dragon': 90, 'ドラゴン': 90,
+    'phoenix': 88, 'nuke': 85, '核': 85, 'blackhole': 92, 'supernova': 90,
+    // 高度（70-79）：伝説的・強力な存在
+    'titan': 78, 'demon': 75, 'wizard': 72, 'sword': 70, 'ancient': 72, '魔法': 75, '騎士': 70,
+    // 中程度（50-69）：一般的な強さ
+    'fire': 60, 'water': 58, '炎': 60, '水': 58, 'shield': 55, '盾': 55, 'bow': 52, 'magic': 65,
+    'thunder': 65, '雷': 65, 'earth': 55, '土': 55, 'wind': 60, '風': 60,
+    // 低度（20-49）：日用品・弱い存在
+    'stick': 15, '棒': 15, 'stone': 25, '石': 25, 'rope': 12, 'punch': 30, 'パンチ': 30,
+    'slap': 10, 'poke': 8, '突く': 10,
+    // 回復系（属性で判定）
+    'heal': 0, '癒': 0, 'cure': 0, '回復': 0, 'medicine': 0,
+    // 防御系
+    'defend': 0, 'guard': 0, '守': 0, 'protect': 0, '保護': 0
+  };
+
+  // ベーススコア計算
+  let baseStrength = 40;
+  for (const [key, score] of Object.entries(strengthMap)) {
+    if (lower.includes(key)) {
+      baseStrength = score;
+      break;
+    }
+  }
+
+  // 複合語による微調整
+  if (lower.includes('ancient') || lower.includes('old') || lower.includes('ancient')) baseStrength += 5;
+  if (lower.includes('mega') || lower.includes('ultra')) baseStrength += 10;
+  if (lower.includes('mini') || lower.includes('tiny')) baseStrength = Math.max(5, baseStrength - 15);
+
+  // 属性判定
   const attributes = [
-    { key: 'fire', match: /(火|炎|burn|fire|flame)/i },
-    { key: 'water', match: /(水|氷|ice|aqua|water|freeze)/i },
-    { key: 'thunder', match: /(雷|電|thunder|shock|volt)/i },
-    { key: 'earth', match: /(土|岩|stone|earth)/i },
-    { key: 'wind', match: /(風|air|wind|storm)/i },
-    { key: 'heal', match: /(癒|回復|heal|cure|restore)/i }
+    { key: 'fire', match: /(火|炎|burn|fire|flame|lava|magma)/i },
+    { key: 'water', match: /(水|氷|ice|aqua|water|freeze|tsunami)/i },
+    { key: 'thunder', match: /(雷|電|thunder|shock|volt|lightning)/i },
+    { key: 'earth', match: /(土|岩|stone|earth|rock|mountain|quake)/i },
+    { key: 'wind', match: /(風|air|wind|storm|tornado)/i },
+    { key: 'heal', match: /(癒|回復|heal|cure|restore|medicine)/i }
   ];
 
   let attribute = 'neutral';
@@ -45,21 +77,44 @@ function generateCard(word) {
     }
   }
 
+  // 効果判定
   let effect = 'attack';
-  if (/heal|癒|回復/i.test(word)) effect = 'heal';
-  else if (/守|盾|defend|guard/i.test(word)) effect = 'defense';
-  else if (/支援|補助|support|boost/i.test(word)) effect = 'support';
+  if (/heal|癒|回復|cure|medicine/i.test(word)) {
+    effect = 'heal';
+  } else if (/defend|guard|盾|shield|protect/i.test(word)) {
+    effect = 'defense';
+  } else if (/support|補助|boost|enhance|aid/i.test(word)) {
+    effect = 'support';
+  }
 
-  const attack = Math.min(70, 20 + len * 3 + Math.floor(Math.random() * 12) + (consonants > vowels ? 5 : 0));
-  const defense = Math.min(60, 15 + vowels * 2 + Math.floor(Math.random() * 10) + (effect === 'defense' ? 10 : 0));
+  // 攻撃力・防御力の計算
+  let attack, defense;
+
+  if (effect === 'heal') {
+    attack = 0;
+    defense = baseStrength * 0.6;
+  } else if (effect === 'defense') {
+    attack = Math.round(baseStrength * 0.5);
+    defense = baseStrength * 1.2;
+  } else if (effect === 'support') {
+    attack = Math.round(baseStrength * 0.8);
+    defense = Math.round(baseStrength * 0.8);
+  } else {
+    // 攻撃効果
+    attack = baseStrength;
+    defense = Math.round(baseStrength * 0.4);
+  }
+
+  attack = Math.min(100, Math.max(0, attack));
+  defense = Math.min(100, Math.max(0, defense));
 
   return {
     word,
     attribute,
-    attack,
-    defense,
+    attack: Math.round(attack),
+    defense: Math.round(defense),
     effect,
-    description: `${attribute} / ATK:${attack} DEF:${defense} / ${effect}`
+    description: `${attribute.toUpperCase()} / ATK:${Math.round(attack)} DEF:${Math.round(defense)} / ${effect}`
   };
 }
 

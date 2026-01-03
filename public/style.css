@@ -376,3 +376,96 @@ h2 {
         grid-template-columns: 1fr;
     }
 }
+
+/* Turn Indicator & Effect Styles */
+.turn-indicator {
+    text-align: center;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    font-weight: bold;
+    font-size: 1.2em;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    transition: all 0.3s;
+}
+
+.turn-indicator.my-turn {
+    background: linear-gradient(135deg, #1dd1a1 0%, #10ac84 100%);
+    box-shadow: 0 4px 15px rgba(29, 209, 161, 0.4);
+}
+
+.turn-indicator.opponent-turn {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+    opacity: 0.8;
+}
+
+.effect-container {
+    position: relative;
+    height: 120px;
+    pointer-events: none;
+    margin-bottom: 10px;
+}
+
+.floating-text {
+    position: absolute;
+    font-weight: bold;
+    font-size: 1.5em;
+    pointer-events: none;
+    animation: floatUp 1.5s ease-out forwards;
+}
+
+.floating-text.damage {
+    color: #ff6b6b;
+}
+
+.floating-text.heal {
+    color: #1dd1a1;
+}
+
+.floating-text.guard {
+    color: #667eea;
+}
+
+@keyframes floatUp {
+    0% {
+        opacity: 1;
+        transform: translateY(0px);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-60px);
+    }
+}
+
+.flash-effect {
+    animation: flashScreen 0.4s ease-out;
+}
+
+@keyframes flashScreen {
+    0% {
+        background-color: rgba(255, 107, 107, 0.3);
+    }
+    50% {
+        background-color: rgba(255, 107, 107, 0.6);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+.bounce-effect {
+    animation: bounce 0.5s ease-out;
+}
+
+@keyframes bounce {
+    0%, 100% {
+        transform: translateX(0);
+    }
+    25% {
+        transform: translateX(-10px);
+    }
+    75% {
+        transform: translateX(10px);
+    }
+}

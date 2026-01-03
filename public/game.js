@@ -9,6 +9,74 @@ let currentTurn = null;
 let myHp = 0;
 let opponentHp = 0;
 
+// 演出関数群
+function showFloatingText(x, y, text, type = 'damage') {
+  const container = document.getElementById('effectContainer');
+  const floatingText = document.createElement('div');
+  floatingText.className = `floating-text ${type}`;
+  floatingText.textContent = text;
+  floatingText.style.left = x + 'px';
+  floatingText.style.top = y + 'px';
+  container.appendChild(floatingText);
+  setTimeout(() => floatingText.remove(), 1500);
+}
+
+function flashAttackEffect() {
+  const battleSection = document.getElementById('battleSection');
+  battleSection.classList.add('flash-effect');
+  setTimeout(() => battleSection.classList.remove('flash-effect'), 400);
+}
+
+function bounceEffect(elementId) {
+  const el = document.getElementById(elementId);
+  el.classList.add('bounce-effect');
+  setTimeout(() => el.classList.remove('bounce-effect'), 500);
+}
+
+function showDamageAnimation(targetHp, damage) {
+  const targetBar = targetHp === 'my' ? document.getElementById('myHealthFill') : document.getElementById('opHealthFill');
+  const rect = targetBar.getBoundingClientRect();
+  const x = rect.left + rect.width / 2 - 20;
+  const y = rect.top + rect.height;
+  
+  flashAttackEffect();
+  showFloatingText(x, y, `-${damage}`, 'damage');
+  bounceEffect(targetHp === 'my' ? 'myHealthFill' : 'opHealthFill');
+}
+
+function showHealAnimation(targetHp, amount) {
+  const targetBar = targetHp === 'my' ? document.getElementById('myHealthFill') : document.getElementById('opHealthFill');
+  const rect = targetBar.getBoundingClientRect();
+  const x = rect.left + rect.width / 2 - 20;
+  const y = rect.top + rect.height;
+  
+  showFloatingText(x, y, `+${amount}`, 'heal');
+}
+
+function showGuardAnimation() {
+  const container = document.getElementById('effectContainer');
+  const guardText = document.createElement('div');
+  guardText.className = 'floating-text guard';
+  guardText.textContent = 'Guard!';
+  guardText.style.left = 'calc(50% - 30px)';
+  guardText.style.top = '20px';
+  container.appendChild(guardText);
+  setTimeout(() => guardText.remove(), 1500);
+}
+
+function updateTurnIndicator(isMyTurn) {
+  const indicator = document.getElementById('turnIndicator');
+  if (isMyTurn) {
+    indicator.textContent = '🟢 あなたのターンです！';
+    indicator.classList.remove('opponent-turn');
+    indicator.classList.add('my-turn');
+  } else {
+    indicator.textContent = '⏳ 相手のターンを待機中...';
+    indicator.classList.remove('my-turn');
+    indicator.classList.add('opponent-turn');
+  }
+}
+
 function showSection(id) {
   ['homeSection', 'waitingSection', 'battleSection', 'resultSection'].forEach(sec => {
     document.getElementById(sec).classList.add('hidden');
@@ -92,8 +160,9 @@ function initSocket() {
     updateHealthBars(me ? me.hp : 100, op ? op.hp : 100);
     currentTurn = turn;
     const myTurn = currentTurn === playerId;
+    updateTurnIndicator(myTurn);
     toggleInputs(myTurn, false);
-    setStatus(myTurn ? 'あなたのターンです' : '相手のターンを待っています');
+    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
     appendLog('バトル開始！', 'info');
   });
 
@@ -101,36 +170,48 @@ function initSocket() {
     const isAttacker = attackerId === playerId;
     const isDefender = defenderId === playerId;
     appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${card.attribute}) ATK:${card.attack}`, 'damage');
+    flashAttackEffect();
     toggleInputs(false, isDefender);
     if (isDefender) {
-      setStatus('防御の言葉を入力してください');
+      setStatus('防御の言葉を入力してください！');
       document.getElementById('defenseWordInput').focus();
     } else {
-      setStatus('相手の防御を待っています');
+      setStatus('相手の防御を待っています...');
     }
   });
 
   socket.on('turnResolved', ({ attackerId, defenderId, attackCard, defenseCard, damage, hp, nextTurn, winnerId }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
-    updateHealthBars(meHp, opHp);
 
+    // ダメージ表示
+    if (damage > 0) {
+      showDamageAnimation(defenderId === playerId ? 'my' : 'op', damage);
+    }
+
+    // 回復表示
+    if (attackCard.effect === 'heal') {
+      showHealAnimation(attackerId === playerId ? 'my' : 'op', Math.round(attackCard.attack * 0.6));
+    }
+
+    updateHealthBars(meHp, opHp);
     appendLog(`攻撃: ${attackCard.word} (${attackCard.effect}) / 防御: ${defenseCard.word} (${defenseCard.effect})`, 'info');
     appendLog(`ダメージ: ${damage}`, 'damage');
 
     if (winnerId) {
       const winMe = winnerId === playerId;
-      setStatus(winMe ? 'あなたの勝利！' : '敗北...');
+      setStatus(winMe ? '🎉 あなたの勝利！🎉' : '😢 敗北...');
       appendLog(winMe ? 'あなたの勝利！' : '相手の勝利', 'win');
       showSection('resultSection');
-      document.getElementById('resultMessage').textContent = winMe ? '勝利しました！' : '敗北しました...';
+      document.getElementById('resultMessage').textContent = winMe ? '勝利しました！🎊' : '敗北しました...😢';
       return;
     }
 
     currentTurn = nextTurn;
     const myTurn = currentTurn === playerId;
+    updateTurnIndicator(myTurn);
     toggleInputs(myTurn, false);
-    setStatus(myTurn ? 'あなたのターンです' : '相手のターンを待っています');
+    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
   socket.on('opponentLeft', ({ message }) => {
