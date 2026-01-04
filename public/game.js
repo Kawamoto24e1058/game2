@@ -65,6 +65,49 @@ function showGuardAnimation() {
   setTimeout(() => guardText.remove(), 1500);
 }
 
+function screenShake() {
+  const battleSection = document.getElementById('battleSection');
+  if (battleSection) {
+    battleSection.classList.add('screen-shake');
+    setTimeout(() => battleSection.classList.remove('screen-shake'), 500);
+  }
+}
+
+function showAffinityMessage(relation) {
+  if (relation === 'advantage') {
+    const msg = document.createElement('div');
+    msg.className = 'affinity-message advantage';
+    msg.textContent = '効果はばつぐんだ！';
+    document.body.appendChild(msg);
+    setTimeout(() => msg.remove(), 2000);
+  } else if (relation === 'disadvantage') {
+    const msg = document.createElement('div');
+    msg.className = 'affinity-message disadvantage';
+    msg.textContent = 'いまひとつのようだ...';
+    document.body.appendChild(msg);
+    setTimeout(() => msg.remove(), 2000);
+  }
+}
+
+// 戦歴管理
+function getWinCount() {
+  return parseInt(localStorage.getItem('battleWins') || '0');
+}
+
+function incrementWinCount() {
+  const wins = getWinCount() + 1;
+  localStorage.setItem('battleWins', wins.toString());
+  return wins;
+}
+
+function displayWinCount() {
+  const wins = getWinCount();
+  const statusMsg = document.getElementById('statusMessage');
+  if (statusMsg && wins > 0) {
+    statusMsg.textContent += ` | 通算勝利数: ${wins}`;
+  }
+}
+
 function buildCutinFlavor({ affinity, defenseCard, defenseFailed }) {
   const notes = [];
   if (affinity?.relation === 'advantage') {
@@ -242,8 +285,12 @@ function initSocket() {
     const myTurn = currentTurn === playerId;
     updateTurnIndicator(myTurn);
     toggleInputs(myTurn);
+    const wins = getWinCount();
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
     appendLog('バトル開始！', 'info');
+    if (wins > 0) {
+      appendLog(`あなたの通算勝利数: ${wins}`, 'info');
+    }
   });
 
   socket.on('attackDeclared', async ({ attackerId, defenderId, card }) => {
@@ -285,6 +332,9 @@ function initSocket() {
     // ダメージ表示
     if (damage > 0) {
       showDamageAnimation(defenderId === playerId ? 'my' : 'op', damage);
+      if (defenderId === playerId && damage > 20) {
+        screenShake();
+      }
     }
 
     // 回復表示
@@ -298,16 +348,24 @@ function initSocket() {
     if (affinity) {
       const relation = affinity.relation || 'neutral';
       appendLog(`属性相性: ${attackCard.attribute} vs ${defenseCard.attribute} → x${affinity.multiplier ?? 1} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
+      showAffinityMessage(relation);
     }
 
     appendLog(`ダメージ: ${damage}`, 'damage');
 
     if (winnerId) {
       const winMe = winnerId === playerId;
-      setStatus(winMe ? '🎉 あなたの勝利！🎉' : '😢 敗北...');
-      appendLog(winMe ? 'あなたの勝利！' : '相手の勝利', 'win');
+      if (winMe) {
+        const totalWins = incrementWinCount();
+        setStatus(`🎉 あなたの勝利！🎉 (通算 ${totalWins} 勝)`);
+        appendLog(`あなたの勝利！(通算 ${totalWins} 勝)`, 'win');
+        document.getElementById('resultMessage').textContent = `勝利しました！🎊\n通算勝利数: ${totalWins}`;
+      } else {
+        setStatus('😢 敗北...');
+        appendLog('相手の勝利', 'win');
+        document.getElementById('resultMessage').textContent = '敗北しました...😢';
+      }
       showSection('resultSection');
-      document.getElementById('resultMessage').textContent = winMe ? '勝利しました！🎊' : '敗北しました...😢';
       return;
     }
 
@@ -422,6 +480,7 @@ function submitDefenseModal() {
     alert('防御の言葉を入力してください！');
     return;
   }
+  console.log('🛡️ 防御を送信:', word);
   socket.emit('defendWord', { word });
   hideDefenseModal();
   setStatus('防御を送信しました...');
@@ -514,6 +573,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initSocket();
   showSection('homeSection');
   toggleInputs(false);
+  
+  // 戦歴を表示
+  const wins = getWinCount();
+  if (wins > 0) {
+    const badge = document.getElementById('winCountBadge');
+    if (badge) {
+      badge.textContent = `🏆 ${wins}勝`;
+      badge.classList.remove('hidden');
+    }
+  }
 });
 
 // マッチタイプ選択（新UI）

@@ -494,8 +494,13 @@ function handlePlayWord(roomId, socket, word) {
 
 function handleDefend(roomId, socket, word) {
   const room = rooms.get(roomId);
-  if (!room || !room.started || !room.pendingAttack) return;
+  if (!room || !room.started || !room.pendingAttack) {
+    console.log('⚠️ 防御エラー: 無効な状態', { roomId, started: room?.started, pendingAttack: !!room?.pendingAttack });
+    socket.emit('errorMessage', { message: '防御できる状態ではありません' });
+    return;
+  }
   if (room.pendingAttack.defenderId !== socket.id) {
+    console.log('⚠️ 防御エラー: 防御者不一致', { expected: room.pendingAttack.defenderId, actual: socket.id });
     socket.emit('errorMessage', { message: 'あなたの防御フェーズではありません' });
     return;
   }
@@ -512,14 +517,20 @@ function handleDefend(roomId, socket, word) {
     return;
   }
 
+  console.log('🛡️ 防御処理開始:', { roomId, defender: socket.id, word: cleanWord });
+
   const attacker = findPlayer(room, room.pendingAttack.attackerId);
   const defender = findPlayer(room, socket.id);
-  if (!attacker || !defender) return;
+  if (!attacker || !defender) {
+    console.log('⚠️ 防御エラー: プレイヤーが見つかりません');
+    return;
+  }
 
   const attackCard = room.pendingAttack.card;
   
   // 非同期で防御カードを生成
   generateCard(cleanWord, 'defense').then(defenseCard => {
+    console.log('🛡️ 防御カード生成完了:', defenseCard);
     room.usedWordsGlobal.add(lower);
     defender.usedWords.add(lower);
 
@@ -587,14 +598,20 @@ function handleDefend(roomId, socket, word) {
       winnerId
     });
 
+    console.log('✅ ターン解決完了:', { damage, winnerId, nextTurn: room.players[room.turnIndex].id });
+
     if (winnerId) {
       updateStatus(roomId, `${attacker.name} の勝利！`);
     } else {
       updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
     }
   }).catch(error => {
-    console.error('防御カード生成エラー:', error);
-    socket.emit('errorMessage', { message: 'エラーが発生しました' });
+    console.error('❌ 防御カード生成エラー:', error);
+    socket.emit('errorMessage', { message: 'エラーが発生しました。もう一度お試しください。' });
+    // エラー時は攻撃をキャンセルして次のターンへ
+    room.pendingAttack = null;
+    room.turnIndex = (room.turnIndex + 1) % room.players.length;
+    updateStatus(roomId, `エラーが発生しました。${room.players[room.turnIndex].name} のターンです`);
   });
 }
 
