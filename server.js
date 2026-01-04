@@ -255,7 +255,11 @@ async function generateCard(word, intent = 'neutral') {
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
+    let responseText = result.response.text().trim();
+    
+    // JSONマークダウン装飾を削除
+    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
     const cardData = JSON.parse(responseText);
 
     // 必須フィールドのチェック（新形式に対応）
