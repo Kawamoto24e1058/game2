@@ -47,8 +47,7 @@ function getAffinity(attackerAttr, defenderAttr) {
   const def = (defenderAttr || '').toLowerCase();
 
   if (strongAgainst[atk] === def) {
-    "judgeComment": "審判の査定理由（属性選択理由、数値根拠、specialEffect の物質的特徴からの導出理由を含む）", \
-    "hasReflect": true/false （反射効果がある場合は true。サボテンを含む場合は必ず true）\
+    return { multiplier: 1.5, relation: 'advantage', isEffective: true };
   }
   if (strongAgainst[def] === atk) {
     return { multiplier: 0.5, relation: 'disadvantage', isEffective: false };
