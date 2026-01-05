@@ -313,7 +313,7 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, hp, nextTurn, winnerId, defenseFailed, affinity }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, hp, nextTurn, winnerId, defenseFailed, affinity }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
 
@@ -335,6 +335,15 @@ function initSocket() {
       if (defenderId === playerId && damage > 20) {
         screenShake();
       }
+    }
+
+    // カウンターダメージ表示（トゲ系）
+    if (counterDamage > 0) {
+      setTimeout(() => {
+        showDamageAnimation(attackerId === playerId ? 'my' : 'op', counterDamage);
+        appendLog(`🌵 カウンター！ トゲで ${counterDamage} ダメージ`, 'damage');
+        showFloatingText(attackerId === playerId ? 'my' : 'op', `カウンター -${counterDamage}`, 'counter');
+      }, 800);
     }
 
     // 回復表示

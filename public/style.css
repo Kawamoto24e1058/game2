@@ -534,6 +534,11 @@ h2 {
 .floating-text.damage { color: #ff5f52; }
 .floating-text.heal { color: #00c293; }
 .floating-text.guard { color: #4ea0f2; }
+.floating-text.counter { 
+  color: #ff9500; 
+  font-weight: 900;
+  text-shadow: 0 0 8px rgba(255, 149, 0, 0.8), 0 0 16px rgba(255, 149, 0, 0.4);
+}
 
 @keyframes floatUp {
   0% { opacity: 1; transform: translateY(0); }

@@ -650,6 +650,14 @@ function handleDefend(roomId, socket, word) {
     const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
     const damage = calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed);
 
+    // カウンターダメージ処理（トゲ系）
+    let counterDamage = 0;
+    if (defenseCard.counterDamage && !defenseFailed) {
+      counterDamage = defenseCard.counterDamage;
+      attacker.hp = Math.max(0, attacker.hp - counterDamage);
+      console.log(`🌵 カウンターダメージ発動: ${defenseCard.counterDamage}ダメージを攻撃者に与えた`);
+    }
+
     if (attackCard.effect === 'heal') {
       attacker.hp = Math.min(STARTING_HP, attacker.hp + Math.round(attackCard.attack * 0.6));
       damage = 0;
@@ -663,6 +671,8 @@ function handleDefend(roomId, socket, word) {
     let winnerId = null;
     if (defender.hp <= 0) {
       winnerId = attacker.id;
+    } else if (attacker.hp <= 0) {
+      winnerId = defender.id;
     }
 
     room.pendingAttack = null;
@@ -677,6 +687,7 @@ function handleDefend(roomId, socket, word) {
       attackCard,
       defenseCard,
       damage,
+      counterDamage,
       affinity,
       hp,
       defenseFailed,
@@ -684,7 +695,7 @@ function handleDefend(roomId, socket, word) {
       winnerId
     });
 
-    console.log('✅ ターン解決完了:', { damage, winnerId, nextTurn: room.players[room.turnIndex].id });
+    console.log('✅ ターン解決完了:', { damage, counterDamage, winnerId, nextTurn: room.players[room.turnIndex].id });
 
     if (winnerId) {
       updateStatus(roomId, `${attacker.name} の勝利！`);
