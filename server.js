@@ -47,12 +47,58 @@ function getAffinity(attackerAttr, defenderAttr) {
   const def = (defenderAttr || '').toLowerCase();
 
   if (strongAgainst[atk] === def) {
-    return { multiplier: 1.5, relation: 'advantage', isEffective: true };
+    return { multiplier: 2.0, relation: 'advantage', isEffective: true };
   }
   if (strongAgainst[def] === atk) {
     return { multiplier: 0.5, relation: 'disadvantage', isEffective: false };
   }
   return { multiplier: 1.0, relation: 'neutral', isEffective: false };
+}
+
+// =====================================
+// ダメージ計算関数（属性相性2.0倍対応）
+// =====================================
+function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false) {
+  const chart = {
+    fire: { earth: 2.0, water: 0.5 },
+    earth: { wind: 2.0, fire: 0.5 },
+    wind: { thunder: 2.0, earth: 0.5 },
+    thunder: { water: 2.0, wind: 0.5 },
+    water: { fire: 2.0, thunder: 0.5 },
+    light: { dark: 2.0 },
+    dark: { light: 2.0 }
+  };
+
+  // 攻撃力補正（ブースト適用）
+  let finalAttack = attackCard.attack;
+  if (attacker.attackBoost > 0) {
+    finalAttack = Math.round(finalAttack * (1 + attacker.attackBoost / 100));
+    attacker.attackBoost = 0;
+  }
+
+  // 属性相性補正
+  let multiplier = 1.0;
+  const atk = (attackCard.attribute || '').toLowerCase();
+  const def = (defenseCard.attribute || '').toLowerCase();
+  if (chart[atk] && chart[atk][def]) {
+    multiplier = chart[atk][def];
+  }
+  finalAttack = Math.round(finalAttack * multiplier);
+
+  // ダメージ計算
+  let damage = 0;
+  if (defenseFailed) {
+    damage = finalAttack;
+  } else {
+    let finalDefense = defenseCard.defense;
+    if (defender.defenseBoost > 0) {
+      finalDefense = Math.round(finalDefense * (1 + defender.defenseBoost / 100));
+      defender.defenseBoost = 0;
+    }
+    damage = Math.max(5, finalAttack - finalDefense);
+  }
+
+  return Math.floor(damage);
 }
 
 // =====================================
@@ -590,29 +636,9 @@ function handleDefend(roomId, socket, word) {
       defenseFailed = true;
     }
 
-    // 攻撃ブースト適用
-    let finalAttack = attackCard.attack;
-    if (attacker.attackBoost > 0) {
-      finalAttack = Math.round(finalAttack * (1 + attacker.attackBoost / 100));
-      attacker.attackBoost = 0;
-    }
-
-    // 属性相性補正
+    // ダメージ計算（属性相性2.0倍対応）
     const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
-    finalAttack = Math.round(finalAttack * affinity.multiplier);
-
-    let damage = 0;
-    if (defenseFailed) {
-      damage = finalAttack;
-    } else {
-      // 通常ダメージ計算
-      let finalDefense = defenseCard.defense;
-      if (defender.defenseBoost > 0) {
-        finalDefense = Math.round(finalDefense * (1 + defender.defenseBoost / 100));
-        defender.defenseBoost = 0;
-      }
-      damage = Math.max(0, finalAttack - finalDefense);
-    }
+    const damage = calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed);
 
     if (attackCard.effect === 'heal') {
       attacker.hp = Math.min(STARTING_HP, attacker.hp + Math.round(attackCard.attack * 0.6));
