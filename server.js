@@ -177,6 +177,8 @@ async function generateCard(word, intent = 'neutral') {
     }
     
     const supportType = cardData.supportEffect || cardData.supportType || null;
+    const effectType = cardData.effectType || supportType || null;
+    const effectValue = cardData.effectValue !== undefined ? Number(cardData.effectValue) : null;
     const attribute = cardData.attribute || 'earth';
     const specialEffect = (cardData.specialEffect && 
                            cardData.specialEffect !== 'none' && 
@@ -187,6 +189,10 @@ async function generateCard(word, intent = 'neutral') {
                            ? cardData.specialEffect 
                            : '【微弱反射】被ダメージの3%を反射';
     const hasReflect = cardData.hasReflect === true || /反射/.test(specialEffect) || /cactus|サボテン/.test(original);
+    const counterDamage = cardData.counterDamage !== undefined
+      ? Number(cardData.counterDamage)
+      : (effectType && effectType.toLowerCase() === 'counter' ? Number(effectValue || 0) : 0);
+    const hasCounter = cardData.hasCounter === true || counterDamage > 0;
     const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
 
     return {
@@ -197,10 +203,14 @@ async function generateCard(word, intent = 'neutral') {
       effect: role,
       tier,
       supportType,
+      effectType,
+      effectValue,
       specialEffect,
       hasReflect,
+      hasCounter,
+      counterDamage,
       judgeComment: cardData.judgeComment || '審判のコメントなし',
-      description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${supportType ? ' (' + supportType + ')' : ''} / ${specialEffect}${hasReflect ? ' / hasReflect' : ''}`
+      description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${effectType ? ' (' + effectType + ')' : ''} / ${specialEffect}${hasReflect ? ' / hasReflect' : ''}${hasCounter ? ` / counter:${counterDamage}` : ''}`
     };
   } catch (error) {
     console.error('❌ Gemini API エラー:', error);
@@ -276,6 +286,7 @@ function createRoom(players, mode, password) {
       name: p.name,
       socketId: p.socket.id,
       hp: STARTING_HP,
+      maxHp: STARTING_HP,
       usedWords: new Set(),
       isHost: idx === 0,
       supportUsed: 0,
@@ -322,7 +333,7 @@ function startBattle(roomId) {
   room.started = true;
   room.phase = 'attack';
   room.turnIndex = Math.floor(Math.random() * room.players.length);
-  room.players.forEach(p => { p.hp = STARTING_HP; });
+  room.players.forEach(p => { p.maxHp = STARTING_HP; p.hp = p.maxHp; });
 
   io.to(roomId).emit('battleStarted', {
     roomId,
@@ -447,12 +458,15 @@ function handleDefend(roomId, socket, word) {
       console.log(`🌵 カウンターダメージ発動: ${defenseCard.counterDamage}ダメージを攻撃者に与えた`);
     }
 
+    const attackerMaxHp = attacker.maxHp || STARTING_HP;
+    const defenderMaxHp = defender.maxHp || STARTING_HP;
+
     if (attackCard.effect === 'heal') {
-      attacker.hp = Math.min(STARTING_HP, attacker.hp + Math.round(attackCard.attack * 0.6));
+      attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(attackCard.attack * 0.6));
       damage = 0;
     }
     if (defenseCard.effect === 'heal' && !defenseFailed) {
-      defender.hp = Math.min(STARTING_HP, defender.hp + Math.round(defenseCard.defense * 0.5));
+      defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(defenseCard.defense * 0.5));
     }
 
     defender.hp = Math.max(0, defender.hp - damage);
@@ -636,8 +650,12 @@ io.on('connection', (socket) => {
           name: playerName,
           socketId: socket.id,
           hp: STARTING_HP,
+          maxHp: STARTING_HP,
           usedWords: new Set(),
-          isHost: false
+          isHost: false,
+          supportUsed: 0,
+          attackBoost: 0,
+          defenseBoost: 0
         });
         socket.join(room.id);
         socket.data.roomId = room.id;
@@ -723,32 +741,93 @@ io.on('connection', (socket) => {
       player.usedWords.add(lower);
       player.supportUsed++;
 
-      // サポート効果適用
-      if (card.supportType === 'heal_boost') {
-        player.hp = Math.min(STARTING_HP, player.hp + 30);
-      } else if (card.supportType === 'attack_boost') {
-        player.attackBoost = 50;
-      } else if (card.supportType === 'defense_boost') {
-        player.defenseBoost = 40;
-      } else if (card.supportType === 'enemy_debuff') {
-        const opponent = getOpponent(room, socket.id);
-        if (opponent) opponent.hp = Math.max(0, opponent.hp - 15);
-      } else {
-        player.hp = Math.min(STARTING_HP, player.hp + 20);
+      const effectTypeRaw = (card.effectType || card.supportType || card.supportEffect || '').toLowerCase();
+      const effectValNum = Number(card.effectValue);
+      const effectValue = Number.isFinite(effectValNum) ? effectValNum : null;
+      const maxHp = player.maxHp || STARTING_HP;
+      const opponent = getOpponent(room, socket.id);
+
+      switch (effectTypeRaw) {
+        case 'hpmaxup': {
+          const gain = effectValue && effectValue > 0 ? effectValue : 20;
+          player.maxHp = (player.maxHp || STARTING_HP) + gain;
+          player.hp = player.hp + gain;
+          break;
+        }
+        case 'heal': {
+          const heal = effectValue && effectValue > 0 ? effectValue : 25;
+          player.hp = Math.min(maxHp, player.hp + heal);
+          break;
+        }
+        case 'buff':
+        case 'attack_boost': {
+          player.attackBoost = effectValue && effectValue > 0 ? effectValue : 50;
+          break;
+        }
+        case 'defense_boost': {
+          player.defenseBoost = effectValue && effectValue > 0 ? effectValue : 40;
+          break;
+        }
+        case 'debuff':
+        case 'enemy_debuff': {
+          if (opponent) {
+            const dmg = effectValue && effectValue > 0 ? effectValue : 15;
+            opponent.hp = Math.max(0, opponent.hp - dmg);
+          }
+          break;
+        }
+        case 'damage': {
+          if (opponent) {
+            const dmg = effectValue && effectValue > 0 ? effectValue : 20;
+            opponent.hp = Math.max(0, opponent.hp - dmg);
+          }
+          break;
+        }
+        default: {
+          // 旧サポート種別との後方互換
+          if (card.supportType === 'heal_boost') {
+            player.hp = Math.min(maxHp, player.hp + 30);
+          } else if (card.supportType === 'attack_boost') {
+            player.attackBoost = 50;
+          } else if (card.supportType === 'defense_boost') {
+            player.defenseBoost = 40;
+          } else if (card.supportType === 'enemy_debuff') {
+            if (opponent) opponent.hp = Math.max(0, opponent.hp - 15);
+          } else {
+            player.hp = Math.min(maxHp, player.hp + 20);
+          }
+        }
       }
 
       const hp = {};
       room.players.forEach(p => { hp[p.id] = p.hp; });
 
+      let winnerId = null;
+      if (room.players.some(p => p.hp <= 0)) {
+        const defeated = room.players.find(p => p.hp <= 0);
+        const survivor = room.players.find(p => p.hp > 0);
+        winnerId = survivor?.id || null;
+      }
+
+      if (!winnerId) {
+        room.turnIndex = (room.turnIndex + 1) % room.players.length;
+      }
+
       io.to(roomId).emit('supportUsed', {
         playerId: player.id,
         card,
         hp,
-        supportRemaining: 3 - player.supportUsed
+        supportRemaining: 3 - player.supportUsed,
+        winnerId,
+        nextTurn: winnerId ? null : room.players[room.turnIndex].id
       });
 
-      room.turnIndex = (room.turnIndex + 1) % room.players.length;
-      updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
+      if (winnerId) {
+        const winnerName = room.players.find(p => p.id === winnerId)?.name || 'プレイヤー';
+        updateStatus(roomId, `${winnerName} の勝利！`);
+      } else {
+        updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
+      }
     } catch (error) {
       console.error('サポートカード生成エラー:', error);
       socket.emit('errorMessage', { message: 'エラーが発生しました' });

@@ -385,24 +385,46 @@ function initSocket() {
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
-  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining }) => {
+  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn }) => {
     await showCutin(card, 2000);
-    
+
     const isMe = supportPlayerId === playerId;
-    appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${card.supportType})`, 'info');
-    
-    if (isMe) {
+    const effectLabel = card.effectType || card.supportType || card.supportEffect || card.effect || 'support';
+    appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+
+    if (isMe && typeof newRemaining === 'number') {
       supportRemaining = newRemaining;
       updateSupportCounter();
     }
-    
+
     myHp = hp[playerId];
     const opponentId = Object.keys(hp).find(id => id !== playerId);
     opponentHp = hp[opponentId];
-    
+
     updateHealthBars(myHp, opponentHp);
-    
-    toggleInputs(true);
+
+    if (winnerId) {
+      const winMe = winnerId === playerId;
+      if (winMe) {
+        const totalWins = incrementWinCount();
+        setStatus(`🎉 あなたの勝利！🎉 (通算 ${totalWins} 勝)`);
+        appendLog(`あなたの勝利！(通算 ${totalWins} 勝)`, 'win');
+        document.getElementById('resultMessage').textContent = `勝利しました！🎊\n通算勝利数: ${totalWins}`;
+      } else {
+        setStatus('😢 敗北...');
+        appendLog('相手の勝利', 'win');
+        document.getElementById('resultMessage').textContent = '敗北しました...😢';
+      }
+      showSection('resultSection');
+      return;
+    }
+
+    if (nextTurn) {
+      currentTurn = nextTurn;
+    }
+    const myTurn = currentTurn === playerId;
+    updateTurnIndicator(myTurn);
+    toggleInputs(myTurn);
   });
 
   socket.on('opponentLeft', ({ message }) => {
