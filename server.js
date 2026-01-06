@@ -27,8 +27,7 @@ if (!apiKey) {
 }
 const genAI = new GoogleGenerativeAI(apiKey);
 
-const waitingPlayers = [];
-const passwordRooms = new Map(); // password -> roomId
+const waitingPlayersByPass = new Map(); // key -> [{ socket, name, password }]
 const rooms = new Map(); // roomId -> room state
 
 // 属性相性（5すくみ + 光/闇相互弱点）
@@ -355,6 +354,12 @@ function getOpponent(room, socketId) {
   return room.players.find(p => p.id !== socketId);
 }
 
+function getWaitingQueue(passwordKey) {
+  const key = passwordKey || '__RANDOM__';
+  if (!waitingPlayersByPass.has(key)) waitingPlayersByPass.set(key, []);
+  return waitingPlayersByPass.get(key);
+}
+
 // 毎ターンの状態異常処理（ターン減少とDoT適用）
 function tickStatusEffects(room) {
   if (!room || !room.players) return { ticks: [] };
@@ -618,33 +623,20 @@ function handleDefend(roomId, socket, word) {
 }
 
 function removeFromWaiting(socketId) {
-  // 待機プレイヤーリストから削除
-  const idx = waitingPlayers.findIndex(p => p.socket.id === socketId);
-  if (idx >= 0) {
-    const removed = waitingPlayers.splice(idx, 1)[0];
-    console.log(`✅ プレイヤー ${removed.name} (${socketId}) を待機リストから削除しました`);
-  }
-
-  const processedRooms = new Set();
-
-  for (const [pwd, roomId] of passwordRooms) {
-    const room = rooms.get(roomId);
-    if (room && room.players.some(p => p.id === socketId) && !room.started) {
-      room.players = room.players.filter(p => p.id !== socketId);
-      if (room.hostId === socketId) {
-        room.hostId = room.players[0]?.id || null;
-      }
-      broadcastWaiting(roomId);
-      processedRooms.add(roomId);
-      if (room.players.length === 0) {
-        rooms.delete(roomId);
-        passwordRooms.delete(pwd);
-      }
+  let removed = false;
+  waitingPlayersByPass.forEach((queue, key) => {
+    const idx = queue.findIndex(p => p.socket.id === socketId);
+    if (idx >= 0) {
+      const player = queue.splice(idx, 1)[0];
+      removed = true;
+      console.log(`✅ プレイヤー ${player.name} (${socketId}) を待機リスト(${key})から削除しました`);
     }
-  }
+    if (queue.length === 0) {
+      waitingPlayersByPass.delete(key);
+    }
+  });
 
   for (const [roomId, room] of rooms) {
-    if (processedRooms.has(roomId)) continue;
     if (room && room.players.some(p => p.id === socketId) && !room.started) {
       room.players = room.players.filter(p => p.id !== socketId);
       if (room.hostId === socketId) {
@@ -653,16 +645,18 @@ function removeFromWaiting(socketId) {
       broadcastWaiting(roomId);
       if (room.players.length === 0) {
         rooms.delete(roomId);
-        if (room.password) passwordRooms.delete(room.password);
       }
     }
   }
 
-  broadcastWaitingQueue();
+  if (removed) {
+    broadcastWaitingQueues();
+  }
 }
 
 function handleDisconnect(socket) {
   removeFromWaiting(socket.id);
+  socket.data.matchPassword = null;
   const roomId = socket.data.roomId;
   if (!roomId) return;
   const room = rooms.get(roomId);
@@ -674,7 +668,6 @@ function handleDisconnect(socket) {
     broadcastWaiting(roomId);
     if (room.players.length === 0) {
       rooms.delete(roomId);
-      if (room.password) passwordRooms.delete(room.password);
     }
     return;
   }
@@ -684,7 +677,6 @@ function handleDisconnect(socket) {
     io.to(roomId).emit('opponentLeft', { winnerId: remaining.id, message: `${remaining.name} の勝利 (相手離脱)` });
   }
   rooms.delete(roomId);
-  if (room.password) passwordRooms.delete(room.password);
 }
 
 function handleCancelMatch(socket) {
@@ -701,6 +693,7 @@ function handleCancelMatch(socket) {
   
   // 待機リストから削除
   removeFromWaiting(socket.id);
+  socket.data.matchPassword = null;
   
   // ルームから退出
   if (roomId) {
@@ -714,13 +707,21 @@ function handleCancelMatch(socket) {
   console.log(`  → キャンセル完了`);
 }
 
-function broadcastWaitingQueue() {
+function broadcastWaitingQueue(key) {
+  const queue = waitingPlayersByPass.get(key);
+  if (!queue) return;
+  const password = key === '__RANDOM__' ? null : key;
   const payload = {
-    players: waitingPlayers.map(p => ({ id: p.socket.id, name: p.name })),
+    players: queue.map(p => ({ id: p.socket.id, name: p.name })),
     canStart: false,
-    hostId: null
+    hostId: null,
+    password
   };
-  waitingPlayers.forEach(p => p.socket.emit('waitingUpdate', payload));
+  queue.forEach(p => p.socket.emit('waitingUpdate', payload));
+}
+
+function broadcastWaitingQueues() {
+  waitingPlayersByPass.forEach((_, key) => broadcastWaitingQueue(key));
 }
 
 io.on('connection', (socket) => {
@@ -731,55 +732,37 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const playerEntry = { socket, name: playerName };
+    const isPasswordMode = mode === 'password';
+    const passwordKey = isPasswordMode ? (password || '').trim() : '__RANDOM__';
+    if (isPasswordMode && !passwordKey) {
+      socket.emit('errorMessage', { message: 'パスワードを入力してください' });
+      return;
+    }
+
+    const playerEntry = { socket, name: playerName, password: passwordKey };
 
     // 二重登録防止（既に待機中の場合は削除）
     console.log(`🔄 ${playerName} (${socket.id}) がマッチング開始`);
     removeFromWaiting(socket.id);
 
-    if (mode === 'password' && password) {
-      let roomId = passwordRooms.get(password);
-      let room = roomId ? rooms.get(roomId) : null;
-      if (!room) {
-        room = createRoom([playerEntry], 'password', password);
-        passwordRooms.set(password, room.id);
-      } else if (room.started) {
-        socket.emit('errorMessage', { message: 'このルームでは既にバトルが開始されています' });
-        return;
-      } else {
-        room.players.push({
-          id: socket.id,
-          name: playerName,
-          socketId: socket.id,
-          hp: STARTING_HP,
-          maxHp: STARTING_HP,
-          usedWords: new Set(),
-          isHost: false,
-          supportUsed: 0,
-          attackBoost: 0,
-          defenseBoost: 0,
-          statusAilments: []
-        });
-        socket.join(room.id);
-        socket.data.roomId = room.id;
-        socket.emit('joinedRoom', {
-          roomId: room.id,
-          players: room.players.map(p => ({ id: p.id, name: p.name })),
-          isHost: false,
-          playerId: socket.id
-        });
-        broadcastWaiting(room.id);
-      }
-      return;
+    // 以前のルーム所属をクリア
+    if (socket.data.roomId) {
+      socket.leave(socket.data.roomId);
+      socket.data.roomId = null;
     }
 
-    // デフォルトはランダムマッチ
-    if (waitingPlayers.length > 0) {
-      const opponent = waitingPlayers.shift();
-      createRoom([opponent, playerEntry], 'random', null);
+    socket.data.matchPassword = passwordKey;
+
+    const queue = getWaitingQueue(passwordKey);
+    if (queue.length > 0) {
+      const opponent = queue.shift();
+      socket.data.matchPassword = null;
+      opponent.socket.data.matchPassword = null;
+      createRoom([opponent, playerEntry], isPasswordMode ? 'password' : 'random', isPasswordMode ? passwordKey : null);
+      broadcastWaitingQueue(passwordKey);
     } else {
-      waitingPlayers.push(playerEntry);
-      broadcastWaitingQueue();
+      queue.push(playerEntry);
+      broadcastWaitingQueue(passwordKey);
     }
   });
 
@@ -1000,13 +983,13 @@ io.on('connection', (socket) => {
 
   socket.on('cancelMatching', () => {
     handleCancelMatch(socket);
-    broadcastWaitingQueue();
+    broadcastWaitingQueues();
   });
 
   // 後方互換
   socket.on('cancelMatch', () => {
     handleCancelMatch(socket);
-    broadcastWaitingQueue();
+    broadcastWaitingQueues();
   });
 
   socket.on('disconnect', () => {

@@ -9,6 +9,10 @@ let currentTurn = null;
 let myHp = 0;
 let opponentHp = 0;
 let supportRemaining = 3;
+let defaultBackground = '';
+let activeFieldName = null;
+let isMatching = false;
+const statusState = { my: [], op: [] };
 
 // 演出関数群
 function showFloatingText(x, y, text, type = 'damage') {
@@ -219,6 +223,113 @@ function appendLog(message, type = 'info') {
   log.scrollTop = log.scrollHeight;
 }
 
+function ensureStatusContainers() {
+  const areas = Array.from(document.querySelectorAll('.player-area'));
+  areas.forEach((area, idx) => {
+    const bar = area.querySelector('.health-bar');
+    if (!bar || bar.parentElement.classList.contains('hp-row')) return;
+    const row = document.createElement('div');
+    row.className = 'hp-row';
+    const badgeRow = document.createElement('div');
+    badgeRow.className = 'status-badge-row';
+    badgeRow.id = idx === 0 ? 'myStatusBadges' : 'opStatusBadges';
+    row.appendChild(bar);
+    row.appendChild(badgeRow);
+    area.appendChild(row);
+  });
+}
+
+function renderStatusBadges() {
+  const map = { my: document.getElementById('myStatusBadges'), op: document.getElementById('opStatusBadges') };
+  Object.entries(map).forEach(([key, el]) => {
+    if (!el) return;
+    el.innerHTML = '';
+    const list = statusState[key] || [];
+    list.slice(0, 3).forEach((s) => {
+      const badge = document.createElement('span');
+      badge.className = 'status-badge';
+      badge.textContent = s.name || '効果';
+      el.appendChild(badge);
+    });
+  });
+}
+
+function setStatusList(targetKey, list) {
+  statusState[targetKey] = (list || []).slice(0, 3).map((s) => ({ name: s.name, turns: s.turns, effectType: s.effectType }));
+  renderStatusBadges();
+}
+
+function addStatuses(appliedStatus = []) {
+  appliedStatus.forEach((s) => {
+    const targetKey = s.targetId === playerId ? 'my' : 'op';
+    const current = statusState[targetKey] || [];
+    if (current.length >= 3) return;
+    current.push({ name: s.name, turns: s.turns, effectType: s.effectType });
+    statusState[targetKey] = current.slice(0, 3);
+  });
+  renderStatusBadges();
+}
+
+function applyStatusTick(statusTick) {
+  if (!statusTick || !Array.isArray(statusTick.ticks)) return;
+  statusTick.ticks.forEach((t) => {
+    const targetKey = t.playerId === playerId ? 'my' : 'op';
+    const before = statusState[targetKey]?.length || 0;
+    const remaining = (t.remaining || []).map((a) => ({ name: a.name, turns: a.turns, effectType: a.effectType }));
+    setStatusList(targetKey, remaining);
+    if (t.dot > 0) {
+      const label = targetKey === 'my' ? 'あなた' : '相手';
+      const names = remaining.map((r) => r.name).join(' / ') || '―';
+      appendLog(`⏳ ${label} は状態異常で ${t.dot} ダメージ (残り: ${names})`, 'debuff');
+    } else if (before > 0 && remaining.length === 0) {
+      const label = targetKey === 'my' ? 'あなた' : '相手';
+      appendLog(`✨ ${label} の状態異常が解除された`, 'buff');
+    }
+  });
+}
+
+function resetStatuses() {
+  setStatusList('my', []);
+  setStatusList('op', []);
+}
+
+function getFieldBanner() {
+  let el = document.getElementById('fieldBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fieldBanner';
+    el.className = 'field-banner';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+let fieldBannerTimer = null;
+function showFieldBanner(name) {
+  const banner = getFieldBanner();
+  banner.textContent = name;
+  banner.classList.add('show');
+  if (fieldBannerTimer) clearTimeout(fieldBannerTimer);
+  fieldBannerTimer = setTimeout(() => banner.classList.remove('show'), 2200);
+}
+
+function applyFieldVisual(fieldEffect, { silentLog = false } = {}) {
+  const newName = fieldEffect && fieldEffect.name ? fieldEffect.name : null;
+  const changed = newName !== activeFieldName;
+  activeFieldName = newName;
+  document.body.style.background = fieldEffect && fieldEffect.visual ? fieldEffect.visual : defaultBackground;
+  if (changed) {
+    if (newName) {
+      showFieldBanner(newName);
+      if (!silentLog) {
+        appendLog(`🌐 フィールドチェンジ: ${newName}${fieldEffect.buff ? ` (${fieldEffect.buff})` : ''}`, 'field');
+      }
+    } else if (!silentLog) {
+      appendLog('🌐 フィールド効果が消滅', 'field');
+    }
+  }
+}
+
 function setStatus(message) {
   document.getElementById('statusMessage').textContent = message;
 }
@@ -262,7 +373,7 @@ function initSocket() {
     renderWaiting(players, false, players[0]?.id);
   });
 
-  socket.on('waitingUpdate', ({ players = [], canStart = false, hostId }) => {
+  socket.on('waitingUpdate', ({ players = [], canStart = false, hostId, password }) => {
     if (roomId) {
       showSection('waitingSection');
       renderWaiting(players, canStart, hostId);
@@ -270,15 +381,22 @@ function initSocket() {
     } else {
       showSection('matchingSection');
       const matchingMessage = document.getElementById('matchingMessage');
-      matchingMessage.textContent = `参加待ち: ${players.length}人。相手を待っています...`;
+      if (password) {
+        matchingMessage.textContent = `パスワード「${password}」で待機中: ${players.length}人。相手を待っています...`;
+      } else {
+        matchingMessage.textContent = `参加待ち: ${players.length}人。相手を待っています...`;
+      }
     }
   });
 
   socket.on('battleStarted', ({ players, turn }) => {
+    isMatching = false;
     showSection('battleSection');
     const me = players.find(p => p.id === playerId);
     const op = players.find(p => p.id !== playerId);
     updateHealthBars(me ? me.hp : 100, op ? op.hp : 100);
+    resetStatuses();
+    applyFieldVisual(null, { silentLog: true });
     currentTurn = turn;
     supportRemaining = 3;
     updateSupportCounter();
@@ -313,7 +431,7 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, hp, nextTurn, winnerId, defenseFailed, affinity }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, hp, nextTurn, winnerId, defenseFailed, affinity, statusTick }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
 
@@ -346,22 +464,24 @@ function initSocket() {
       }, 800);
     }
 
-    // DoT 追加ダメージ表示
+    applyStatusTick(statusTick);
+
+    // DoT 追加ダメージ表示（リアルタイム）
     if (dotDamage > 0) {
-      appendLog(`⏳ 状態異常の継続ダメージ: ${dotDamage}`, 'debuff');
+      appendLog(`⏳ 状態異常の継続ダメージ合計: ${dotDamage}`, 'debuff');
     }
 
-    // 状態異常付与ログ
+    // 状態異常付与ログとバッジ更新
     if (appliedStatus && appliedStatus.length > 0) {
       appliedStatus.forEach(s => {
         const toMe = s.targetId === playerId;
         appendLog(`${toMe ? 'あなた' : '相手'} に状態異常付与: ${s.name} (${s.effectType || 'effect'}, ${s.turns}ターン, 値:${s.value ?? 0})`, 'debuff');
       });
+      addStatuses(appliedStatus);
     }
 
-    // フィールド効果表示
-    if (fieldEffect && fieldEffect.name) {
-      appendLog(`🌐 フィールド発動: ${fieldEffect.name} / ${fieldEffect.buff || ''}`, 'buff');
+    if (fieldEffect) {
+      applyFieldVisual(fieldEffect);
     }
 
     // 回復表示
@@ -403,22 +523,35 @@ function initSocket() {
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
-  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect }) => {
-    await showCutin(card, 2000);
+  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect, statusTick }) => {
+    if (card) {
+      await showCutin(card, 2000);
+    }
 
     const isMe = supportPlayerId === playerId;
-    const effectLabel = card.effectType || card.supportType || card.supportEffect || card.effect || 'support';
-    appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+    const effectLabel = card ? (card.effectType || card.supportType || card.supportEffect || card.effect || 'support') : 'support';
+    if (card) {
+      appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+    }
+
+    applyStatusTick(statusTick);
 
     if (appliedStatus && appliedStatus.length > 0) {
       appliedStatus.forEach(s => {
         const toMe = s.targetId === playerId;
         appendLog(`${toMe ? 'あなた' : '相手'} に状態異常付与: ${s.name} (${s.effectType || 'effect'}, ${s.turns}ターン, 値:${s.value ?? 0})`, 'debuff');
       });
+      addStatuses(appliedStatus);
     }
 
-    if (fieldEffect && fieldEffect.name) {
-      appendLog(`🌐 フィールド発動: ${fieldEffect.name} / ${fieldEffect.buff || ''}`, 'buff');
+    if (card && (card.effectType === 'cleanse' || card.supportType === 'cleanse')) {
+      const targetKey = supportPlayerId === playerId ? 'my' : 'op';
+      setStatusList(targetKey, []);
+      appendLog(`${targetKey === 'my' ? 'あなた' : '相手'} の状態異常を解除`, 'buff');
+    }
+
+    if (fieldEffect) {
+      applyFieldVisual(fieldEffect);
     }
 
     if (isMe && typeof newRemaining === 'number') {
@@ -464,8 +597,13 @@ function initSocket() {
 
   socket.on('status', ({ message }) => setStatus(message));
 
+  const handleFieldChange = ({ fieldEffect }) => applyFieldVisual(fieldEffect);
+  socket.on('fieldEffectUpdate', handleFieldChange);
+  socket.on('fieldChanged', handleFieldChange);
+
   socket.on('matchCancelled', ({ message }) => {
     console.log('🚫 マッチングがキャンセルされました');
+    isMatching = false;
     
     // 状態を完全にリセット
     roomId = null;
@@ -495,16 +633,19 @@ function join(matchType) {
     alert('プレイヤー名を入力してください');
     return;
   }
+  if (isMatching && socket && socket.connected) return;
   const matchingMessage = document.getElementById('matchingMessage');
   matchingMessage.textContent = matchType === 'password'
-    ? '指定されたパスワードで相手を探しています...'
+    ? `パスワード: ${password} で対戦相手を探しています...`
     : '相手を探しています...';
+  roomId = null;
   showSection('matchingSection');
   if (!socket || !socket.connected) {
     initSocket();
     setTimeout(() => join(matchType), 200);
     return;
   }
+  isMatching = true;
   socket.emit('startMatching', { name: playerName, mode: matchType, password: matchType === 'password' ? password : undefined });
 }
 
@@ -565,6 +706,7 @@ function submitSupport() {
 
 function cancelMatching() {
   console.log('🚫 キャンセルボタンが押されました');
+  isMatching = false;
   
   if (socket && socket.connected) {
     socket.emit('cancelMatching');
@@ -575,6 +717,8 @@ function cancelMatching() {
   
   // UIを即座にホームに戻す
   showSection('homeSection');
+  applyFieldVisual(null, { silentLog: true });
+  resetStatuses();
   setStatus('マッチングをキャンセルしています...');
 }
 
@@ -628,6 +772,9 @@ function bindUI() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  defaultBackground = getComputedStyle(document.body).background;
+  ensureStatusContainers();
+  renderStatusBadges();
   bindUI();
   initAffinityPanel();
   initSocket();
