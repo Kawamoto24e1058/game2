@@ -185,7 +185,12 @@ function showCutin(card, duration = 2500, extraComment = '') {
     cutinWord.textContent = card.word;
     const stCost = card.staminaCost != null ? card.staminaCost : 0;
     const mpCost = card.magicCost != null ? card.magicCost : 0;
-    cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense} / 消費ST:${stCost} 消費MP:${mpCost}`;
+    // Support役は攻撃力/防御力を非表示にして、サポート情報を表示
+    if (card.role === 'support') {
+      cutinStats.textContent = `サポート効果: ${card.effectType || '効果'} / 消費ST:${stCost} 消費MP:${mpCost}`;
+    } else {
+      cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense} / 消費ST:${stCost} 消費MP:${mpCost}`;
+    }
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}]`;
     const roleRaw = (card.role || card.effect || 'unknown').toString();
     const roleLabel = roleRaw.toUpperCase();
@@ -414,7 +419,31 @@ function applyFieldVisual(fieldEffect, { silentLog = false } = {}) {
   const newName = fieldEffect && fieldEffect.name ? fieldEffect.name : null;
   const changed = newName !== activeFieldName;
   activeFieldName = newName;
-  document.body.style.background = fieldEffect && fieldEffect.visual ? fieldEffect.visual : defaultBackground;
+  
+  // フィールド効果のビジュアル適用：グラデーションを強調+画面全体に反映
+  if (fieldEffect && fieldEffect.visual) {
+    document.body.style.background = fieldEffect.visual;
+    // バトルセクション全体をフィールド色でハイライト
+    const battleSection = document.getElementById('battleSection');
+    if (battleSection) {
+      const gradientMatch = fieldEffect.visual.match(/#[0-9a-fA-F]{6}|rgb[a]?\([^)]+\)/g);
+      if (gradientMatch && gradientMatch.length > 0) {
+        const primaryColor = gradientMatch[0];
+        const secondaryColor = gradientMatch[1] || primaryColor;
+        // グロー効果 + インセットハイライト + 色の重ね合わせ
+        battleSection.style.boxShadow = `0 0 80px ${primaryColor}60, 0 0 40px ${secondaryColor}40, inset 0 0 50px ${primaryColor}25`;
+        battleSection.style.borderColor = primaryColor;
+      }
+    }
+  } else {
+    document.body.style.background = defaultBackground;
+    const battleSection = document.getElementById('battleSection');
+    if (battleSection) {
+      battleSection.style.boxShadow = '';
+      battleSection.style.borderColor = '';
+    }
+  }
+  
   if (changed) {
     if (newName) {
       showFieldBanner(newName);
@@ -685,19 +714,20 @@ function initSocket() {
     }
 
     const isMe = supportPlayerId === playerId;
-    const effectLabel = card ? (card.effectType || card.supportType || card.supportEffect || card.effect || 'support') : 'support';
     const resolvedDetail = supportDetail || (card && card.supportDetail) || '';
+    const resolvedMessage = (card && card.supportMessage) || resolvedDetail || '';
     if (card) {
-      appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
-      if (resolvedDetail) {
-        appendLog(`📣 サポート詳細: ${resolvedDetail}`, 'buff');
+      appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: 【${card.word}】`, 'info');
+      if (resolvedMessage) {
+        appendLog(`✨ ${resolvedMessage}`, 'buff');
       }
     }
 
     const roleKey = isMe ? 'my' : 'op';
     updateRoleBadge(roleKey, 'support');
 
-    const overlayDetail = resolvedDetail || (card ? `${card.word} (${effectLabel})` : 'サポートが発動');
+    // UIに表示するサポートメッセージ：supportMessage（解説文）を最優先
+    const overlayDetail = resolvedMessage || (card ? `${card.word}` : 'サポートが発動');
     showSupportOverlay(overlayDetail);
 
     applyStatusTick(statusTick);

@@ -87,7 +87,20 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
   // ダメージ計算
   let damage = 0;
   if (defenseFailed) {
-    damage = finalAttack;
+    // 防御失敗: 相性倍率を外した基礎攻撃力をそのまま使用（相性は攻撃ダメージには含めない）
+    let baseAttack = attackCard.attack;
+    if (attacker.attackBoost > 0) {
+      baseAttack = Math.round(baseAttack * (1 + attacker.attackBoost / 100));
+      attacker.attackBoost = 0;
+    }
+    damage = baseAttack; // 防御失敗時は基礎ダメージのみ
+    
+    // 回避判定：defenseCard.evasion に基づく（値が大きいほど回避確率が高い）
+    const maxEvasion = 50; // 最大50%まで回避可能
+    const evasionChance = Math.min(maxEvasion, (defenseCard.evasion || 0)) / 100;
+    if (Math.random() < evasionChance) {
+      damage = 0; // 回避成功時は完全に回避（0ダメージ）
+    }
   } else {
     let finalDefense = defenseCard.defense;
     if (defender.defenseBoost > 0) {
@@ -118,26 +131,37 @@ async function generateCard(word, intent = 'neutral') {
         ? '現在はサポート用途。回復・強化・弱体化を優先ロールとせよ。'
         : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。テンプレート的な査定を完全に破壊し、入力語からゼロベースで数値と効果を創出せよ。
+  const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。テンプレートを完全に捨て、入力語のニュアンスを100%反映した数値と効果を創出せよ。
 
 【絶対条件：役割特化と数値固定】
-1. role は Attack / Defense / Support から1つだけ選ぶ（その他は禁止）。
-2. role: "Defense" のとき attack は必ず 0（例外なし）。
-3. role: "Attack" のとき defense は必ず 0（例外なし）。
-4. role: "Support" のとき attack / defense は必ず 0（例外なし）。
-5. 盾・壁・衣類・回避系は目的が攻撃的でも role を Defense に強制する。
-6. Support のとき、何が起きてどうステータスが変化したかを詳細に説明する supportDetail を必ず生成する（例: 「癒やしの泉：MPを30回復し、毒を治療した」）。
+1. role は Attack / Defense / Support から1つだけ（その他禁止）。
+2. Defense: attack は必ず 0。風のドーム、水の壁、盾/壁/衣/回避系は 100% Defense にする。
+3. Attack: defense は必ず 0。
+4. Support: attack / defense は必ず 0。サポート効果に専念せよ。
+
+【サポートの多様化（例示のみ、縛られない）】
+- 日本晴れ: 炎強化/水弱体、オレンジ系演出。
+- 砂嵐: 毎ターンダメージ、命中低下。
+- 追い風: 回避率アップ、行動順加速。
+- 重力: ST消費増、回避低下。
+- 雨/豪雨: 水強化、火弱体、青系演出。
+- 言葉の意味に沿って自由にバフ/デバフ/フィールド/継続効果を生成せよ。
+
+Support では supportEffect（数値または強度）と supportMessage（何が起き、どう変化したかの解説）を必ず生成する。supportDetail にも同内容を入れてよい。
+
+【防御の純粋化】
+- Defense の attack は常に 0。
+- 盾/壁/バリア/衣/回避系は必ず Defense。
 
 【深層読解モード：思考プロセス】
 1. 全方位分析: 材質・構造・歴史・神話・サブカル・日常イメージを徹底検索し、物理/概念特性を抽出する。
 2. 数値の理由付け: キリの良い数値を避け、素材や象徴性に基づくリアルな値（例: 13, 27, 44）を設定。
 3. 固有効果命名: すべての言葉に唯一の効果名を与える（【】で囲む）。
-4. フィールド効果: サポート的な地形/環境語（例: 火山、サイバー空間）は fieldEffect を生成し、name/visual(CSSグラデーション)/buff を返す。
-5. 無限状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value を返す。相手に最大3件付与可能。
-6. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter など effectType を語意から決め、effectValue を数値で返す。
-7. 攻撃分類: attackType を Physical / Magical / Hybrid のいずれかで返す（語義に従い物理・魔法を判断）。
-8. コスト計算: attackType が Physical なら staminaCost を必ず設定、Magical なら magicCost、Hybrid は両方。重い物理は staminaCost 高め、魔法的な語は magicCost 高めにする。
-9. サポートはテンプレートに縛られず、入力語の概念を最大限活かしたユニークな効果を生成せよ（例: 「銀行」→毎ターン利息でHP回復、「温泉」→継続回復フィールドなど）。
+4. フィールド効果: サポート的な地形/環境語は fieldEffect を生成（name/visual(CSSグラデーション)/buff）。
+5. 状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value。
+6. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter, field, regen, drain などを語意で決め、effectValue を数値で返す。
+7. 攻撃分類: attackType を Physical / Magical / Hybrid のいずれかで返す。
+8. コスト計算: Physical は staminaCost、Magical は magicCost、Hybrid は両方。重い物理は staminaCost 高め、魔法は magicCost 高め。
 
 【出力JSON形式（必須キー）】
 {
@@ -146,14 +170,16 @@ async function generateCard(word, intent = 'neutral') {
   "attribute": "fire/water/wind/earth/thunder/light/dark から1つ",
   "role": "Attack/Defense/Support",
   "specialEffect": "【固有効果名】具体的な効果",
-  "effectType": "heal/buff/debuff/damage/hpMaxUp/counter/cleanse/field/dot/stun/other",
+  "effectType": "heal/buff/debuff/damage/hpMaxUp/counter/cleanse/field/dot/stun/regen/drain/other",
   "effectValue": 数値,
-  "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 },  // フィールドがある場合のみ
-  "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }],  // 任意件数
+  "supportEffect": 数値,
+  "supportMessage": "Support のとき必須。何が起き、どう変化したか。",
+  "supportDetail": "supportMessage と同等か詳細な説明",
+  "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 },
+  "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }],
   "attackType": "Physical" | "Magical" | "Hybrid",
-  "staminaCost": 数値,  // 体力消費
-  "magicCost": 数値,    // 魔力消費
-  "supportDetail": "Support のとき必須。起きた効果を詳述する。",
+  "staminaCost": 数値,
+  "magicCost": 数値,
   "judgeComment": "語源や材質から導いた全論理を200文字程度で熱く語れ"
 }`;
 
@@ -241,6 +267,7 @@ async function generateCard(word, intent = 'neutral') {
       attackType,
       staminaCost,
       magicCost,
+      evasion: cardData.evasion || 0,  // 回避率（%）
       judgeComment: cardData.judgeComment || '審判のコメントなし',
       description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${effectType ? ' (' + effectType + ')' : ''} / ${specialEffect}${hasReflect ? ' / hasReflect' : ''}${hasCounter ? ` / counter:${counterDamage}` : ''}`
     };
@@ -249,6 +276,7 @@ async function generateCard(word, intent = 'neutral') {
     return generateCardFallback(original);
   }
 }
+
 function generateCardFallback(word) {
   const lower = word.toLowerCase();
   let strength = 30;
@@ -304,6 +332,7 @@ function generateCardFallback(word) {
     attackType: 'physical',
     staminaCost: 10,
     magicCost: 0,
+    evasion: 0,  // フォールバックは回避なし
     judgeComment: 'フォールバック: 簡易推定。特性不明のため汎用反射効果を付与。物質的特徴から【】命名。',
     specialEffect,
     hasReflect,
