@@ -105,7 +105,10 @@
       <div id="effectContainer" class="effect-container"></div>
       <div class="battle-arena">
         <div class="player-area">
-          <h3>あなた</h3>
+          <div class="player-header">
+            <h3>あなた</h3>
+            <span id="myRoleBadge" class="role-chip">--</span>
+          </div>
           <div class="health-bar">
             <div id="myHealthFill" class="health-fill"><span id="myHealthText">100</span></div>
           </div>
@@ -124,7 +127,10 @@
         </div>
         <div class="vs-divider">VS</div>
         <div class="player-area">
-          <h3>相手</h3>
+          <div class="player-header">
+            <h3>相手</h3>
+            <span id="opRoleBadge" class="role-chip">--</span>
+          </div>
           <div class="health-bar">
             <div id="opHealthFill" class="health-fill"><span id="opHealthText">100</span></div>
           </div>

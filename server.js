@@ -120,12 +120,13 @@ async function generateCard(word, intent = 'neutral') {
   
   const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。テンプレート的な査定を完全に破壊し、入力語からゼロベースで数値と効果を創出せよ。
 
-【役割絶対主義（数値の0固定）】
-1. role は Attack / Defense / Support から1つだけ選ぶ。
-2. role: "Defense" のとき attack は必ず 0、数値はすべて defense に振る。
-3. role: "Attack" のとき defense は必ず 0、数値はすべて attack に振る。
-4. role: "Support" のとき attack と defense は必ず 0、サポート効果だけに集中する。
+【絶対条件：役割特化と数値固定】
+1. role は Attack / Defense / Support から1つだけ選ぶ（その他は禁止）。
+2. role: "Defense" のとき attack は必ず 0（例外なし）。
+3. role: "Attack" のとき defense は必ず 0（例外なし）。
+4. role: "Support" のとき attack / defense は必ず 0（例外なし）。
 5. 盾・壁・衣類・回避系は目的が攻撃的でも role を Defense に強制する。
+6. Support のとき、何が起きてどうステータスが変化したかを詳細に説明する supportDetail を必ず生成する（例: 「癒やしの泉：MPを30回復し、毒を治療した」）。
 
 【深層読解モード：思考プロセス】
 1. 全方位分析: 材質・構造・歴史・神話・サブカル・日常イメージを徹底検索し、物理/概念特性を抽出する。
@@ -137,7 +138,6 @@ async function generateCard(word, intent = 'neutral') {
 7. 攻撃分類: attackType を Physical / Magical / Hybrid のいずれかで返す（語義に従い物理・魔法を判断）。
 8. コスト計算: attackType が Physical なら staminaCost を必ず設定、Magical なら magicCost、Hybrid は両方。重い物理は staminaCost 高め、魔法的な語は magicCost 高めにする。
 9. サポートはテンプレートに縛られず、入力語の概念を最大限活かしたユニークな効果を生成せよ（例: 「銀行」→毎ターン利息でHP回復、「温泉」→継続回復フィールドなど）。
-10. role が Support の場合、何が起きたかを詳細に記述する supportDetail（例: 「癒やしの泉：MPを30回復し、毒を治療した」）を必ず生成する。
 
 【出力JSON形式（必須キー）】
 {
@@ -158,7 +158,7 @@ async function generateCard(word, intent = 'neutral') {
 }`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
     const result = await model.generateContent(prompt);
     let responseText = result.response.text().trim();
     

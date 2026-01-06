@@ -454,6 +454,34 @@ h2 {
   margin-bottom: 6px;
 }
 
+.player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 12px;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, #e8f5ff 0%, #ffffff 100%);
+  color: #0f2b46;
+  box-shadow: 0 6px 14px var(--shadow);
+  min-width: 48px;
+  text-transform: uppercase;
+}
+
+.role-chip.attack { background: linear-gradient(135deg, #ff7c7c, #ffb199); color: #3d0a0a; }
+.role-chip.defense { background: linear-gradient(135deg, #7cf0c5, #5ed0ff); color: #0b2d4c; }
+.role-chip.support { background: linear-gradient(135deg, #ffd166, #ff9f7f); color: #4a1b09; }
+
 .health-bar {
   background: #eaf4ff;
   border-radius: 20px;

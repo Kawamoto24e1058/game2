@@ -25,6 +25,7 @@ let defaultBackground = '';
 let activeFieldName = null;
 let isMatching = false;
 const statusState = { my: [], op: [] };
+const roleState = { my: '--', op: '--' };
 
 // 演出関数群
 function showFloatingText(x, y, text, type = 'damage') {
@@ -116,6 +117,26 @@ function showSupportOverlay(detailText) {
     overlay.classList.remove('show');
     setTimeout(() => overlay.classList.add('hidden'), 260);
   }, 2000);
+}
+
+function updateRoleBadge(targetKey, role) {
+  const el = document.getElementById(targetKey === 'my' ? 'myRoleBadge' : 'opRoleBadge');
+  if (!el) return;
+  const roleLower = (role || '--').toLowerCase();
+  el.className = 'role-chip';
+  if (roleLower === 'attack') {
+    el.classList.add('attack');
+    el.textContent = 'ATK';
+  } else if (roleLower === 'defense') {
+    el.classList.add('defense');
+    el.textContent = 'DEF';
+  } else if (roleLower === 'support') {
+    el.classList.add('support');
+    el.textContent = 'SUP';
+  } else {
+    el.textContent = '--';
+  }
+  roleState[targetKey] = el.textContent;
 }
 
 // 戦歴管理
@@ -491,6 +512,8 @@ function initSocket() {
       });
     }
     resetStatuses();
+    updateRoleBadge('my', '--');
+    updateRoleBadge('op', '--');
     applyFieldVisual(null, { silentLog: true });
     currentTurn = turn;
     supportRemaining = 3;
@@ -509,9 +532,12 @@ function initSocket() {
   socket.on('attackDeclared', async ({ attackerId, defenderId, card }) => {
     const isAttacker = attackerId === playerId;
     const isDefender = defenderId === playerId;
+    const attackerKey = isAttacker ? 'my' : 'op';
     
     // カットイン演出
     await showCutin(card, 2000);
+
+    updateRoleBadge(attackerKey, card.role || card.effect || 'attack');
     
     appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${card.attribute}) ATK:${card.attack}`, 'damage');
     flashAttackEffect();
@@ -538,6 +564,15 @@ function initSocket() {
     // 防御カードのカットイン（相性・反射の一言付き）
     if (defenseCard) {
       await showCutin(defenseCard, 2000, cutinFlavor);
+    }
+
+    if (attackCard) {
+      const atkKey = attackerId === playerId ? 'my' : 'op';
+      updateRoleBadge(atkKey, attackCard.role || attackCard.effect || 'attack');
+    }
+    if (defenseCard) {
+      const defKey = defenderId === playerId ? 'my' : 'op';
+      updateRoleBadge(defKey, defenseCard.role || defenseCard.effect || 'defense');
     }
 
     // 防御失敗メッセージ
@@ -658,6 +693,9 @@ function initSocket() {
         appendLog(`📣 サポート詳細: ${resolvedDetail}`, 'buff');
       }
     }
+
+    const roleKey = isMe ? 'my' : 'op';
+    updateRoleBadge(roleKey, 'support');
 
     const overlayDetail = resolvedDetail || (card ? `${card.word} (${effectLabel})` : 'サポートが発動');
     showSupportOverlay(overlayDetail);
@@ -882,6 +920,8 @@ function cancelMatching() {
   showSection('homeSection');
   applyFieldVisual(null, { silentLog: true });
   resetStatuses();
+  updateRoleBadge('my', '--');
+  updateRoleBadge('op', '--');
   setStatus('マッチングをキャンセルしています...');
 
    updateHealthBars(0, 0, MAX_HP_BASE, MAX_HP_BASE);
