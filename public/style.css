@@ -742,6 +742,82 @@ h2 {
   box-shadow: 0 0 16px rgba(255, 209, 102, 0.5);
 }
 
+.cutin-role-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 14px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #061326;
+  margin-bottom: 8px;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+  background: linear-gradient(135deg, #e8f5ff 0%, #ffffff 100%);
+}
+
+.cutin-role-badge.attack { background: linear-gradient(135deg, #ff7c7c, #ffb199); color: #3d0a0a; }
+.cutin-role-badge.defense { background: linear-gradient(135deg, #7cf0c5, #5ed0ff); color: #0b2d4c; }
+.cutin-role-badge.support { background: linear-gradient(135deg, #ffd166, #ff9f7f); color: #4a1b09; }
+
+.support-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.18), rgba(0,0,0,0.8)), rgba(8, 22, 46, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3200;
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.support-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.support-overlay-content {
+  text-align: center;
+  color: #fff;
+  animation: supportPop 0.45s ease-out;
+  max-width: 680px;
+  padding: 24px 28px;
+}
+
+.support-overlay-title {
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  margin-bottom: 14px;
+  text-shadow: 0 0 24px rgba(255, 209, 102, 0.9), 0 0 40px rgba(94, 208, 255, 0.8);
+}
+
+.support-overlay-detail {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.6;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 209, 102, 0.65);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 0 26px rgba(0,0,0,0.35);
+  animation: detailFlow 1.2s ease-out;
+}
+
+@keyframes supportPop {
+  0% { transform: scale(0.7) rotate(-6deg); opacity: 0; }
+  60% { transform: scale(1.05) rotate(3deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+@keyframes detailFlow {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes cutinZoom {
   0% { transform: scale(0.5) rotate(-6deg); opacity: 0; }
   60% { transform: scale(1.05) rotate(3deg); }

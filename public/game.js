@@ -105,6 +105,19 @@ function showAffinityMessage(relation) {
   }
 }
 
+function showSupportOverlay(detailText) {
+  const overlay = document.getElementById('supportOverlay');
+  const detailEl = document.getElementById('supportOverlayDetail');
+  if (!overlay || !detailEl) return;
+  detailEl.textContent = detailText || '効果が発動！';
+  overlay.classList.remove('hidden');
+  overlay.classList.add('show');
+  setTimeout(() => {
+    overlay.classList.remove('show');
+    setTimeout(() => overlay.classList.add('hidden'), 260);
+  }, 2000);
+}
+
 // 戦歴管理
 function getWinCount() {
   return parseInt(localStorage.getItem('battleWins') || '0');
@@ -144,6 +157,7 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const cutinWord = document.getElementById('cutinWord');
     const cutinStats = document.getElementById('cutinStats');
     const cutinTier = document.getElementById('cutinTier');
+    const cutinRoleBadge = document.getElementById('cutinRoleBadge');
     const cutinSpecial = document.getElementById('cutinSpecial');
     const cutinComment = document.getElementById('cutinComment');
 
@@ -151,7 +165,21 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const stCost = card.staminaCost != null ? card.staminaCost : 0;
     const mpCost = card.magicCost != null ? card.magicCost : 0;
     cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense} / 消費ST:${stCost} 消費MP:${mpCost}`;
-    cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}] ${card.effect.toUpperCase()}`;
+    cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}]`;
+    const roleRaw = (card.role || card.effect || 'unknown').toString();
+    const roleLabel = roleRaw.toUpperCase();
+    if (cutinRoleBadge) {
+      cutinRoleBadge.textContent = roleLabel;
+      cutinRoleBadge.className = 'cutin-role-badge';
+      const roleLower = roleRaw.toLowerCase();
+      if (roleLower === 'attack') {
+        cutinRoleBadge.classList.add('attack');
+      } else if (roleLower === 'defense') {
+        cutinRoleBadge.classList.add('defense');
+      } else if (roleLower === 'support') {
+        cutinRoleBadge.classList.add('support');
+      }
+    }
     cutinSpecial.textContent = `特殊効果: ${card.specialEffect || 'なし'}`;
     const comments = [card.judgeComment || '審判: 良好'];
     if (extraComment) comments.push(extraComment);
@@ -616,16 +644,23 @@ function initSocket() {
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
-  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, maxHp, resources, shortageWarnings = [], supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect, statusTick }) => {
+  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, maxHp, resources, shortageWarnings = [], supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect, statusTick, supportDetail }) => {
     if (card) {
       await showCutin(card, 2000);
     }
 
     const isMe = supportPlayerId === playerId;
     const effectLabel = card ? (card.effectType || card.supportType || card.supportEffect || card.effect || 'support') : 'support';
+    const resolvedDetail = supportDetail || (card && card.supportDetail) || '';
     if (card) {
       appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+      if (resolvedDetail) {
+        appendLog(`📣 サポート詳細: ${resolvedDetail}`, 'buff');
+      }
     }
+
+    const overlayDetail = resolvedDetail || (card ? `${card.word} (${effectLabel})` : 'サポートが発動');
+    showSupportOverlay(overlayDetail);
 
     applyStatusTick(statusTick);
 

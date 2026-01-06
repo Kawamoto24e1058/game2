@@ -120,18 +120,24 @@ async function generateCard(word, intent = 'neutral') {
   
   const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。テンプレート的な査定を完全に破壊し、入力語からゼロベースで数値と効果を創出せよ。
 
+【役割絶対主義（数値の0固定）】
+1. role は Attack / Defense / Support から1つだけ選ぶ。
+2. role: "Defense" のとき attack は必ず 0、数値はすべて defense に振る。
+3. role: "Attack" のとき defense は必ず 0、数値はすべて attack に振る。
+4. role: "Support" のとき attack と defense は必ず 0、サポート効果だけに集中する。
+5. 盾・壁・衣類・回避系は目的が攻撃的でも role を Defense に強制する。
+
 【深層読解モード：思考プロセス】
 1. 全方位分析: 材質・構造・歴史・神話・サブカル・日常イメージを徹底検索し、物理/概念特性を抽出する。
 2. 数値の理由付け: キリの良い数値を避け、素材や象徴性に基づくリアルな値（例: 13, 27, 44）を設定。
 3. 固有効果命名: すべての言葉に唯一の効果名を与える（【】で囲む）。
-4. 役割判定の絶対化: role は Attack / Defense / Support から1つのみ。盾・壁・衣類・回避系は Defense を強制し、攻撃的でも防御目的なら Defense。
-5. 数値の極振り: role が Defense のとき attack は必ず 5 以下（基本0）で defense に全振り。role が Attack のとき defense は必ず 5 以下（基本0）で attack に全振り。Support は自由だが過度に偏らないよう語意で配分。
-6. フィールド効果: サポート的な地形/環境語（例: 火山、サイバー空間）は fieldEffect を生成し、name/visual(CSSグラデーション)/buff を返す。
-7. 無限状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value を返す。相手に最大3件付与可能。
-8. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter など effectType を語意から決め、effectValue を数値で返す。
-9. 攻撃分類: attackType を Physical / Magical / Hybrid のいずれかで返す（語義に従い物理・魔法を判断）。
-10. コスト計算: attackType が Physical なら staminaCost を必ず設定、Magical なら magicCost、Hybrid は両方。重い物理は staminaCost 高め、魔法的な語は magicCost 高めにする。
-11. サポートはテンプレートに縛られず、入力語の概念を最大限活かしたユニークな効果を生成せよ（例: 「銀行」→毎ターン利息でHP回復、「温泉」→継続回復フィールドなど）。
+4. フィールド効果: サポート的な地形/環境語（例: 火山、サイバー空間）は fieldEffect を生成し、name/visual(CSSグラデーション)/buff を返す。
+5. 無限状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value を返す。相手に最大3件付与可能。
+6. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter など effectType を語意から決め、effectValue を数値で返す。
+7. 攻撃分類: attackType を Physical / Magical / Hybrid のいずれかで返す（語義に従い物理・魔法を判断）。
+8. コスト計算: attackType が Physical なら staminaCost を必ず設定、Magical なら magicCost、Hybrid は両方。重い物理は staminaCost 高め、魔法的な語は magicCost 高めにする。
+9. サポートはテンプレートに縛られず、入力語の概念を最大限活かしたユニークな効果を生成せよ（例: 「銀行」→毎ターン利息でHP回復、「温泉」→継続回復フィールドなど）。
+10. role が Support の場合、何が起きたかを詳細に記述する supportDetail（例: 「癒やしの泉：MPを30回復し、毒を治療した」）を必ず生成する。
 
 【出力JSON形式（必須キー）】
 {
@@ -142,11 +148,12 @@ async function generateCard(word, intent = 'neutral') {
   "specialEffect": "【固有効果名】具体的な効果",
   "effectType": "heal/buff/debuff/damage/hpMaxUp/counter/cleanse/field/dot/stun/other",
   "effectValue": 数値,
-  "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 }  // フィールドがある場合のみ
+  "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 },  // フィールドがある場合のみ
   "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }],  // 任意件数
   "attackType": "Physical" | "Magical" | "Hybrid",
   "staminaCost": 数値,  // 体力消費
-  "magicCost": 数値      // 魔力消費
+  "magicCost": 数値,    // 魔力消費
+  "supportDetail": "Support のとき必須。起きた効果を詳述する。",
   "judgeComment": "語源や材質から導いた全論理を200文字程度で熱く語れ"
 }`;
 
@@ -165,9 +172,9 @@ async function generateCard(word, intent = 'neutral') {
       throw new Error('必須フィールドが不足しています');
     }
 
-    const attackVal = Math.max(0, Math.min(100, Math.round(cardData.attack)));
-    const defenseVal = Math.max(0, Math.min(100, Math.round(cardData.defense)));
-    
+    let attackVal = Math.max(0, Math.min(100, Math.round(cardData.attack)));
+    let defenseVal = Math.max(0, Math.min(100, Math.round(cardData.defense)));
+
     // role の正規化（Attack/Defense/Support → attack/defense/support）
     let role = 'attack';
     if (cardData.role) {
@@ -175,8 +182,17 @@ async function generateCard(word, intent = 'neutral') {
       if (roleLower === 'attack' || roleLower === 'defense' || roleLower === 'support') {
         role = roleLower;
       } else if (roleLower === 'heal') {
-        role = 'heal';
+        role = 'support';
       }
+    }
+    // 役割絶対主義: 数値をロールで0固定
+    if (role === 'defense') {
+      attackVal = 0;
+    } else if (role === 'attack') {
+      defenseVal = 0;
+    } else if (role === 'support') {
+      attackVal = 0;
+      defenseVal = 0;
     }
     
     const supportType = cardData.supportEffect || cardData.supportType || null;
@@ -201,6 +217,7 @@ async function generateCard(word, intent = 'neutral') {
     const hasCounter = cardData.hasCounter === true || counterDamage > 0;
     const fieldEffect = cardData.fieldEffect && cardData.fieldEffect.name ? cardData.fieldEffect : null;
     const statusAilment = Array.isArray(cardData.statusAilment) ? cardData.statusAilment : (cardData.statusAilment ? [cardData.statusAilment] : []);
+    const supportDetail = typeof cardData.supportDetail === 'string' ? cardData.supportDetail.trim() : '';
     const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
 
     return {
@@ -208,6 +225,7 @@ async function generateCard(word, intent = 'neutral') {
       attribute,
       attack: attackVal,
       defense: defenseVal,
+      role,
       effect: role,
       tier,
       supportType,
@@ -215,6 +233,7 @@ async function generateCard(word, intent = 'neutral') {
       effectValue,
       fieldEffect,
       statusAilment,
+      supportDetail,
       specialEffect,
       hasReflect,
       hasCounter,
@@ -278,6 +297,7 @@ function generateCardFallback(word) {
     attribute,
     attack: strength,
     defense: defVal,
+    role: 'attack',
     effect: 'attack',
     tier,
     supportType: null,
@@ -624,7 +644,7 @@ function handleDefend(roomId, socket, word) {
 
     // 防御失敗ロジック：防御フェーズで Defense 以外のロールは失敗扱い
     let defenseFailed = false;
-    const defRole = (defenseCard.effect || defenseCard.role || '').toLowerCase();
+    const defRole = (defenseCard.role || defenseCard.effect || '').toLowerCase();
     if (defRole !== 'defense') {
       defenseFailed = true;
     }
@@ -981,6 +1001,15 @@ io.on('connection', (socket) => {
       const resCost = applyResourceCost(player, card);
       const effectiveCard = resCost.card;
 
+      const cardRole = (effectiveCard.role || effectiveCard.effect || '').toLowerCase();
+      const supportDetail = (effectiveCard.supportDetail || card.supportDetail || '').trim();
+      const roleIsSupport = cardRole === 'support';
+      if (cardRole && !roleIsSupport) {
+        console.log('⚠️ Supportロール不一致', { word: cleanWord, role: cardRole });
+      }
+
+      const detailParts = supportDetail ? [supportDetail] : [];
+
       const effectTypeRaw = (effectiveCard.effectType || effectiveCard.supportType || effectiveCard.supportEffect || '').toLowerCase();
       const effectValNum = Number(effectiveCard.effectValue);
       const effectValue = Number.isFinite(effectValNum) ? effectValNum : null;
@@ -1013,11 +1042,13 @@ io.on('connection', (socket) => {
           const gain = effectValue && effectValue > 0 ? effectValue : 20;
           player.maxHp = (player.maxHp || STARTING_HP) + gain;
           player.hp = player.hp + gain;
+          detailParts.push(`最大HPを${gain}増加`);
           break;
         }
         case 'heal': {
           const heal = effectValue && effectValue > 0 ? effectValue : 25;
           player.hp = Math.min(maxHp, player.hp + heal);
+          detailParts.push(`HPを${heal}回復`);
           break;
         }
         case 'recover': {
@@ -1026,15 +1057,18 @@ io.on('connection', (socket) => {
           const mpMax = player.maxMagic || 100;
           player.stamina = Math.min(stMax, (player.stamina ?? stMax) + amount);
           player.magic = Math.min(mpMax, (player.magic ?? mpMax) + amount);
+          detailParts.push(`スタミナ・魔力をそれぞれ最大${amount}回復`);
           break;
         }
         case 'buff':
         case 'attack_boost': {
           player.attackBoost = effectValue && effectValue > 0 ? effectValue : 50;
+          detailParts.push(`攻撃ブーストを付与 (+${player.attackBoost}%)`);
           break;
         }
         case 'defense_boost': {
           player.defenseBoost = effectValue && effectValue > 0 ? effectValue : 40;
+          detailParts.push(`防御ブーストを付与 (+${player.defenseBoost}%)`);
           break;
         }
         case 'debuff':
@@ -1042,6 +1076,7 @@ io.on('connection', (socket) => {
           if (opponent) {
             const dmg = effectValue && effectValue > 0 ? effectValue : 15;
             opponent.hp = Math.max(0, opponent.hp - dmg);
+            detailParts.push(`相手に${dmg}のデバフダメージ`);
           }
           break;
         }
@@ -1049,17 +1084,20 @@ io.on('connection', (socket) => {
           if (opponent) {
             const dmg = effectValue && effectValue > 0 ? effectValue : 20;
             opponent.hp = Math.max(0, opponent.hp - dmg);
+            detailParts.push(`相手に${dmg}の直接ダメージ`);
           }
           break;
         }
         case 'cleanse': {
           player.statusAilments = [];
+          detailParts.push('自身の状態異常を全て解除');
           break;
         }
         case 'field': {
           if (effectiveCard.fieldEffect && effectiveCard.fieldEffect.name) {
             room.fieldEffect = effectiveCard.fieldEffect;
             io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
+            detailParts.push(`フィールド「${room.fieldEffect.name}」を展開`);
           }
           break;
         }
@@ -1067,14 +1105,19 @@ io.on('connection', (socket) => {
           // 旧サポート種別との後方互換
           if (card.supportType === 'heal_boost') {
             player.hp = Math.min(maxHp, player.hp + 30);
+            detailParts.push('HPを30回復');
           } else if (card.supportType === 'attack_boost') {
             player.attackBoost = 50;
+            detailParts.push('攻撃ブースト(+50%)');
           } else if (card.supportType === 'defense_boost') {
             player.defenseBoost = 40;
+            detailParts.push('防御ブースト(+40%)');
           } else if (card.supportType === 'enemy_debuff') {
             if (opponent) opponent.hp = Math.max(0, opponent.hp - 15);
+            detailParts.push('相手に15のデバフダメージ');
           } else {
             player.hp = Math.min(maxHp, player.hp + 20);
+            detailParts.push('汎用回復: HPを20回復');
           }
         }
       }
@@ -1083,6 +1126,7 @@ io.on('connection', (socket) => {
       if (opponent) {
         const res = applyStatus(effectiveCard, opponent);
         if (res.dot > 0) opponent.hp = Math.max(0, opponent.hp - res.dot);
+        if (res.dot > 0) detailParts.push(`状態異常の即時ダメージ ${res.dot}`);
       }
 
       // フィールド効果更新
@@ -1129,6 +1173,7 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('supportUsed', {
         playerId: player.id,
         card: effectiveCard,
+        supportDetail: (detailParts.length ? detailParts.join(' / ') : supportDetail) || null,
         hp,
         maxHp: maxHpMap,
         supportRemaining: 3 - player.supportUsed,
@@ -1145,7 +1190,9 @@ io.on('connection', (socket) => {
         const winnerName = room.players.find(p => p.id === winnerId)?.name || 'プレイヤー';
         updateStatus(roomId, `${winnerName} の勝利！`);
       } else {
-        updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
+        const resolvedDetail = detailParts.length ? detailParts.join(' / ') : supportDetail;
+        const detailText = resolvedDetail ? `${player.name} のサポート: ${resolvedDetail}` : `${player.name} のサポートが発動`;
+        updateStatus(roomId, `${detailText} → ${room.players[room.turnIndex].name} のターンです`);
       }
     } catch (error) {
       console.error('サポートカード生成エラー:', error);
