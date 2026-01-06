@@ -106,16 +106,83 @@ function showAffinityMessage(relation) {
   }
 }
 
-function showSupportOverlay(detailText) {
+function showSupportOverlay(detailText, attribute = '') {
   const overlay = document.getElementById('supportOverlay');
   const detailEl = document.getElementById('supportOverlayDetail');
   if (!overlay || !detailEl) return;
+  
   detailEl.textContent = detailText || '効果が発動！';
+  
+  // 属性に応じた背景色変更
+  const attrLower = (attribute || '').toLowerCase();
+  let bgColor = 'rgba(8, 22, 46, 0.85)'; // デフォルト（暗色）
+  let accentColor = 'rgba(255, 209, 102, 0.65)'; // デフォルト（金色）
+  let glowColor = 'rgba(255, 209, 102, 0.9)'; // デフォルト（金色）
+  
+  // 属性による色分け
+  if (attrLower === 'fire') {
+    // 火属性: オレンジ系
+    bgColor = 'rgba(255, 100, 30, 0.7)';
+    accentColor = 'rgba(255, 200, 100, 0.8)';
+    glowColor = 'rgba(255, 120, 40, 0.9)';
+  } else if (attrLower === 'water') {
+    // 水属性: 青系
+    bgColor = 'rgba(30, 144, 255, 0.6)';
+    accentColor = 'rgba(100, 180, 255, 0.8)';
+    glowColor = 'rgba(50, 150, 255, 0.9)';
+  } else if (attrLower === 'wind') {
+    // 風属性: 水色系
+    bgColor = 'rgba(100, 200, 220, 0.5)';
+    accentColor = 'rgba(150, 220, 240, 0.8)';
+    glowColor = 'rgba(120, 200, 255, 0.8)';
+  } else if (attrLower === 'earth') {
+    // 土属性: 茶色系
+    bgColor = 'rgba(139, 90, 43, 0.65)';
+    accentColor = 'rgba(210, 160, 100, 0.8)';
+    glowColor = 'rgba(184, 134, 84, 0.8)';
+  } else if (attrLower === 'thunder') {
+    // 雷属性: 黄色系
+    bgColor = 'rgba(255, 200, 30, 0.6)';
+    accentColor = 'rgba(255, 240, 100, 0.8)';
+    glowColor = 'rgba(255, 220, 50, 0.9)';
+  } else if (attrLower === 'light') {
+    // 光属性: 白系
+    bgColor = 'rgba(220, 220, 255, 0.5)';
+    accentColor = 'rgba(255, 255, 200, 0.8)';
+    glowColor = 'rgba(200, 200, 255, 0.8)';
+  } else if (attrLower === 'dark') {
+    // 暗属性: 紫系
+    bgColor = 'rgba(100, 50, 150, 0.65)';
+    accentColor = 'rgba(180, 100, 220, 0.8)';
+    glowColor = 'rgba(140, 80, 200, 0.9)';
+  }
+  
+  // 背景色を適用（一時的に変更）
+  const originalBg = overlay.style.background;
+  overlay.style.background = `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.18), ${bgColor})`;
+  
+  // 詳細テキストの枠線色を更新
+  if (detailEl) {
+    const originalBorder = detailEl.style.borderColor;
+    const originalGlow = detailEl.style.textShadow;
+    detailEl.style.borderColor = accentColor;
+    detailEl.style.boxShadow = `0 0 26px ${accentColor}, 0 0 40px ${glowColor}`;
+  }
+  
   overlay.classList.remove('hidden');
   overlay.classList.add('show');
+  
   setTimeout(() => {
     overlay.classList.remove('show');
-    setTimeout(() => overlay.classList.add('hidden'), 260);
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      // スタイルをリセット
+      overlay.style.background = originalBg;
+      if (detailEl) {
+        detailEl.style.borderColor = '';
+        detailEl.style.boxShadow = '';
+      }
+    }, 260);
   }, 2000);
 }
 
@@ -185,12 +252,22 @@ function showCutin(card, duration = 2500, extraComment = '') {
     cutinWord.textContent = card.word;
     const stCost = card.staminaCost != null ? card.staminaCost : 0;
     const mpCost = card.magicCost != null ? card.magicCost : 0;
+    
     // Support役は攻撃力/防御力を非表示にして、サポート情報を表示
     if (card.role === 'support') {
-      cutinStats.textContent = `サポート効果: ${card.effectType || '効果'} / 消費ST:${stCost} 消費MP:${mpCost}`;
+      // Support役の場合、supportMessageを優先して表示
+      const supportMsg = card.supportMessage || card.supportDetail || `サポート効果: ${card.effectType || '効果'}`;
+      cutinStats.textContent = `${supportMsg} / 消費ST:${stCost} 消費MP:${mpCost}`;
+      // cutinStats の背景をハイライト
+      cutinStats.style.background = 'rgba(100, 200, 255, 0.15)';
+      cutinStats.style.borderLeft = '4px solid rgba(100, 200, 255, 0.8)';
     } else {
       cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense} / 消費ST:${stCost} 消費MP:${mpCost}`;
+      // スタイルをリセット
+      cutinStats.style.background = '';
+      cutinStats.style.borderLeft = '';
     }
+    
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}]`;
     const roleRaw = (card.role || card.effect || 'unknown').toString();
     const roleLabel = roleRaw.toUpperCase();
@@ -728,7 +805,8 @@ function initSocket() {
 
     // UIに表示するサポートメッセージ：supportMessage（解説文）を最優先
     const overlayDetail = resolvedMessage || (card ? `${card.word}` : 'サポートが発動');
-    showSupportOverlay(overlayDetail);
+    const cardAttribute = card ? card.attribute : '';
+    showSupportOverlay(overlayDetail, cardAttribute);
 
     applyStatusTick(statusTick);
 
