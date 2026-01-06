@@ -355,6 +355,33 @@ function getOpponent(room, socketId) {
   return room.players.find(p => p.id !== socketId);
 }
 
+// 毎ターンの状態異常処理（ターン減少とDoT適用）
+function tickStatusEffects(room) {
+  if (!room || !room.players) return { ticks: [] };
+  const ticks = [];
+  room.players.forEach(p => {
+    if (!p.statusAilments) p.statusAilments = [];
+    let dot = 0;
+    p.statusAilments.forEach(a => {
+      const effectType = (a.effectType || '').toLowerCase();
+      const val = Number(a.value) || 0;
+      if (effectType === 'dot' && val > 0) {
+        dot += Math.max(0, Math.round(val));
+      }
+      a.turns = Math.max(0, (Number(a.turns) || 0) - 1);
+    });
+    if (dot > 0) {
+      p.hp = Math.max(0, p.hp - dot);
+    }
+    const before = p.statusAilments.length;
+    p.statusAilments = p.statusAilments.filter(a => a.turns > 0);
+    if (dot > 0 || before !== p.statusAilments.length) {
+      ticks.push({ playerId: p.id, dot, remaining: p.statusAilments });
+    }
+  });
+  return { ticks };
+}
+
 function findPlayer(room, socketId) {
   return room.players.find(p => p.id === socketId);
 }
@@ -433,6 +460,39 @@ function handleDefend(roomId, socket, word) {
   const defender = findPlayer(room, socket.id);
   if (!attacker || !defender) {
     console.log('⚠️ 防御エラー: プレイヤーが見つかりません');
+    return;
+  }
+
+  // ターン開始時の状態異常処理（DoT適用とターン減少）
+  const statusTick = tickStatusEffects(room);
+  let preWinner = null;
+  const maybeWinner = room.players.find(p => p.hp <= 0);
+  if (maybeWinner) {
+    const survivor = room.players.find(p => p.hp > 0);
+    preWinner = survivor?.id || null;
+  }
+  if (preWinner) {
+    const hp = {};
+    room.players.forEach(p => { hp[p.id] = p.hp; });
+    io.to(roomId).emit('turnResolved', {
+      attackerId: attacker.id,
+      defenderId: defender.id,
+      attackCard: room.pendingAttack.card,
+      defenseCard: null,
+      damage: 0,
+      counterDamage: 0,
+      dotDamage: statusTick.ticks.reduce((s, t) => s + (t.dot || 0), 0),
+      affinity: null,
+      hp,
+      defenseFailed: false,
+      appliedStatus: [],
+      fieldEffect: room.fieldEffect,
+      statusTick,
+      nextTurn: null,
+      winnerId: preWinner
+    });
+    updateStatus(roomId, `${room.players.find(p => p.id === preWinner)?.name || 'プレイヤー'} の勝利！`);
+    room.pendingAttack = null;
     return;
   }
 
@@ -534,6 +594,7 @@ function handleDefend(roomId, socket, word) {
       hp,
       defenseFailed,
       appliedStatus,
+      statusTick,
       fieldEffect: room.fieldEffect,
       nextTurn: winnerId ? null : room.players[room.turnIndex].id,
       winnerId
@@ -760,6 +821,27 @@ io.on('connection', (socket) => {
     const player = findPlayer(room, socket.id);
     if (!player) return;
 
+    // ターン開始時の状態異常処理
+    const statusTick = tickStatusEffects(room);
+    const tickWinner = room.players.find(p => p.hp <= 0);
+    if (tickWinner) {
+      const survivor = room.players.find(p => p.hp > 0);
+      const hpTick = {}; room.players.forEach(p => { hpTick[p.id] = p.hp; });
+      io.to(roomId).emit('supportUsed', {
+        playerId: player.id,
+        card: null,
+        hp: hpTick,
+        supportRemaining: 3 - player.supportUsed,
+        winnerId: survivor?.id || null,
+        nextTurn: null,
+        appliedStatus: [],
+        fieldEffect: room.fieldEffect,
+        statusTick
+      });
+      updateStatus(roomId, `${room.players.find(p => p.id === (survivor?.id || tickWinner.id))?.name || 'プレイヤー'} の勝利！`);
+      return;
+    }
+
     if (player.supportUsed >= 3) {
       socket.emit('errorMessage', { message: 'サポートは1試合に3回までです' });
       return;
@@ -875,6 +957,7 @@ io.on('connection', (socket) => {
       // フィールド効果更新
       if (card.fieldEffect && card.fieldEffect.name) {
         room.fieldEffect = card.fieldEffect;
+        io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
       }
 
       const hp = {};
@@ -899,7 +982,8 @@ io.on('connection', (socket) => {
         winnerId,
         nextTurn: winnerId ? null : room.players[room.turnIndex].id,
         appliedStatus,
-        fieldEffect: room.fieldEffect
+        fieldEffect: room.fieldEffect,
+        statusTick
       });
 
       if (winnerId) {
