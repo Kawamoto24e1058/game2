@@ -131,57 +131,44 @@ async function generateCard(word, intent = 'neutral') {
         ? '現在はサポート用途。回復・強化・弱体化を優先ロールとせよ。'
         : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。テンプレートを完全に捨て、入力語のニュアンスを100%反映した数値と効果を創出せよ。
+  const prompt = `あなたは歴史や経済に精通したゲームマスターです。以下のルールでJSONを生成せよ：
 
-【絶対条件：役割特化と数値固定】
-1. role は Attack / Defense / Support から1つだけ（その他禁止）。
-2. Defense: attack は必ず 0。風のドーム、水の壁、盾/壁/衣/回避系は 100% Defense にする。
-3. Attack: defense は必ず 0。
-4. Support: attack / defense は必ず 0。サポート効果に専念せよ。
+${intentNote}
 
-【サポートの多様化（例示のみ、縛られない）】
-- 日本晴れ: 炎強化/水弱体、オレンジ系演出。
-- 砂嵐: 毎ターンダメージ、命中低下。
-- 追い風: 回避率アップ、行動順加速。
-- 重力: ST消費増、回避低下。
-- 雨/豪雨: 水強化、火弱体、青系演出。
-- 言葉の意味に沿って自由にバフ/デバフ/フィールド/継続効果を生成せよ。
+【数値の不規則化】
+10の倍数（10, 20, 30...）や5の倍数の使用を厳禁とする。必ず 13, 27, 41, 58 のような中途半端で具体的な数値を、言葉の材質・希少性・歴史的価値から算出せよ。
 
-Support では supportEffect（数値または強度）と supportMessage（何が起き、どう変化したかの解説）を必ず生成する。supportDetail にも同内容を入れてよい。
+【役割の絶対化】
+1. Attack: defense は必ず 0。攻撃・破壊・加害を主目的とする語のみ。
+2. Defense: attack は必ず 0。盾や『風のドーム』『水の壁』等の守護概念は100%これに分類せよ。
+3. Support: attack と defense は必ず 0。回復だけでなく『日本晴れ(炎バフ)』『砂嵐(継続ダメ)』『インフレ(コスト増)』等の概念を生成せよ。
 
-【防御の純粋化】
-- Defense の attack は常に 0。
-- 盾/壁/バリア/衣/回避系は必ず Defense。
+【サポート効果の具体化】
+- supportType: "weather"（天候系）/ "buff"（強化） / "debuff"（弱体） / "heal"（回復） / "field"（フィールド） / "cost"（コスト変動）から選択
+- supportMessage: 「〇〇が△△した結果、□□が★★に変わった」という具体的な因果関係を説明
+- 例：「日本晴れが降り注ぎ、火属性攻撃が30%上昇し、水属性が50%低下した」
 
-【深層読解モード：思考プロセス】
-1. 全方位分析: 材質・構造・歴史・神話・サブカル・日常イメージを徹底検索し、物理/概念特性を抽出する。
-2. 数値の理由付け: キリの良い数値を避け、素材や象徴性に基づくリアルな値（例: 13, 27, 44）を設定。
-3. 固有効果命名: すべての言葉に唯一の効果名を与える（【】で囲む）。
-4. フィールド効果: サポート的な地形/環境語は fieldEffect を生成（name/visual(CSSグラデーション)/buff）。
-5. 状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value。
-6. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter, field, regen, drain などを語意で決め、effectValue を数値で返す。
-7. 攻撃分類: attackType を Physical / Magical / Hybrid のいずれかで返す。
-8. コスト計算: Physical は staminaCost、Magical は magicCost、Hybrid は両方。重い物理は staminaCost 高め、魔法は magicCost 高め。
+【数値生成の原則】
+- 物質の密度・希少性・歴史的記録から数値を逆算する
+- 例：ダイアモンド→レアリティ極高→attack 89, steel→一般的→attack 34, wind→自由→attack 41
+- 常識外の組み合わせを避け、言葉の本質を数値化する
 
-【出力JSON形式（必須キー）】
+【JSON構造（必須）】
 {
-  "attack": 数値,
-  "defense": 数値,
-  "attribute": "fire/water/wind/earth/thunder/light/dark から1つ",
-  "role": "Attack/Defense/Support",
-  "specialEffect": "【固有効果名】具体的な効果",
-  "effectType": "heal/buff/debuff/damage/hpMaxUp/counter/cleanse/field/dot/stun/regen/drain/other",
-  "effectValue": 数値,
-  "supportEffect": 数値,
-  "supportMessage": "Support のとき必須。何が起き、どう変化したか。",
-  "supportDetail": "supportMessage と同等か詳細な説明",
-  "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 },
-  "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }],
-  "attackType": "Physical" | "Magical" | "Hybrid",
+  "role": "Attack" | "Defense" | "Support",
+  "attack": 数値（roleで0固定される場合がある）,
+  "defense": 数値（roleで0固定される場合がある）,
+  "attribute": "fire/water/wind/earth/thunder/light/dark",
+  "supportType": "weather/buff/debuff/heal/field/cost/damage/其の他",
+  "supportMessage": "何が起きたか、どう変化したか（Support時のみ必須）",
+  "specialEffect": "【効果名】詳細説明",
   "staminaCost": 数値,
   "magicCost": 数値,
-  "judgeComment": "語源や材質から導いた全論理を200文字程度で熱く語れ"
-}`;
+  "judgeComment": "言葉の本質と数値化の根拠を100文字以上で説明"
+}
+
+単語: ${original}
+`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
@@ -221,21 +208,28 @@ Support では supportEffect（数値または強度）と supportMessage（何�
       defenseVal = 0;
     }
     
-    const supportType = cardData.supportEffect || cardData.supportType || null;
+    const supportType = cardData.supportType || cardData.supportEffect || null;
     const effectType = cardData.effectType || supportType || null;
     const effectValue = cardData.effectValue !== undefined ? Number(cardData.effectValue) : null;
     const staminaCost = cardData.staminaCost !== undefined ? Number(cardData.staminaCost) : 0;
     const magicCost = cardData.magicCost !== undefined ? Number(cardData.magicCost) : 0;
-    const attackType = cardData.attackType || 'physical';
+    const attackType = cardData.attackType || (role === 'attack' ? 'physical' : 'other');
     const attribute = cardData.attribute || 'earth';
     const specialEffect = (cardData.specialEffect && 
                            cardData.specialEffect !== 'none' && 
                            cardData.specialEffect.trim() !== '' &&
                            cardData.specialEffect !== 'なし' &&
-                           cardData.specialEffect !== '特になし' &&
-                           !cardData.specialEffect.match(/攻撃力.*\+|防御力.*\+/)) 
+                           cardData.specialEffect !== '特になし') 
                            ? cardData.specialEffect 
-                           : '【微弱反射】被ダメージの3%を反射';
+                           : '【基本効果】標準的な効果';
+    
+    // Support 時は supportMessage を優先して使用
+    const supportMessage = (cardData.supportMessage && cardData.supportMessage.trim() !== '') 
+                           ? cardData.supportMessage 
+                           : (cardData.supportDetail && cardData.supportDetail.trim() !== '') 
+                             ? cardData.supportDetail 
+                             : '';
+    
     const hasReflect = cardData.hasReflect === true || /反射/.test(specialEffect) || /cactus|サボテン/.test(original);
     const counterDamage = cardData.counterDamage !== undefined
       ? Number(cardData.counterDamage)
@@ -243,11 +237,10 @@ Support では supportEffect（数値または強度）と supportMessage（何�
     const hasCounter = cardData.hasCounter === true || counterDamage > 0;
     const fieldEffect = cardData.fieldEffect && cardData.fieldEffect.name ? cardData.fieldEffect : null;
     const statusAilment = Array.isArray(cardData.statusAilment) ? cardData.statusAilment : (cardData.statusAilment ? [cardData.statusAilment] : []);
-    const supportDetail = typeof cardData.supportDetail === 'string' ? cardData.supportDetail.trim() : '';
     const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
 
     return {
-      word: original,  // 入力された元の単語を使用
+      word: original,
       attribute,
       attack: attackVal,
       defense: defenseVal,
@@ -259,7 +252,8 @@ Support では supportEffect（数値または強度）と supportMessage（何�
       effectValue,
       fieldEffect,
       statusAilment,
-      supportDetail,
+      supportMessage,
+      supportDetail: supportMessage,  // supportMessage と同期
       specialEffect,
       hasReflect,
       hasCounter,
@@ -267,8 +261,8 @@ Support では supportEffect（数値または強度）と supportMessage（何�
       attackType,
       staminaCost,
       magicCost,
-      evasion: cardData.evasion || 0,  // 回避率（%）
-      judgeComment: cardData.judgeComment || '審判のコメントなし',
+      evasion: cardData.evasion || 0,
+      judgeComment: cardData.judgeComment || '審判のコメント',
       description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${effectType ? ' (' + effectType + ')' : ''} / ${specialEffect}${hasReflect ? ' / hasReflect' : ''}${hasCounter ? ` / counter:${counterDamage}` : ''}`
     };
   } catch (error) {
