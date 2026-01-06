@@ -559,10 +559,10 @@ function handleDefend(roomId, socket, word) {
   }
   if (preWinner) {
     const hp = {};
-    const maxHp = {};
+    const maxHpMap = {};
     room.players.forEach(p => {
       hp[p.id] = p.hp;
-      maxHp[p.id] = p.maxHp || STARTING_HP;
+      maxHpMap[p.id] = p.maxHp || STARTING_HP;
     });
     io.to(roomId).emit('turnResolved', {
       attackerId: attacker.id,
@@ -574,7 +574,7 @@ function handleDefend(roomId, socket, word) {
       dotDamage: statusTick.ticks.reduce((s, t) => s + (t.dot || 0), 0),
       affinity: null,
       hp,
-      maxHp,
+      maxHp: maxHpMap,
       defenseFailed: false,
       appliedStatus: [],
       fieldEffect: room.fieldEffect,
@@ -693,10 +693,10 @@ function handleDefend(roomId, socket, word) {
     room.turnIndex = (room.turnIndex + 1) % room.players.length;
 
     const hp = {};
-    const maxHp = {};
+    const maxHpMap = {};
     room.players.forEach(p => {
       hp[p.id] = p.hp;
-      maxHp[p.id] = p.maxHp || STARTING_HP;
+      maxHpMap[p.id] = p.maxHp || STARTING_HP;
     });
 
     regenResources(room);
@@ -716,7 +716,7 @@ function handleDefend(roomId, socket, word) {
       dotDamage,
       affinity,
       hp,
-      maxHp,
+      maxHp: maxHpMap,
       defenseFailed,
       appliedStatus,
       statusTick,
@@ -1092,10 +1092,10 @@ io.on('connection', (socket) => {
       }
 
       const hp = {};
-      const maxHp = {};
+      const maxHpMap = {};
       room.players.forEach(p => {
         hp[p.id] = p.hp;
-        maxHp[p.id] = p.maxHp || STARTING_HP;
+        maxHpMap[p.id] = p.maxHp || STARTING_HP;
       });
 
       let winnerId = null;
@@ -1130,7 +1130,7 @@ io.on('connection', (socket) => {
         playerId: player.id,
         card: effectiveCard,
         hp,
-        maxHp,
+        maxHp: maxHpMap,
         supportRemaining: 3 - player.supportUsed,
         winnerId,
         nextTurn: winnerId ? null : room.players[room.turnIndex].id,
