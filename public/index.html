@@ -82,6 +82,7 @@
         <div id="turnIndicator" class="turn-indicator">あなたのターン</div>
         <div class="affinity-helper">
           <button id="affinityToggle" class="affinity-btn">？ 属性相性</button>
+          <button id="supportGuideBtn" class="guide-btn">Support Guide</button>
           <div id="affinityPanel" class="affinity-panel hidden">
             <div class="affinity-header">
               <span>属性相性チャート</span>
@@ -108,12 +109,36 @@
           <div class="health-bar">
             <div id="myHealthFill" class="health-fill"><span id="myHealthText">100</span></div>
           </div>
+          <div class="resource-bars">
+            <div class="resource-bar stamina">
+              <div id="myStaminaFill" class="resource-fill">
+                <span id="myStaminaText">100</span>
+              </div>
+            </div>
+            <div class="resource-bar magic">
+              <div id="myMagicFill" class="resource-fill">
+                <span id="myMagicText">100</span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="vs-divider">VS</div>
         <div class="player-area">
           <h3>相手</h3>
           <div class="health-bar">
             <div id="opHealthFill" class="health-fill"><span id="opHealthText">100</span></div>
+          </div>
+          <div class="resource-bars">
+            <div class="resource-bar stamina">
+              <div id="opStaminaFill" class="resource-fill">
+                <span id="opStaminaText">100</span>
+              </div>
+            </div>
+            <div class="resource-bar magic">
+              <div id="opMagicFill" class="resource-fill">
+                <span id="opMagicText">100</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -162,6 +187,16 @@
           <button id="defenseModalBtn" class="btn btn-primary">防御実行</button>
         </div>
         <small>攻撃ワードを入れると防御失敗になります</small>
+      </div>
+    </div>
+
+    <div id="supportGuideModal" class="modal-overlay hidden">
+      <div class="modal-content guide-modal">
+        <div class="modal-icon">🌟</div>
+        <h2>サポートガイド</h2>
+        <p class="modal-message">サポート単語でできること：HP回復、最大HP上昇、フィールド変更、属性付与、相手へのデバフ、ST/MP回復など、言葉の意味次第で無限の可能性があります！</p>
+        <p class="modal-message">ユニークな語を入力すると、例えば「銀行」なら利息で毎ターンHP回復、「温泉」なら継続回復フィールドなど、自由な効果が生まれます。</p>
+        <button id="supportGuideClose" class="btn btn-secondary">閉じる</button>
       </div>
     </div>
 

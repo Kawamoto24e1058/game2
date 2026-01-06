@@ -124,10 +124,14 @@ async function generateCard(word, intent = 'neutral') {
 1. 全方位分析: 材質・構造・歴史・神話・サブカル・日常イメージを徹底検索し、物理/概念特性を抽出する。
 2. 数値の理由付け: キリの良い数値を避け、素材や象徴性に基づくリアルな値（例: 13, 27, 44）を設定。
 3. 固有効果命名: すべての言葉に唯一の効果名を与える（【】で囲む）。
-4. ロール厳格化: 衣類・ローブ・マントなどは物理防御が低くても必ず Defense とし、属性耐性などの防御的特殊効果を付与する。
-5. フィールド効果: サポート的な地形/環境語（例: 火山、サイバー空間）は fieldEffect を生成し、name/visual(CSSグラデーション)/buff を返す。
-6. 無限状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value を返す。相手に最大3件付与可能。
-7. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter など effectType を語意から決め、effectValue を数値で返す。
+4. 役割判定の絶対化: role は Attack / Defense / Support から1つのみ。盾・壁・衣類・回避系は Defense を強制し、攻撃的でも防御目的なら Defense。
+5. 数値の極振り: role が Defense のとき attack は必ず 5 以下（基本0）で defense に全振り。role が Attack のとき defense は必ず 5 以下（基本0）で attack に全振り。Support は自由だが過度に偏らないよう語意で配分。
+6. フィールド効果: サポート的な地形/環境語（例: 火山、サイバー空間）は fieldEffect を生成し、name/visual(CSSグラデーション)/buff を返す。
+7. 無限状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value を返す。相手に最大3件付与可能。
+8. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter など effectType を語意から決め、effectValue を数値で返す。
+9. 攻撃分類: attackType を Physical / Magical / Hybrid のいずれかで返す（語義に従い物理・魔法を判断）。
+10. コスト計算: attackType が Physical なら staminaCost を必ず設定、Magical なら magicCost、Hybrid は両方。重い物理は staminaCost 高め、魔法的な語は magicCost 高めにする。
+11. サポートはテンプレートに縛られず、入力語の概念を最大限活かしたユニークな効果を生成せよ（例: 「銀行」→毎ターン利息でHP回復、「温泉」→継続回復フィールドなど）。
 
 【出力JSON形式（必須キー）】
 {
@@ -139,7 +143,10 @@ async function generateCard(word, intent = 'neutral') {
   "effectType": "heal/buff/debuff/damage/hpMaxUp/counter/cleanse/field/dot/stun/other",
   "effectValue": 数値,
   "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 }  // フィールドがある場合のみ
-  "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }]  // 任意件数
+  "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }],  // 任意件数
+  "attackType": "Physical" | "Magical" | "Hybrid",
+  "staminaCost": 数値,  // 体力消費
+  "magicCost": 数値      // 魔力消費
   "judgeComment": "語源や材質から導いた全論理を200文字程度で熱く語れ"
 }`;
 
@@ -175,6 +182,9 @@ async function generateCard(word, intent = 'neutral') {
     const supportType = cardData.supportEffect || cardData.supportType || null;
     const effectType = cardData.effectType || supportType || null;
     const effectValue = cardData.effectValue !== undefined ? Number(cardData.effectValue) : null;
+    const staminaCost = cardData.staminaCost !== undefined ? Number(cardData.staminaCost) : 0;
+    const magicCost = cardData.magicCost !== undefined ? Number(cardData.magicCost) : 0;
+    const attackType = cardData.attackType || 'physical';
     const attribute = cardData.attribute || 'earth';
     const specialEffect = (cardData.specialEffect && 
                            cardData.specialEffect !== 'none' && 
@@ -209,6 +219,9 @@ async function generateCard(word, intent = 'neutral') {
       hasReflect,
       hasCounter,
       counterDamage,
+      attackType,
+      staminaCost,
+      magicCost,
       judgeComment: cardData.judgeComment || '審判のコメントなし',
       description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${effectType ? ' (' + effectType + ')' : ''} / ${specialEffect}${hasReflect ? ' / hasReflect' : ''}${hasCounter ? ` / counter:${counterDamage}` : ''}`
     };
@@ -268,6 +281,9 @@ function generateCardFallback(word) {
     effect: 'attack',
     tier,
     supportType: null,
+    attackType: 'physical',
+    staminaCost: 10,
+    magicCost: 0,
     judgeComment: 'フォールバック: 簡易推定。特性不明のため汎用反射効果を付与。物質的特徴から【】命名。',
     specialEffect,
     hasReflect,
@@ -287,6 +303,10 @@ function createRoom(players, mode, password) {
       socketId: p.socket.id,
       hp: STARTING_HP,
       maxHp: STARTING_HP,
+      stamina: 100,
+      maxStamina: 100,
+      magic: 100,
+      maxMagic: 100,
       usedWords: new Set(),
       isHost: idx === 0,
       supportUsed: 0,
@@ -335,13 +355,27 @@ function startBattle(roomId) {
   room.started = true;
   room.phase = 'attack';
   room.turnIndex = Math.floor(Math.random() * room.players.length);
-  room.players.forEach(p => { p.maxHp = STARTING_HP; p.hp = p.maxHp; p.statusAilments = []; });
+  room.players.forEach(p => {
+    p.maxHp = STARTING_HP;
+    p.hp = p.maxHp;
+    p.statusAilments = [];
+    p.maxStamina = p.maxStamina || 100;
+    p.maxMagic = p.maxMagic || 100;
+    p.stamina = p.maxStamina;
+    p.magic = p.maxMagic;
+  });
   room.fieldEffect = null;
+
+  const resources = {};
+  room.players.forEach(p => {
+    resources[p.id] = { stamina: p.stamina, magic: p.magic, maxStamina: p.maxStamina, maxMagic: p.maxMagic };
+  });
 
   io.to(roomId).emit('battleStarted', {
     roomId,
-    players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp })),
-    turn: room.players[room.turnIndex].id
+    players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp })),
+    turn: room.players[room.turnIndex].id,
+    resources
   });
   updateStatus(roomId, `バトル開始！先攻: ${room.players[room.turnIndex].name}`);
 }
@@ -358,6 +392,53 @@ function getWaitingQueue(passwordKey) {
   const key = passwordKey || '__RANDOM__';
   if (!waitingPlayersByPass.has(key)) waitingPlayersByPass.set(key, []);
   return waitingPlayersByPass.get(key);
+}
+
+function applyResourceCost(player, card) {
+  if (!player) return { card, shortage: false };
+  if (typeof player.maxStamina !== 'number') player.maxStamina = 100;
+  if (typeof player.maxMagic !== 'number') player.maxMagic = 100;
+  if (typeof player.stamina !== 'number') player.stamina = player.maxStamina;
+  if (typeof player.magic !== 'number') player.magic = player.maxMagic;
+
+  const staminaCost = Number(card.staminaCost) || 0;
+  const magicCost = Number(card.magicCost) || 0;
+  const beforeStamina = player.stamina;
+  const beforeMagic = player.magic;
+  const staminaShort = beforeStamina < staminaCost;
+  const magicShort = beforeMagic < magicCost;
+  const shortage = staminaShort || magicShort;
+
+  player.stamina = Math.max(0, beforeStamina - staminaCost);
+  player.magic = Math.max(0, beforeMagic - magicCost);
+
+  const adjusted = { ...card };
+  if (shortage) {
+    adjusted.attack = Math.round((adjusted.attack || 0) * 0.5);
+    adjusted.defense = Math.round((adjusted.defense || 0) * 0.5);
+  }
+  return {
+    card: adjusted,
+    shortage,
+    staminaShort,
+    magicShort,
+    staminaCost,
+    magicCost,
+    beforeStamina,
+    beforeMagic,
+    afterStamina: player.stamina,
+    afterMagic: player.magic
+  };
+}
+
+function regenResources(room) {
+  if (!room || !room.players) return;
+  room.players.forEach(p => {
+    const maxSt = p.maxStamina || 100;
+    const maxMp = p.maxMagic || 100;
+    p.stamina = Math.min(maxSt, (typeof p.stamina === 'number' ? p.stamina : maxSt) + 5);
+    p.magic = Math.min(maxMp, (typeof p.magic === 'number' ? p.magic : maxMp) + 5);
+  });
 }
 
 // 毎ターンの状態異常処理（ターン減少とDoT適用）
@@ -461,8 +542,8 @@ function handleDefend(roomId, socket, word) {
 
   console.log('🛡️ 防御処理開始:', { roomId, defender: socket.id, word: cleanWord });
 
-  const attacker = findPlayer(room, room.pendingAttack.attackerId);
-  const defender = findPlayer(room, socket.id);
+    const attacker = findPlayer(room, room.pendingAttack.attackerId);
+    const defender = findPlayer(room, socket.id);
   if (!attacker || !defender) {
     console.log('⚠️ 防御エラー: プレイヤーが見つかりません');
     return;
@@ -478,7 +559,11 @@ function handleDefend(roomId, socket, word) {
   }
   if (preWinner) {
     const hp = {};
-    room.players.forEach(p => { hp[p.id] = p.hp; });
+    const maxHp = {};
+    room.players.forEach(p => {
+      hp[p.id] = p.hp;
+      maxHp[p.id] = p.maxHp || STARTING_HP;
+    });
     io.to(roomId).emit('turnResolved', {
       attackerId: attacker.id,
       defenderId: defender.id,
@@ -489,6 +574,7 @@ function handleDefend(roomId, socket, word) {
       dotDamage: statusTick.ticks.reduce((s, t) => s + (t.dot || 0), 0),
       affinity: null,
       hp,
+      maxHp,
       defenseFailed: false,
       appliedStatus: [],
       fieldEffect: room.fieldEffect,
@@ -502,6 +588,7 @@ function handleDefend(roomId, socket, word) {
   }
 
   const attackCard = room.pendingAttack.card;
+  const atkResource = applyResourceCost(attacker, attackCard);
   const applyStatus = (sourceCard, targetPlayer, appliedList) => {
     if (!sourceCard || !sourceCard.statusAilment || !targetPlayer) return { dot: 0 };
     if (!targetPlayer.statusAilments) targetPlayer.statusAilments = [];
@@ -533,45 +620,66 @@ function handleDefend(roomId, socket, word) {
     room.usedWordsGlobal.add(lower);
     defender.usedWords.add(lower);
 
-    // 防御失敗ロジック：防御フェーズで攻撃カードを出した場合
+    const defResource = applyResourceCost(defender, defenseCard);
+
+    // 防御失敗ロジック：防御フェーズで Defense 以外のロールは失敗扱い
     let defenseFailed = false;
-    if (defenseCard.effect === 'attack') {
+    const defRole = (defenseCard.effect || defenseCard.role || '').toLowerCase();
+    if (defRole !== 'defense') {
       defenseFailed = true;
     }
 
     // ダメージ計算（属性相性2.0倍対応）
-    const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
-    let damage = calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed);
+    const affinity = getAffinity(atkResource.card.attribute, defResource.card.attribute);
+    let damage = calculateDamage(atkResource.card, defResource.card, attacker, defender, defenseFailed);
     const appliedStatus = [];
     let dotDamage = 0;
 
     // カウンターダメージ処理（トゲ系）
     let counterDamage = 0;
-    if (defenseCard.counterDamage && !defenseFailed) {
-      counterDamage = defenseCard.counterDamage;
+    if (defResource.card.counterDamage && !defenseFailed) {
+      counterDamage = defResource.card.counterDamage;
       attacker.hp = Math.max(0, attacker.hp - counterDamage);
-      console.log(`🌵 カウンターダメージ発動: ${defenseCard.counterDamage}ダメージを攻撃者に与えた`);
+      console.log(`🌵 カウンターダメージ発動: ${defResource.card.counterDamage}ダメージを攻撃者に与えた`);
     }
 
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
 
-    if (attackCard.effect === 'heal') {
-      attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(attackCard.attack * 0.6));
+    if (atkResource.card.effect === 'heal') {
+      attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(atkResource.card.attack * 0.6));
       damage = 0;
     }
-    if (defenseCard.effect === 'heal' && !defenseFailed) {
-      defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(defenseCard.defense * 0.5));
+    if (defResource.card.effect === 'heal' && !defenseFailed) {
+      defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(defResource.card.defense * 0.5));
     }
 
     defender.hp = Math.max(0, defender.hp - damage);
 
     // 状態異常付与と即時DoT適用
-    const res1 = applyStatus(attackCard, defender, appliedStatus); dotDamage += res1.dot;
-    const res2 = applyStatus(defenseCard, attacker, appliedStatus); dotDamage += res2.dot;
+    const res1 = applyStatus(atkResource.card, defender, appliedStatus); dotDamage += res1.dot;
+    const res2 = applyStatus(defResource.card, attacker, appliedStatus); dotDamage += res2.dot;
     if (dotDamage > 0) {
       defender.hp = Math.max(0, defender.hp - res1.dot);
       attacker.hp = Math.max(0, attacker.hp - res2.dot);
+    }
+
+    const shortageWarnings = [];
+    if (atkResource.shortage) {
+      const reason = atkResource.staminaShort && atkResource.magicShort
+        ? 'スタミナ・魔力不足！威力が低下'
+        : atkResource.staminaShort
+          ? 'スタミナ不足！威力が低下'
+          : '魔力不足！威力が低下';
+      shortageWarnings.push({ playerId: attacker.id, message: reason });
+    }
+    if (defResource.shortage) {
+      const reason = defResource.staminaShort && defResource.magicShort
+        ? 'スタミナ・魔力不足！防御力低下'
+        : defResource.staminaShort
+          ? 'スタミナ不足！防御力低下'
+          : '魔力不足！防御力低下';
+      shortageWarnings.push({ playerId: defender.id, message: reason });
     }
 
     let winnerId = null;
@@ -585,22 +693,36 @@ function handleDefend(roomId, socket, word) {
     room.turnIndex = (room.turnIndex + 1) % room.players.length;
 
     const hp = {};
-    room.players.forEach(p => { hp[p.id] = p.hp; });
+    const maxHp = {};
+    room.players.forEach(p => {
+      hp[p.id] = p.hp;
+      maxHp[p.id] = p.maxHp || STARTING_HP;
+    });
+
+    regenResources(room);
+
+    const resources = {};
+    room.players.forEach(p => {
+      resources[p.id] = { stamina: p.stamina, magic: p.magic, maxStamina: p.maxStamina, maxMagic: p.maxMagic };
+    });
 
     io.to(roomId).emit('turnResolved', {
       attackerId: attacker.id,
       defenderId: defender.id,
-      attackCard,
-      defenseCard,
+      attackCard: atkResource.card,
+      defenseCard: defResource.card,
       damage,
       counterDamage,
       dotDamage,
       affinity,
       hp,
+      maxHp,
       defenseFailed,
       appliedStatus,
       statusTick,
       fieldEffect: room.fieldEffect,
+      resources,
+      shortageWarnings,
       nextTurn: winnerId ? null : room.players[room.turnIndex].id,
       winnerId
     });
@@ -809,17 +931,25 @@ io.on('connection', (socket) => {
     const tickWinner = room.players.find(p => p.hp <= 0);
     if (tickWinner) {
       const survivor = room.players.find(p => p.hp > 0);
-      const hpTick = {}; room.players.forEach(p => { hpTick[p.id] = p.hp; });
+      const hpTick = {}; const resourcesTick = {}; const maxHpTick = {};
+      room.players.forEach(p => {
+        hpTick[p.id] = p.hp;
+        resourcesTick[p.id] = { stamina: p.stamina, magic: p.magic, maxStamina: p.maxStamina, maxMagic: p.maxMagic };
+        maxHpTick[p.id] = p.maxHp || STARTING_HP;
+      });
       io.to(roomId).emit('supportUsed', {
         playerId: player.id,
         card: null,
         hp: hpTick,
+        maxHp: maxHpTick,
         supportRemaining: 3 - player.supportUsed,
         winnerId: survivor?.id || null,
         nextTurn: null,
         appliedStatus: [],
         fieldEffect: room.fieldEffect,
-        statusTick
+        statusTick,
+        resources: resourcesTick,
+        shortageWarnings: []
       });
       updateStatus(roomId, `${room.players.find(p => p.id === (survivor?.id || tickWinner.id))?.name || 'プレイヤー'} の勝利！`);
       return;
@@ -848,8 +978,11 @@ io.on('connection', (socket) => {
       player.usedWords.add(lower);
       player.supportUsed++;
 
-      const effectTypeRaw = (card.effectType || card.supportType || card.supportEffect || '').toLowerCase();
-      const effectValNum = Number(card.effectValue);
+      const resCost = applyResourceCost(player, card);
+      const effectiveCard = resCost.card;
+
+      const effectTypeRaw = (effectiveCard.effectType || effectiveCard.supportType || effectiveCard.supportEffect || '').toLowerCase();
+      const effectValNum = Number(effectiveCard.effectValue);
       const effectValue = Number.isFinite(effectValNum) ? effectValNum : null;
       const maxHp = player.maxHp || STARTING_HP;
       const opponent = getOpponent(room, socket.id);
@@ -887,6 +1020,14 @@ io.on('connection', (socket) => {
           player.hp = Math.min(maxHp, player.hp + heal);
           break;
         }
+        case 'recover': {
+          const amount = effectValue && effectValue > 0 ? effectValue : 20;
+          const stMax = player.maxStamina || 100;
+          const mpMax = player.maxMagic || 100;
+          player.stamina = Math.min(stMax, (player.stamina ?? stMax) + amount);
+          player.magic = Math.min(mpMax, (player.magic ?? mpMax) + amount);
+          break;
+        }
         case 'buff':
         case 'attack_boost': {
           player.attackBoost = effectValue && effectValue > 0 ? effectValue : 50;
@@ -915,6 +1056,13 @@ io.on('connection', (socket) => {
           player.statusAilments = [];
           break;
         }
+        case 'field': {
+          if (effectiveCard.fieldEffect && effectiveCard.fieldEffect.name) {
+            room.fieldEffect = effectiveCard.fieldEffect;
+            io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
+          }
+          break;
+        }
         default: {
           // 旧サポート種別との後方互換
           if (card.supportType === 'heal_boost') {
@@ -933,18 +1081,22 @@ io.on('connection', (socket) => {
 
       // サポート由来の状態異常付与（例えば毒フィールドなど）
       if (opponent) {
-        const res = applyStatus(card, opponent);
+        const res = applyStatus(effectiveCard, opponent);
         if (res.dot > 0) opponent.hp = Math.max(0, opponent.hp - res.dot);
       }
 
       // フィールド効果更新
-      if (card.fieldEffect && card.fieldEffect.name) {
-        room.fieldEffect = card.fieldEffect;
+      if (effectiveCard.fieldEffect && effectiveCard.fieldEffect.name) {
+        room.fieldEffect = effectiveCard.fieldEffect;
         io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
       }
 
       const hp = {};
-      room.players.forEach(p => { hp[p.id] = p.hp; });
+      const maxHp = {};
+      room.players.forEach(p => {
+        hp[p.id] = p.hp;
+        maxHp[p.id] = p.maxHp || STARTING_HP;
+      });
 
       let winnerId = null;
       if (room.players.some(p => p.hp <= 0)) {
@@ -957,16 +1109,36 @@ io.on('connection', (socket) => {
         room.turnIndex = (room.turnIndex + 1) % room.players.length;
       }
 
+      regenResources(room);
+
+      const resources = {};
+      room.players.forEach(p => {
+        resources[p.id] = { stamina: p.stamina, magic: p.magic, maxStamina: p.maxStamina, maxMagic: p.maxMagic };
+      });
+
+      const shortageWarnings = [];
+      if (resCost.shortage) {
+        const reason = resCost.staminaShort && resCost.magicShort
+          ? 'スタミナ・魔力不足！効果が減衰'
+          : resCost.staminaShort
+            ? 'スタミナ不足！効果が減衰'
+            : '魔力不足！効果が減衰';
+        shortageWarnings.push({ playerId: player.id, message: reason });
+      }
+
       io.to(roomId).emit('supportUsed', {
         playerId: player.id,
-        card,
+        card: effectiveCard,
         hp,
+        maxHp,
         supportRemaining: 3 - player.supportUsed,
         winnerId,
         nextTurn: winnerId ? null : room.players[room.turnIndex].id,
         appliedStatus,
         fieldEffect: room.fieldEffect,
-        statusTick
+        statusTick,
+        resources,
+        shortageWarnings
       });
 
       if (winnerId) {

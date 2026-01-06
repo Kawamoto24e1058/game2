@@ -1,5 +1,7 @@
 const SOCKET_URL = 'https://create-cards.onrender.com';
 
+const MAX_HP_BASE = 120;
+
 let socket = null;
 let playerId = null;
 let playerName = '';
@@ -8,6 +10,16 @@ let isHost = false;
 let currentTurn = null;
 let myHp = 0;
 let opponentHp = 0;
+let myMaxHp = MAX_HP_BASE;
+let opponentMaxHp = MAX_HP_BASE;
+let myStamina = 100;
+let myMagic = 100;
+let opponentStamina = 100;
+let opponentMagic = 100;
+let myMaxStamina = 100;
+let myMaxMagic = 100;
+let opponentMaxStamina = 100;
+let opponentMaxMagic = 100;
 let supportRemaining = 3;
 let defaultBackground = '';
 let activeFieldName = null;
@@ -136,7 +148,9 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const cutinComment = document.getElementById('cutinComment');
 
     cutinWord.textContent = card.word;
-    cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
+    const stCost = card.staminaCost != null ? card.staminaCost : 0;
+    const mpCost = card.magicCost != null ? card.magicCost : 0;
+    cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense} / 消費ST:${stCost} 消費MP:${mpCost}`;
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}] ${card.effect.toUpperCase()}`;
     cutinSpecial.textContent = `特殊効果: ${card.specialEffect || 'なし'}`;
     const comments = [card.judgeComment || '審判: 良好'];
@@ -203,15 +217,49 @@ function showSection(id) {
   document.getElementById(id).classList.remove('hidden');
 }
 
-function updateHealthBars(my, op) {
+function updateHealthBars(my, op, myMax = myMaxHp, opMax = opponentMaxHp) {
   myHp = my;
   opponentHp = op;
+  myMaxHp = myMax || MAX_HP_BASE;
+  opponentMaxHp = opMax || MAX_HP_BASE;
   const myFill = document.getElementById('myHealthFill');
   const opFill = document.getElementById('opHealthFill');
-  document.getElementById('myHealthText').textContent = Math.round(myHp);
-  document.getElementById('opHealthText').textContent = Math.round(opponentHp);
-  myFill.style.width = `${Math.max(0, Math.min(100, myHp))}%`;
-  opFill.style.width = `${Math.max(0, Math.min(100, opponentHp))}%`;
+  document.getElementById('myHealthText').textContent = `${Math.round(myHp)}/${myMaxHp}`;
+  document.getElementById('opHealthText').textContent = `${Math.round(opponentHp)}/${opponentMaxHp}`;
+  const myPercent = myMaxHp > 0 ? Math.max(0, Math.min(100, (myHp / myMaxHp) * 100)) : 0;
+  const opPercent = opponentMaxHp > 0 ? Math.max(0, Math.min(100, (opponentHp / opponentMaxHp) * 100)) : 0;
+  myFill.style.width = `${myPercent}%`;
+  opFill.style.width = `${opPercent}%`;
+}
+
+function updateResourceBars({
+  mySt = myStamina,
+  myMp = myMagic,
+  myStMax = myMaxStamina,
+  myMpMax = myMaxMagic,
+  opSt = opponentStamina,
+  opMp = opponentMagic,
+  opStMax = opponentMaxStamina,
+  opMpMax = opponentMaxMagic
+} = {}) {
+  myStamina = mySt; myMagic = myMp; myMaxStamina = myStMax || 100; myMaxMagic = myMpMax || 100;
+  opponentStamina = opSt; opponentMagic = opMp; opponentMaxStamina = opStMax || 100; opponentMaxMagic = opMpMax || 100;
+
+  const sets = [
+    { fill: 'myStaminaFill', text: 'myStaminaText', val: myStamina, max: myMaxStamina },
+    { fill: 'myMagicFill', text: 'myMagicText', val: myMagic, max: myMaxMagic },
+    { fill: 'opStaminaFill', text: 'opStaminaText', val: opponentStamina, max: opponentMaxStamina },
+    { fill: 'opMagicFill', text: 'opMagicText', val: opponentMagic, max: opponentMaxMagic }
+  ];
+
+  sets.forEach(({ fill, text, val, max }) => {
+    const fillEl = document.getElementById(fill);
+    const textEl = document.getElementById(text);
+    if (!fillEl || !textEl) return;
+    const pct = max > 0 ? Math.max(0, Math.min(100, (val / max) * 100)) : 0;
+    fillEl.style.width = `${pct}%`;
+    textEl.textContent = `${Math.round(val)}/${max}`;
+  });
 }
 
 function appendLog(message, type = 'info') {
@@ -389,12 +437,31 @@ function initSocket() {
     }
   });
 
-  socket.on('battleStarted', ({ players, turn }) => {
+  socket.on('battleStarted', ({ players, turn, resources }) => {
     isMatching = false;
     showSection('battleSection');
     const me = players.find(p => p.id === playerId);
     const op = players.find(p => p.id !== playerId);
-    updateHealthBars(me ? me.hp : 100, op ? op.hp : 100);
+    const myMax = me?.maxHp || MAX_HP_BASE;
+    const opMax = op?.maxHp || MAX_HP_BASE;
+    myMaxHp = myMax;
+    opponentMaxHp = opMax;
+    updateHealthBars(me ? me.hp : myMax, op ? op.hp : opMax, myMax, opMax);
+    if (resources) {
+      const myRes = resources[playerId] || {};
+      const opEntry = Object.entries(resources).find(([id]) => id !== playerId);
+      const opRes = opEntry ? opEntry[1] : {};
+      updateResourceBars({
+        mySt: myRes.stamina ?? myStamina,
+        myMp: myRes.magic ?? myMagic,
+        myStMax: myRes.maxStamina ?? myMaxStamina,
+        myMpMax: myRes.maxMagic ?? myMaxMagic,
+        opSt: opRes.stamina ?? opponentStamina,
+        opMp: opRes.magic ?? opponentMagic,
+        opStMax: opRes.maxStamina ?? opponentMaxStamina,
+        opMpMax: opRes.maxMagic ?? opponentMaxMagic
+      });
+    }
     resetStatuses();
     applyFieldVisual(null, { silentLog: true });
     currentTurn = turn;
@@ -431,9 +498,12 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, hp, nextTurn, winnerId, defenseFailed, affinity, statusTick }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, hp, maxHp, resources, shortageWarnings = [], nextTurn, winnerId, defenseFailed, affinity, statusTick }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
+    const maxHpMap = maxHp || {};
+    const meMax = maxHpMap[playerId] ?? myMaxHp ?? MAX_HP_BASE;
+    const opMax = Object.entries(maxHpMap).find(([id]) => id !== playerId)?.[1] ?? opponentMaxHp ?? MAX_HP_BASE;
 
     const cutinFlavor = buildCutinFlavor({ affinity, defenseCard, defenseFailed });
 
@@ -484,12 +554,35 @@ function initSocket() {
       applyFieldVisual(fieldEffect);
     }
 
+    if (resources) {
+      const myRes = resources[playerId] || {};
+      const opEntry = Object.entries(resources).find(([id]) => id !== playerId);
+      const opRes = opEntry ? opEntry[1] : {};
+      updateResourceBars({
+        mySt: myRes.stamina ?? myStamina,
+        myMp: myRes.magic ?? myMagic,
+        myStMax: myRes.maxStamina ?? myMaxStamina,
+        myMpMax: myRes.maxMagic ?? myMaxMagic,
+        opSt: opRes.stamina ?? opponentStamina,
+        opMp: opRes.magic ?? opponentMagic,
+        opStMax: opRes.maxStamina ?? opponentMaxStamina,
+        opMpMax: opRes.maxMagic ?? opponentMaxMagic
+      });
+    }
+
+    if (shortageWarnings.length > 0) {
+      shortageWarnings.forEach(w => {
+        const isMe = w.playerId === playerId;
+        appendLog(`⚠️ ${isMe ? 'あなた' : '相手'}: ${w.message}`, 'damage');
+      });
+    }
+
     // 回復表示
     if (attackCard.effect === 'heal') {
       showHealAnimation(attackerId === playerId ? 'my' : 'op', Math.round(attackCard.attack * 0.6));
     }
 
-    updateHealthBars(meHp, opHp);
+    updateHealthBars(meHp, opHp, meMax, opMax);
     appendLog(`攻撃: ${attackCard.word} (${attackCard.effect}) / 防御: ${defenseCard.word} (${defenseCard.effect})`, 'info');
 
     if (affinity) {
@@ -523,7 +616,7 @@ function initSocket() {
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
-  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect, statusTick }) => {
+  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, maxHp, resources, shortageWarnings = [], supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect, statusTick }) => {
     if (card) {
       await showCutin(card, 2000);
     }
@@ -554,6 +647,29 @@ function initSocket() {
       applyFieldVisual(fieldEffect);
     }
 
+    if (resources) {
+      const myRes = resources[playerId] || {};
+      const opId = Object.keys(resources).find(id => id !== playerId);
+      const opRes = opId ? resources[opId] : {};
+      updateResourceBars({
+        mySt: myRes.stamina ?? myStamina,
+        myMp: myRes.magic ?? myMagic,
+        myStMax: myRes.maxStamina ?? myMaxStamina,
+        myMpMax: myRes.maxMagic ?? myMaxMagic,
+        opSt: opRes.stamina ?? opponentStamina,
+        opMp: opRes.magic ?? opponentMagic,
+        opStMax: opRes.maxStamina ?? opponentMaxStamina,
+        opMpMax: opRes.maxMagic ?? opponentMaxMagic
+      });
+    }
+
+    if (shortageWarnings.length > 0) {
+      shortageWarnings.forEach(w => {
+        const isMe = w.playerId === playerId;
+        appendLog(`⚠️ ${isMe ? 'あなた' : '相手'}: ${w.message}`, 'damage');
+      });
+    }
+
     if (isMe && typeof newRemaining === 'number') {
       supportRemaining = newRemaining;
       updateSupportCounter();
@@ -562,8 +678,11 @@ function initSocket() {
     myHp = hp[playerId];
     const opponentId = Object.keys(hp).find(id => id !== playerId);
     opponentHp = hp[opponentId];
+    const maxHpMap = maxHp || {};
+    const meMax = maxHpMap[playerId] ?? myMaxHp ?? MAX_HP_BASE;
+    const opMax = opponentId ? (maxHpMap[opponentId] ?? opponentMaxHp ?? MAX_HP_BASE) : opponentMaxHp;
 
-    updateHealthBars(myHp, opponentHp);
+    updateHealthBars(myHp, opponentHp, meMax, opMax);
 
     if (winnerId) {
       const winMe = winnerId === playerId;
@@ -612,11 +731,18 @@ function initSocket() {
     playerId = null;
     myHp = 0;
     opponentHp = 0;
+    myMaxHp = MAX_HP_BASE;
+    opponentMaxHp = MAX_HP_BASE;
+    myStamina = 0; myMagic = 0; opponentStamina = 0; opponentMagic = 0;
     supportRemaining = 3;
     
     // ホーム画面に戻る
     showSection('homeSection');
     setStatus(message || 'マッチングをキャンセルしました');
+    updateResourceBars({
+      mySt: 0, myMp: 0, myStMax: 100, myMpMax: 100,
+      opSt: 0, opMp: 0, opStMax: 100, opMpMax: 100
+    });
     
     // 入力欄をクリア
     const attackInput = document.getElementById('attackWordInput');
@@ -639,6 +765,8 @@ function join(matchType) {
     ? `パスワード: ${password} で対戦相手を探しています...`
     : '相手を探しています...';
   roomId = null;
+  myMaxHp = MAX_HP_BASE;
+  opponentMaxHp = MAX_HP_BASE;
   showSection('matchingSection');
   if (!socket || !socket.connected) {
     initSocket();
@@ -720,6 +848,12 @@ function cancelMatching() {
   applyFieldVisual(null, { silentLog: true });
   resetStatuses();
   setStatus('マッチングをキャンセルしています...');
+
+   updateHealthBars(0, 0, MAX_HP_BASE, MAX_HP_BASE);
+   updateResourceBars({
+     mySt: 0, myMp: 0, myStMax: 100, myMpMax: 100,
+     opSt: 0, opMp: 0, opStMax: 100, opMpMax: 100
+   });
 }
 
 function initAffinityPanel() {
@@ -768,6 +902,19 @@ function bindUI() {
   const supportBtn = document.getElementById('supportBtn');
   if (supportBtn) {
     supportBtn.addEventListener('click', submitSupport);
+  }
+
+  const guideBtn = document.getElementById('supportGuideBtn');
+  const guideModal = document.getElementById('supportGuideModal');
+  const guideClose = document.getElementById('supportGuideClose');
+  if (guideBtn && guideModal && guideClose) {
+    const open = () => guideModal.classList.remove('hidden');
+    const close = () => guideModal.classList.add('hidden');
+    guideBtn.addEventListener('click', open);
+    guideClose.addEventListener('click', close);
+    guideModal.addEventListener('click', (e) => {
+      if (e.target === guideModal) close();
+    });
   }
 }
 
