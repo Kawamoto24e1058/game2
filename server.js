@@ -667,7 +667,7 @@ function handleDefend(roomId, socket, word) {
 
     // 防御失敗ロジック：防御フェーズで Defense 以外のロールは失敗扱い
     let defenseFailed = false;
-    const defRole = (defenseCard.role || defenseCard.effect || '').toLowerCase();
+    const defRole = (defenseCard.role || '').toLowerCase();
     if (defRole !== 'defense') {
       defenseFailed = true;
     }
@@ -689,11 +689,11 @@ function handleDefend(roomId, socket, word) {
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
 
-    if (atkResource.card.effect === 'heal') {
+    if (atkResource.card.role === 'support') {
       attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(atkResource.card.attack * 0.6));
       damage = 0;
     }
-    if (defResource.card.effect === 'heal' && !defenseFailed) {
+    if (defResource.card.role === 'support' && !defenseFailed) {
       defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(defResource.card.defense * 0.5));
     }
 
@@ -1024,7 +1024,7 @@ io.on('connection', (socket) => {
       const resCost = applyResourceCost(player, card);
       const effectiveCard = resCost.card;
 
-      const cardRole = (effectiveCard.role || effectiveCard.effect || '').toLowerCase();
+      const cardRole = (effectiveCard.role || '').toLowerCase();
       const supportDetail = (effectiveCard.supportDetail || card.supportDetail || '').trim();
       const roleIsSupport = cardRole === 'support';
       if (cardRole && !roleIsSupport) {

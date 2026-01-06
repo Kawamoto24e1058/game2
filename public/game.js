@@ -566,7 +566,7 @@ function initSocket() {
     // カットイン演出
     await showCutin(card, 2000);
 
-    updateRoleBadge(attackerKey, card.role || card.effect || 'attack');
+    updateRoleBadge(attackerKey, card.role || 'attack');
     
     appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${card.attribute}) ATK:${card.attack}`, 'damage');
     flashAttackEffect();
@@ -597,11 +597,11 @@ function initSocket() {
 
     if (attackCard) {
       const atkKey = attackerId === playerId ? 'my' : 'op';
-      updateRoleBadge(atkKey, attackCard.role || attackCard.effect || 'attack');
+      updateRoleBadge(atkKey, attackCard.role || 'attack');
     }
     if (defenseCard) {
       const defKey = defenderId === playerId ? 'my' : 'op';
-      updateRoleBadge(defKey, defenseCard.role || defenseCard.effect || 'defense');
+      updateRoleBadge(defKey, defenseCard.role || 'defense');
     }
 
     // 防御失敗メッセージ
@@ -670,12 +670,12 @@ function initSocket() {
     }
 
     // 回復表示
-    if (attackCard.effect === 'heal') {
+    if (attackCard.role === 'support') {
       showHealAnimation(attackerId === playerId ? 'my' : 'op', Math.round(attackCard.attack * 0.6));
     }
 
     updateHealthBars(meHp, opHp, meMax, opMax);
-    appendLog(`攻撃: ${attackCard.word} (${attackCard.effect}) / 防御: ${defenseCard.word} (${defenseCard.effect})`, 'info');
+    appendLog(`攻撃: ${attackCard.word} (${attackCard.role}) / 防御: ${defenseCard.word} (${defenseCard.role})`, 'info');
 
     if (affinity) {
       const relation = affinity.relation || 'neutral';
