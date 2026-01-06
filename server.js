@@ -119,32 +119,29 @@ async function generateCard(word, intent = 'neutral') {
         ? '現在はサポート用途。回復・強化・弱体化を優先ロールとせよ。'
         : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。
-入力された言葉に対し、以下の思考プロセスを経て、完全に独自のステータスを生成してください。
+  const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。テンプレート的な査定を完全に破壊し、入力語からゼロベースで数値と効果を創出せよ。
 
-【思考プロセス】
-1. 言葉の全方位分析：
-   - 材質（硬い、柔らかい、重い、鋭い）
-   - 歴史・神話・サブカルチャーでの役割（聖剣なら神聖、ローブなら魔力）
-   - 日常的なイメージ（サボテンならトゲ、盾なら守護）
-2. テンプレートの破壊：
-   - 「攻撃力10」などのキリの良い数字を避け、13や27など、理由に基づいたリアルな数値を設定せよ。
-   - すべての言葉に、その単語ならではの「固有の効果名」を付けよ。
-3. ロールの厳格な解釈：
-   - 【Attack】: 殺傷力、衝撃力があるもの。
-   - 【Defense】: 盾、鎧、壁だけでなく「避ける」「耐える」「覆う」もの（服、マント、霧など）も含む。
-   - 【Support】: 回復、増強、妨害、特殊状態。特に「最大HPを増やす」「HPを継続回復」「属性耐性を付与」など。
+【深層読解モード：思考プロセス】
+1. 全方位分析: 材質・構造・歴史・神話・サブカル・日常イメージを徹底検索し、物理/概念特性を抽出する。
+2. 数値の理由付け: キリの良い数値を避け、素材や象徴性に基づくリアルな値（例: 13, 27, 44）を設定。
+3. 固有効果命名: すべての言葉に唯一の効果名を与える（【】で囲む）。
+4. ロール厳格化: 衣類・ローブ・マントなどは物理防御が低くても必ず Defense とし、属性耐性などの防御的特殊効果を付与する。
+5. フィールド効果: サポート的な地形/環境語（例: 火山、サイバー空間）は fieldEffect を生成し、name/visual(CSSグラデーション)/buff を返す。
+6. 無限状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value を返す。相手に最大3件付与可能。
+7. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter など effectType を語意から決め、effectValue を数値で返す。
 
-【出力JSON形式】
+【出力JSON形式（必須キー）】
 {
   "attack": 数値,
   "defense": 数値,
-  "attribute": "fire/water/wind/earth/thunder/light/darkから1つ",
+  "attribute": "fire/water/wind/earth/thunder/light/dark から1つ",
   "role": "Attack/Defense/Support",
-  "specialEffect": "効果名：具体的な効果内容の説明",
-  "effectType": "heal/buff/debuff/damage/hpMaxUp/counter", 
+  "specialEffect": "【固有効果名】具体的な効果",
+  "effectType": "heal/buff/debuff/damage/hpMaxUp/counter/cleanse/field/dot/stun/other",
   "effectValue": 数値,
-  "judgeComment": "語源や材質から導き出した査定の全論理（200文字程度で熱く語れ）"
+  "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 }  // フィールドがある場合のみ
+  "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }]  // 任意件数
+  "judgeComment": "語源や材質から導いた全論理を200文字程度で熱く語れ"
 }`;
 
   try {
@@ -193,6 +190,8 @@ async function generateCard(word, intent = 'neutral') {
       ? Number(cardData.counterDamage)
       : (effectType && effectType.toLowerCase() === 'counter' ? Number(effectValue || 0) : 0);
     const hasCounter = cardData.hasCounter === true || counterDamage > 0;
+    const fieldEffect = cardData.fieldEffect && cardData.fieldEffect.name ? cardData.fieldEffect : null;
+    const statusAilment = Array.isArray(cardData.statusAilment) ? cardData.statusAilment : (cardData.statusAilment ? [cardData.statusAilment] : []);
     const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
 
     return {
@@ -205,6 +204,8 @@ async function generateCard(word, intent = 'neutral') {
       supportType,
       effectType,
       effectValue,
+      fieldEffect,
+      statusAilment,
       specialEffect,
       hasReflect,
       hasCounter,
@@ -291,14 +292,16 @@ function createRoom(players, mode, password) {
       isHost: idx === 0,
       supportUsed: 0,
       attackBoost: 0,
-      defenseBoost: 0
+      defenseBoost: 0,
+      statusAilments: []
     })),
     hostId: players[0].socket.id,
     started: false,
     turnIndex: 0,
     phase: 'waiting',
     pendingAttack: null,
-    usedWordsGlobal: new Set()
+    usedWordsGlobal: new Set(),
+    fieldEffect: null
   };
 
   rooms.set(roomId, room);
@@ -333,7 +336,8 @@ function startBattle(roomId) {
   room.started = true;
   room.phase = 'attack';
   room.turnIndex = Math.floor(Math.random() * room.players.length);
-  room.players.forEach(p => { p.maxHp = STARTING_HP; p.hp = p.maxHp; });
+  room.players.forEach(p => { p.maxHp = STARTING_HP; p.hp = p.maxHp; p.statusAilments = []; });
+  room.fieldEffect = null;
 
   io.to(roomId).emit('battleStarted', {
     roomId,
@@ -433,6 +437,30 @@ function handleDefend(roomId, socket, word) {
   }
 
   const attackCard = room.pendingAttack.card;
+  const applyStatus = (sourceCard, targetPlayer, appliedList) => {
+    if (!sourceCard || !sourceCard.statusAilment || !targetPlayer) return { dot: 0 };
+    if (!targetPlayer.statusAilments) targetPlayer.statusAilments = [];
+    const list = Array.isArray(sourceCard.statusAilment) ? sourceCard.statusAilment : [sourceCard.statusAilment];
+    let dot = 0;
+    for (const sa of list) {
+      if (!sa || !sa.name) continue;
+      if (targetPlayer.statusAilments.length >= 3) break;
+      const turns = Number(sa.turns) || 1;
+      const value = Number(sa.value) || 0;
+      const effectType = (sa.effectType || '').toLowerCase();
+      targetPlayer.statusAilments.push({
+        name: sa.name,
+        turns,
+        effectType,
+        value
+      });
+      appliedList.push({ targetId: targetPlayer.id, name: sa.name, turns, effectType, value });
+      if (effectType === 'dot' && value > 0) {
+        dot += Math.max(0, Math.round(value));
+      }
+    }
+    return { dot };
+  };
   
   // 非同期で防御カードを生成
   generateCard(cleanWord, 'defense').then(defenseCard => {
@@ -448,7 +476,9 @@ function handleDefend(roomId, socket, word) {
 
     // ダメージ計算（属性相性2.0倍対応）
     const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
-    const damage = calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed);
+    let damage = calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed);
+    const appliedStatus = [];
+    let dotDamage = 0;
 
     // カウンターダメージ処理（トゲ系）
     let counterDamage = 0;
@@ -471,6 +501,14 @@ function handleDefend(roomId, socket, word) {
 
     defender.hp = Math.max(0, defender.hp - damage);
 
+    // 状態異常付与と即時DoT適用
+    const res1 = applyStatus(attackCard, defender, appliedStatus); dotDamage += res1.dot;
+    const res2 = applyStatus(defenseCard, attacker, appliedStatus); dotDamage += res2.dot;
+    if (dotDamage > 0) {
+      defender.hp = Math.max(0, defender.hp - res1.dot);
+      attacker.hp = Math.max(0, attacker.hp - res2.dot);
+    }
+
     let winnerId = null;
     if (defender.hp <= 0) {
       winnerId = attacker.id;
@@ -491,14 +529,17 @@ function handleDefend(roomId, socket, word) {
       defenseCard,
       damage,
       counterDamage,
+      dotDamage,
       affinity,
       hp,
       defenseFailed,
+      appliedStatus,
+      fieldEffect: room.fieldEffect,
       nextTurn: winnerId ? null : room.players[room.turnIndex].id,
       winnerId
     });
 
-    console.log('✅ ターン解決完了:', { damage, counterDamage, winnerId, nextTurn: room.players[room.turnIndex].id });
+    console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex].id, appliedStatus });
 
     if (winnerId) {
       updateStatus(roomId, `${attacker.name} の勝利！`);
@@ -655,7 +696,8 @@ io.on('connection', (socket) => {
           isHost: false,
           supportUsed: 0,
           attackBoost: 0,
-          defenseBoost: 0
+          defenseBoost: 0,
+          statusAilments: []
         });
         socket.join(room.id);
         socket.data.roomId = room.id;
@@ -746,6 +788,27 @@ io.on('connection', (socket) => {
       const effectValue = Number.isFinite(effectValNum) ? effectValNum : null;
       const maxHp = player.maxHp || STARTING_HP;
       const opponent = getOpponent(room, socket.id);
+      const appliedStatus = [];
+
+      const applyStatus = (sourceCard, targetPlayer) => {
+        if (!sourceCard || !sourceCard.statusAilment || !targetPlayer) return { dot: 0 };
+        if (!targetPlayer.statusAilments) targetPlayer.statusAilments = [];
+        const list = Array.isArray(sourceCard.statusAilment) ? sourceCard.statusAilment : [sourceCard.statusAilment];
+        let dot = 0;
+        for (const sa of list) {
+          if (!sa || !sa.name) continue;
+          if (targetPlayer.statusAilments.length >= 3) break;
+          const turns = Number(sa.turns) || 1;
+          const value = Number(sa.value) || 0;
+          const effectType = (sa.effectType || '').toLowerCase();
+          targetPlayer.statusAilments.push({ name: sa.name, turns, effectType, value });
+          appliedStatus.push({ targetId: targetPlayer.id, name: sa.name, turns, effectType, value });
+          if (effectType === 'dot' && value > 0) {
+            dot += Math.max(0, Math.round(value));
+          }
+        }
+        return { dot };
+      };
 
       switch (effectTypeRaw) {
         case 'hpmaxup': {
@@ -783,6 +846,10 @@ io.on('connection', (socket) => {
           }
           break;
         }
+        case 'cleanse': {
+          player.statusAilments = [];
+          break;
+        }
         default: {
           // 旧サポート種別との後方互換
           if (card.supportType === 'heal_boost') {
@@ -797,6 +864,17 @@ io.on('connection', (socket) => {
             player.hp = Math.min(maxHp, player.hp + 20);
           }
         }
+      }
+
+      // サポート由来の状態異常付与（例えば毒フィールドなど）
+      if (opponent) {
+        const res = applyStatus(card, opponent);
+        if (res.dot > 0) opponent.hp = Math.max(0, opponent.hp - res.dot);
+      }
+
+      // フィールド効果更新
+      if (card.fieldEffect && card.fieldEffect.name) {
+        room.fieldEffect = card.fieldEffect;
       }
 
       const hp = {};
@@ -819,7 +897,9 @@ io.on('connection', (socket) => {
         hp,
         supportRemaining: 3 - player.supportUsed,
         winnerId,
-        nextTurn: winnerId ? null : room.players[room.turnIndex].id
+        nextTurn: winnerId ? null : room.players[room.turnIndex].id,
+        appliedStatus,
+        fieldEffect: room.fieldEffect
       });
 
       if (winnerId) {

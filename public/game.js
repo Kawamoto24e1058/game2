@@ -313,7 +313,7 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, hp, nextTurn, winnerId, defenseFailed, affinity }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, hp, nextTurn, winnerId, defenseFailed, affinity }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
 
@@ -344,6 +344,24 @@ function initSocket() {
         appendLog(`🌵 カウンター！ トゲで ${counterDamage} ダメージ`, 'damage');
         showFloatingText(attackerId === playerId ? 'my' : 'op', `カウンター -${counterDamage}`, 'counter');
       }, 800);
+    }
+
+    // DoT 追加ダメージ表示
+    if (dotDamage > 0) {
+      appendLog(`⏳ 状態異常の継続ダメージ: ${dotDamage}`, 'debuff');
+    }
+
+    // 状態異常付与ログ
+    if (appliedStatus && appliedStatus.length > 0) {
+      appliedStatus.forEach(s => {
+        const toMe = s.targetId === playerId;
+        appendLog(`${toMe ? 'あなた' : '相手'} に状態異常付与: ${s.name} (${s.effectType || 'effect'}, ${s.turns}ターン, 値:${s.value ?? 0})`, 'debuff');
+      });
+    }
+
+    // フィールド効果表示
+    if (fieldEffect && fieldEffect.name) {
+      appendLog(`🌐 フィールド発動: ${fieldEffect.name} / ${fieldEffect.buff || ''}`, 'buff');
     }
 
     // 回復表示
@@ -385,12 +403,23 @@ function initSocket() {
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
-  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn }) => {
+  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect }) => {
     await showCutin(card, 2000);
 
     const isMe = supportPlayerId === playerId;
     const effectLabel = card.effectType || card.supportType || card.supportEffect || card.effect || 'support';
     appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+
+    if (appliedStatus && appliedStatus.length > 0) {
+      appliedStatus.forEach(s => {
+        const toMe = s.targetId === playerId;
+        appendLog(`${toMe ? 'あなた' : '相手'} に状態異常付与: ${s.name} (${s.effectType || 'effect'}, ${s.turns}ターン, 値:${s.value ?? 0})`, 'debuff');
+      });
+    }
+
+    if (fieldEffect && fieldEffect.name) {
+      appendLog(`🌐 フィールド発動: ${fieldEffect.name} / ${fieldEffect.buff || ''}`, 'buff');
+    }
 
     if (isMe && typeof newRemaining === 'number') {
       supportRemaining = newRemaining;
