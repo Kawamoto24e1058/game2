@@ -118,52 +118,32 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
 // =====================================
 async function generateCard(word, intent = 'neutral') {
   const original = word;
-  const intentNote = intent === 'defense'
-    ? '現在は防御フェーズ。プレイヤーは防御目的で入力している。以下の基準で判定せよ：\n' +
-      '【防御として扱う】攻撃的要素があっても、守る・防ぐ・耐える・遮る目的の語、または防御物質（盾/壁/鎧/バリア/シールド等）は必ず role: "defense" とする。\n' +
-      '  例: スパイクシールド、炎の壁、爆発する盾、トゲの鎧、電撃バリア、溶岩の門、氷の壁、毒の盾 → 全て defense\n' +
-      '【防御失敗】明らかに攻撃・破壊のみを目的とし、防御機能が一切ない語のみ role: "attack" とする。\n' +
-      '  例: 核爆弾、斬撃、隕石落下、一刀両断、爆破、暗殺、破壊光線 → attack（防御失敗）\n' +
-      '判断に迷ったら defense を優先せよ。'
-    : intent === 'attack'
-      ? '現在は攻撃フェーズ。破壊・加害を主目的とするロールを優先せよ。'
-      : intent === 'support'
-        ? '現在はサポート用途。回復・強化・弱体化を優先ロールとせよ。'
-        : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは歴史や経済に精通したゲームマスターです。以下のルールでJSONを生成せよ：
-
-${intentNote}
+  const prompt = `あなたは歴史・科学・経済に詳しい熟練のゲームデザイナーです。入力単語から以下のJSONを生成せよ。
 
 【数値の不規則化】
-10や20などのキリの良い数字や5の倍数を禁止し、必ず 14, 31, 57 のような不規則な具体数を、言葉の材質・希少性・歴史的価値から算出せよ。
+10、20、30、50などのキリの良い数字の使用を厳禁とする。具体的でバラバラな数値（例: 14、31、47、82）を設定せよ。
 
-【役割の絶対化】
-1. Attack: defense は必ず 0（攻撃・破壊を主目的とする語のみ）。
-2. Defense: attack は必ず 0（盾/壁/バリア等の守護概念を厳密に分類）。
-3. Support: attack と defense は必ず 0（回復だけでなく多様な支援効果を生成）。
+【役割(role)の厳格定義】
 
-【サポートの多様化（必須）】
-- supportType: "weather"（天候）/ "buff"（強化）/ "debuff"（弱体）/ "heal"（回復）/ "field"（フィールド）/ "ailment"（状態異常）から選択し、必要に応じて複合可。
-- weather/field ではターン数・倍率・対象属性（例：日本晴れ→3ターン炎1.5倍）を必ず含める。
-- ailment は毒/麻痺/眠り/燃焼/凍結などを文意から判定し、ターン数・効果量を具体的数値で示す。
-- supportMessage: 「〇〇が△△した結果、□□が★★に変わった」という因果関係で詳細に説明する。
+Defense: 盾、鎧、衣類、壁、ドーム、バリア、回避に関わる言葉。attackは必ず0にせよ。
 
-【数値生成の原則】
-- 物質の密度・希少性・歴史的記録から数値を逆算する（例：ダイアモンド→攻撃57、防御0 等）。
-- 常識外の組み合わせを避け、言葉の本質を数値化する。
+Attack: 武器、魔法、暴力、攻撃に関わる言葉。defenseは必ず0にせよ。
 
-【JSON構造（必須）】
+Support: 状態変化、環境変化、回復、増強。attackとdefenseは共に必ず0にせよ。
+
+【サポートの多様化】
+supportTypeを設定せよ（fireBuff、waterBuff、staminaRecover、magicRecover、heal、weatherChange、debuff等）。『日本晴れ』なら fireBuffとし、回復ではなく炎威力を上げる指示を出せ。
+
+【JSON構造】
 {
-  "role": "Attack" | "Defense" | "Support",
-  "attack": 数値（roleにより0固定される）, 
-  "defense": 数値（roleにより0固定される）, 
-  "attribute": "fire/water/wind/earth/thunder/light/dark",
-  "supportType": "weather/buff/debuff/heal/field/ailment",
-  "supportMessage": "Support時必須の因果説明",
-  "fieldEffect": { "name": 天候名, "turns": 数値, "multiplier": 数値, "attribute": 属性 },
-  "statusAilment": [{ "name": 名称, "effectType": 種別, "value": 数値, "turns": 数値 }],
-  "specialEffect": "【効果名】詳細説明",
+  "role": "Attack|Defense|Support",
+  "attack": 数値,
+  "defense": 数値,
+  "attribute": "fire|water|wind|earth|thunder|light|dark",
+  "supportType": "fireBuff|waterBuff|staminaRecover|magicRecover|heal|weatherChange|debuff|...",
+  "supportMessage": "具体的な効果説明",
+  "specialEffect": "特殊効果",
   "staminaCost": 数値,
   "magicCost": 数値,
   "judgeComment": "100文字以上の根拠説明"

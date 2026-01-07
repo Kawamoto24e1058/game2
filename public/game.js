@@ -791,6 +791,9 @@ function initSocket() {
     // 回復表示
     if (attackCard.role === 'support') {
       showHealAnimation(attackerId === playerId ? 'my' : 'op', Math.round(attackCard.attack * 0.6));
+      // Support カード発動時は大型オーバーレイを表示（攻撃演出をスキップ）
+      const supportMsg = attackCard.supportMessage || attackCard.supportDetail || `【${attackCard.word}】 効果発動！`;
+      showSupportOverlay(supportMsg, attackCard.attribute);
     }
 
     updateHealthBars(meHp, opHp, meMax, opMax);
