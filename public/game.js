@@ -27,6 +27,7 @@ let activeFieldEffect = null;
 let isMatching = false;
 const statusState = { my: [], op: [] };
 const roleState = { my: '--', op: '--' };
+let turnTimerInterval = null;
 
 // 演出関数群
 function showFloatingText(x, y, text, type = 'damage') {
@@ -353,6 +354,35 @@ function updateTurnIndicator(isMyTurn) {
   }
 }
 
+function startTurnTimerDisplay(durationSec = 30) {
+  const indicator = document.getElementById('turnIndicator');
+  if (!indicator) return;
+  
+  clearInterval(turnTimerInterval);
+  let remaining = durationSec;
+  // 既存のテキスト（"あなたのターンです！"など）を保持
+  const baseText = indicator.textContent.split(' (')[0];
+  
+  const update = () => {
+    indicator.textContent = `${baseText} (残り ${remaining}秒)`;
+    indicator.style.color = remaining <= 10 ? '#ff4444' : '';
+    if (remaining <= 0) clearInterval(turnTimerInterval);
+    remaining--;
+  };
+  
+  update();
+  turnTimerInterval = setInterval(update, 1000);
+}
+
+function stopTurnTimerDisplay() {
+  clearInterval(turnTimerInterval);
+  const indicator = document.getElementById('turnIndicator');
+  if (indicator) {
+    indicator.textContent = indicator.textContent.split(' (')[0];
+    indicator.style.color = '';
+  }
+}
+
 function showSection(id) {
   ['homeSection', 'matchingSection', 'waitingSection', 'battleSection', 'resultSection'].forEach(sec => {
     document.getElementById(sec).classList.add('hidden');
@@ -591,15 +621,20 @@ function renderWaiting(players, canStart, hostId) {
 }
 
 function initSocket() {
+  if (socket) return;
   socket = io(SOCKET_URL, {
     transports: ['websocket'],
   });
 
   socket.on('connect', () => {
     console.log('connected', socket.id);
+    playerId = socket.id;
   });
 
   socket.on('errorMessage', ({ message }) => alert(message));
+
+  // 以前の仕様との互換性のため statusUpdate もリッスン
+  socket.on('statusUpdate', ({ message }) => setStatus(message));
 
   socket.on('joinedRoom', ({ roomId: rId, players, isHost: hostFlag, playerId: pid }) => {
     roomId = rId;
@@ -627,6 +662,7 @@ function initSocket() {
   });
 
   socket.on('battleStarted', ({ players, turn, resources }) => {
+    if (!playerId && socket) playerId = socket.id;
     isMatching = false;
     showSection('battleSection');
     const me = players.find(p => p.id === playerId);
@@ -662,6 +698,7 @@ function initSocket() {
     updateTurnIndicator(myTurn);
     toggleInputs(myTurn);
     const wins = getWinCount();
+    if (myTurn) startTurnTimerDisplay(30);
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
     appendLog('バトル開始！', 'info');
     if (wins > 0) {
@@ -690,6 +727,7 @@ function initSocket() {
     }
     flashAttackEffect();
     toggleInputs(false);
+    stopTurnTimerDisplay(); // 攻撃宣言でタイマーストップ
     
     if (isDefender) {
       // 防御ポップアップモーダル表示
@@ -821,6 +859,7 @@ function initSocket() {
 
     if (winnerId) {
       const winMe = winnerId === playerId;
+      stopTurnTimerDisplay();
       if (winMe) {
         const totalWins = incrementWinCount();
         setStatus(`🎉 あなたの勝利！🎉 (通算 ${totalWins} 勝)`);
@@ -839,6 +878,7 @@ function initSocket() {
     const myTurn = currentTurn === playerId;
     updateTurnIndicator(myTurn);
     toggleInputs(myTurn);
+    if (myTurn) startTurnTimerDisplay(30);
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
@@ -924,6 +964,7 @@ function initSocket() {
 
     if (winnerId) {
       const winMe = winnerId === playerId;
+      stopTurnTimerDisplay();
       if (winMe) {
         const totalWins = incrementWinCount();
         setStatus(`🎉 あなたの勝利！🎉 (通算 ${totalWins} 勝)`);
@@ -944,12 +985,22 @@ function initSocket() {
     const myTurn = currentTurn === playerId;
     updateTurnIndicator(myTurn);
     toggleInputs(myTurn);
+    if (myTurn) startTurnTimerDisplay(30);
   });
 
   socket.on('opponentLeft', ({ message }) => {
-    appendLog(message || '相手が離脱しました', 'win');
-    showSection('resultSection');
-    document.getElementById('resultMessage').textContent = message || '相手が離脱しました';
+    alert(message || '相手との通信が切れました。タイトルに戻ります。');
+    location.reload();
+  });
+
+  socket.on('turnTimeout', ({ message, nextTurn }) => {
+    appendLog(message, 'info');
+    setStatus(message);
+    currentTurn = nextTurn;
+    const myTurn = currentTurn === playerId;
+    updateTurnIndicator(myTurn);
+    toggleInputs(myTurn);
+    if (myTurn) startTurnTimerDisplay(30);
   });
 
   socket.on('status', ({ message }) => setStatus(message));
@@ -990,6 +1041,7 @@ function initSocket() {
   });
 }
 
+let joinRetryCount = 0;
 function join(matchType) {
   playerName = document.getElementById('playerNameInput').value.trim();
   const password = document.getElementById('passwordInput').value.trim();
@@ -1006,13 +1058,28 @@ function join(matchType) {
   myMaxHp = MAX_HP_BASE;
   opponentMaxHp = MAX_HP_BASE;
   showSection('matchingSection');
-  if (!socket || !socket.connected) {
+  if (!socket) {
     initSocket();
-    setTimeout(() => join(matchType), 200);
+    joinRetryCount++;
+    setTimeout(() => join(matchType), 500);
     return;
   }
+  if (!socket.connected) {
+    if (joinRetryCount > 10) {
+      alert('サーバーに接続できません。ページを再読み込みしてください。');
+      joinRetryCount = 0;
+      showSection('homeSection');
+      return;
+    }
+    joinRetryCount++;
+    setTimeout(() => join(matchType), 500);
+    return;
+  }
+  joinRetryCount = 0;
   isMatching = true;
-  socket.emit('startMatching', { name: playerName, mode: matchType, password: matchType === 'password' ? password : undefined });
+  // サーバー側のイベント名 'matchmaking' に合わせる。ランダムマッチの場合は共通のキーを使用。
+  const sendPassword = matchType === 'password' ? password : 'random_match_room';
+  socket.emit('matchmaking', { name: playerName, password: sendPassword });
 }
 
 function requestStart() {

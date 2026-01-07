@@ -39,6 +39,30 @@ const genAI = new GoogleGenerativeAI(apiKey);
 const waitingPlayersByPass = new Map();
 const rooms = new Map();
 
+const TURN_LIMIT_MS = 30000; // 1ターン30秒
+
+function clearTurnTimer(room) {
+  if (room.timer) {
+    clearTimeout(room.timer);
+    room.timer = null;
+  }
+}
+
+function startTurnTimer(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  clearTurnTimer(room);
+  
+  room.timer = setTimeout(() => {
+    if (!rooms.has(roomId)) return;
+    const nextTurnId = room.players.find(p => p.id !== room.currentTurn).id;
+    room.currentTurn = nextTurnId;
+    room.pendingAttack = null;
+    io.to(roomId).emit('turnTimeout', { message: '⏰ 時間切れ！ターンが移ります', nextTurn: nextTurnId });
+    startTurnTimer(roomId);
+  }, TURN_LIMIT_MS);
+}
+
 // =====================================
 // 属性相性関数
 // =====================================
@@ -296,7 +320,7 @@ function findPlayer(room, socketId) {
 }
 
 function updateStatus(roomId, message) {
-  io.to(roomId).emit('statusUpdate', { message });
+  io.to(roomId).emit('status', { message });
 }
 
 function getOpponent(room, socketId) {
@@ -391,6 +415,7 @@ function handleDefend(roomId, socket, word) {
       nextTurn: null,
       winnerId: preWinner
     });
+    clearTurnTimer(room); // 勝敗が決まったらタイマー停止
     updateStatus(roomId, `${room.players.find(p => p.id === preWinner)?.name || 'プレイヤー'} の勝利！`);
     room.pendingAttack = null;
     return;
@@ -549,6 +574,11 @@ function handleDefend(roomId, socket, word) {
       statusTick
     });
 
+    if (winnerId) {
+      clearTurnTimer(room);
+    } else {
+      startTurnTimer(roomId); // 次のターンのタイマー開始
+    }
     if (!winnerId) {
       room.currentTurn = attacker.id === room.currentTurn ? defender.id : attacker.id;
     }
@@ -566,10 +596,20 @@ io.on('connection', (socket) => {
   console.log('👤 ユーザー接続:', socket.id);
 
   socket.on('matchmaking', async ({ name, password }) => {
-    const passKey = password.trim().toLowerCase();
+    // パスワードがない場合（ランダムマッチ等）の安全策
+    const passKey = (password || '').trim().toLowerCase();
     if (!passKey) {
       socket.emit('errorMessage', { message: 'パスワードを入力してください' });
       return;
+    }
+
+    // 既存の待機リストから自分を削除（連打・再接続対策）
+    for (const [key, list] of waitingPlayersByPass.entries()) {
+      const idx = list.findIndex(p => p.socket.id === socket.id);
+      if (idx !== -1) {
+        list.splice(idx, 1);
+        if (list.length === 0) waitingPlayersByPass.delete(key);
+      }
     }
 
     if (!waitingPlayersByPass.has(passKey)) {
@@ -580,7 +620,11 @@ io.on('connection', (socket) => {
     waiting.push({ socket, name, password });
 
     if (waiting.length === 1) {
-      socket.emit('statusUpdate', { message: '相手を待っています...' });
+      socket.emit('status', { message: '相手を待っています...' });
+      socket.emit('waitingUpdate', { 
+        players: waiting.map(p => ({ name: p.name, id: p.socket.id })), 
+        password: passKey === 'random_match_room' ? null : passKey 
+      });
       return;
     }
 
@@ -632,12 +676,14 @@ io.on('connection', (socket) => {
     player1Data.socket.join(roomId);
     player2Data.socket.join(roomId);
 
-    io.to(roomId).emit('battleStart', {
+    // イベント名をクライアントに合わせて 'battleStarted' に修正
+    io.to(roomId).emit('battleStarted', {
       roomId,
       players: room.players,
       currentTurn: room.currentTurn
     });
 
+    startTurnTimer(roomId); // バトル開始時にタイマー始動
     console.log(`🎮 バトル開始: ${roomId}`);
   });
 
@@ -679,6 +725,7 @@ io.on('connection', (socket) => {
     console.log('⚔️ 攻撃処理開始:', { roomId, attacker: socket.id, word: cleanWord });
 
     try {
+      clearTurnTimer(room); // 攻撃宣言したらタイマー停止（防御待ちへ）
       const attackCard = await generateCard(cleanWord, 'attack');
       room.usedWordsGlobal.add(lower);
 
@@ -711,8 +758,46 @@ io.on('connection', (socket) => {
     await handleDefend(roomId, socket, word);
   });
 
+  // マッチングキャンセル処理を追加
+  socket.on('cancelMatching', () => {
+    for (const [key, list] of waitingPlayersByPass.entries()) {
+      const idx = list.findIndex(p => p.socket.id === socket.id);
+      if (idx !== -1) {
+        list.splice(idx, 1);
+        if (list.length === 0) waitingPlayersByPass.delete(key);
+        console.log('🚫 マッチングキャンセル:', socket.id);
+        socket.emit('matchCancelled', { message: 'マッチングをキャンセルしました' });
+        break;
+      }
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('👤 ユーザー切断:', socket.id);
+    
+    // 待機リストから削除
+    for (const [key, list] of waitingPlayersByPass.entries()) {
+      const idx = list.findIndex(p => p.socket.id === socket.id);
+      if (idx !== -1) {
+        list.splice(idx, 1);
+        if (list.length === 0) waitingPlayersByPass.delete(key);
+        break;
+      }
+    }
+
+    // 進行中のルームからの切断処理
+    for (const [roomId, room] of rooms.entries()) {
+      const player = room.players.find(p => p.id === socket.id);
+      if (player) {
+        clearTurnTimer(room); // 切断時にタイマー破棄
+        const opponent = room.players.find(p => p.id !== socket.id);
+        if (opponent) {
+          io.to(opponent.id).emit('opponentLeft', { message: '相手が切断しました' });
+        }
+        rooms.delete(roomId);
+        break;
+      }
+    }
   });
 });
 
