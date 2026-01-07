@@ -136,35 +136,37 @@ async function generateCard(word, intent = 'neutral') {
 ${intentNote}
 
 【数値の不規則化】
-10の倍数（10, 20, 30...）や5の倍数の使用を厳禁とする。必ず 13, 27, 41, 58 のような中途半端で具体的な数値を、言葉の材質・希少性・歴史的価値から算出せよ。
+10や20などのキリの良い数字や5の倍数を禁止し、必ず 14, 31, 57 のような不規則な具体数を、言葉の材質・希少性・歴史的価値から算出せよ。
 
 【役割の絶対化】
-1. Attack: defense は必ず 0。攻撃・破壊・加害を主目的とする語のみ。
-2. Defense: attack は必ず 0。盾や『風のドーム』『水の壁』等の守護概念は100%これに分類せよ。
-3. Support: attack と defense は必ず 0。回復だけでなく『日本晴れ(炎バフ)』『砂嵐(継続ダメ)』『インフレ(コスト増)』等の概念を生成せよ。
+1. Attack: defense は必ず 0（攻撃・破壊を主目的とする語のみ）。
+2. Defense: attack は必ず 0（盾/壁/バリア等の守護概念を厳密に分類）。
+3. Support: attack と defense は必ず 0（回復だけでなく多様な支援効果を生成）。
 
-【サポート効果の具体化】
-- supportType: "weather"（天候系）/ "buff"（強化） / "debuff"（弱体） / "heal"（回復） / "field"（フィールド） / "cost"（コスト変動）から選択
-- supportMessage: 「〇〇が△△した結果、□□が★★に変わった」という具体的な因果関係を説明
-- 例：「日本晴れが降り注ぎ、火属性攻撃が30%上昇し、水属性が50%低下した」
+【サポートの多様化（必須）】
+- supportType: "weather"（天候）/ "buff"（強化）/ "debuff"（弱体）/ "heal"（回復）/ "field"（フィールド）/ "ailment"（状態異常）から選択し、必要に応じて複合可。
+- weather/field ではターン数・倍率・対象属性（例：日本晴れ→3ターン炎1.5倍）を必ず含める。
+- ailment は毒/麻痺/眠り/燃焼/凍結などを文意から判定し、ターン数・効果量を具体的数値で示す。
+- supportMessage: 「〇〇が△△した結果、□□が★★に変わった」という因果関係で詳細に説明する。
 
 【数値生成の原則】
-- 物質の密度・希少性・歴史的記録から数値を逆算する
-- 例：ダイアモンド→レアリティ極高→attack 89, steel→一般的→attack 34, wind→自由→attack 41
-- 常識外の組み合わせを避け、言葉の本質を数値化する
+- 物質の密度・希少性・歴史的記録から数値を逆算する（例：ダイアモンド→攻撃57、防御0 等）。
+- 常識外の組み合わせを避け、言葉の本質を数値化する。
 
 【JSON構造（必須）】
 {
   "role": "Attack" | "Defense" | "Support",
-  "attack": 数値（roleで0固定される場合がある）,
-  "defense": 数値（roleで0固定される場合がある）,
+  "attack": 数値（roleにより0固定される）, 
+  "defense": 数値（roleにより0固定される）, 
   "attribute": "fire/water/wind/earth/thunder/light/dark",
-  "supportType": "weather/buff/debuff/heal/field/cost/damage/其の他",
-  "supportMessage": "何が起きたか、どう変化したか（Support時のみ必須）",
+  "supportType": "weather/buff/debuff/heal/field/ailment",
+  "supportMessage": "Support時必須の因果説明",
+  "fieldEffect": { "name": 天候名, "turns": 数値, "multiplier": 数値, "attribute": 属性 },
+  "statusAilment": [{ "name": 名称, "effectType": 種別, "value": 数値, "turns": 数値 }],
   "specialEffect": "【効果名】詳細説明",
   "staminaCost": 数値,
   "magicCost": 数値,
-  "judgeComment": "言葉の本質と数値化の根拠を100文字以上で説明"
+  "judgeComment": "100文字以上の根拠説明"
 }
 
 単語: ${original}

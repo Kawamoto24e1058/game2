@@ -269,7 +269,7 @@ function showCutin(card, duration = 2500, extraComment = '') {
     }
     
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}]`;
-    const roleRaw = (card.role || card.effect || 'unknown').toString();
+    const roleRaw = (card.role || 'unknown').toString();
     const roleLabel = roleRaw.toUpperCase();
     if (cutinRoleBadge) {
       cutinRoleBadge.textContent = roleLabel;
