@@ -1,31 +1,28 @@
 const socket = io();
 
-// ========================================
-// DOM要素取得
-// ========================================
-const passwordInput = document.getElementById('passwordInput');
-const startBtn = document.getElementById('startBtn');
-const gameContainer = document.getElementById('gameContainer');
-const battleLog = document.getElementById('battleLog');
-const playerHealth = document.getElementById('playerHealth');
-const opponentHealth = document.getElementById('opponentHealth');
-const playerStamina = document.getElementById('playerStamina');
-const playerMagic = document.getElementById('playerMagic');
-const opponentStamina = document.getElementById('opponentStamina');
-const opponentMagic = document.getElementById('opponentMagic');
-const attackInput = document.getElementById('attackInput');
-const attackBtn = document.getElementById('attackBtn');
-const defendInput = document.getElementById('defendInput');
-const defendBtn = document.getElementById('defendBtn');
-const playerName = document.getElementById('playerName');
-const opponentName = document.getElementById('opponentName');
-const statusMessage = document.getElementById('statusMessage');
-const cutinOverlay = document.getElementById('cutinOverlay');
-const cutinCard = document.getElementById('cutinCard');
-const cutinRole = document.getElementById('cutinRole');
-const cutinStats = document.getElementById('cutinStats');
-const supportOverlay = document.getElementById('supportOverlay');
-const supportMessage = document.getElementById('supportMessage');
+// グローバル変数（DOMContentLoaded後に初期化）
+let passwordInput = null;
+let startBtn = null;
+let gameContainer = null;
+let battleLog = null;
+let playerHealth = null;
+let opponentHealth = null;
+let playerStamina = null;
+let playerMagic = null;
+let opponentStamina = null;
+let opponentMagic = null;
+let attackInput = null;
+let attackBtn = null;
+let defendInput = null;
+let defendBtn = null;
+let playerName = null;
+let opponentName = null;
+let statusMessage = null;
+let cutinOverlay = null;
+let cutinCard = null;
+let cutinStats = null;
+let supportOverlay = null;
+let supportMessage = null;
 
 let currentPlayerId = null;
 let opponentId = null;
@@ -35,23 +32,101 @@ let gameStarted = false;
 let players = [];
 
 // ========================================
-// 初期化
+// DOM初期化（DOMContentLoaded時）
 // ========================================
-startBtn.addEventListener('click', () => {
-  const password = passwordInput.value.trim();
-  if (!password) {
-    showStatus('パスワードを入力してください', 'error');
-    return;
+function initializeDOM() {
+  passwordInput = document.getElementById('passwordInput');
+  startBtn = document.getElementById('startBtn');
+  gameContainer = document.getElementById('gameContainer');
+  battleLog = document.getElementById('battleLog');
+  playerHealth = document.getElementById('playerHealth');
+  opponentHealth = document.getElementById('opponentHealth');
+  playerStamina = document.getElementById('playerStamina');
+  playerMagic = document.getElementById('playerMagic');
+  opponentStamina = document.getElementById('opponentStamina');
+  opponentMagic = document.getElementById('opponentMagic');
+  attackInput = document.getElementById('attackInput');
+  attackBtn = document.getElementById('attackBtn');
+  defendInput = document.getElementById('defendInput');
+  defendBtn = document.getElementById('defendBtn');
+  playerName = document.getElementById('playerName');
+  opponentName = document.getElementById('opponentName');
+  statusMessage = document.getElementById('statusMessage');
+  cutinOverlay = document.getElementById('cutinOverlay');
+  cutinCard = document.getElementById('cutinCard');
+  cutinStats = document.getElementById('cutinStats');
+  supportOverlay = document.getElementById('supportOverlay');
+  supportMessage = document.getElementById('supportMessage');
+
+  console.log('✅ DOM要素を初期化しました');
+}
+
+// ========================================
+// イベントリスナー登録
+// ========================================
+function setupEventListeners() {
+  // マッチングボタン（開始ボタン）
+  if (startBtn) {
+    startBtn.addEventListener('click', () => {
+      console.log('🎮 開始ボタンが押されました');
+      const password = passwordInput ? passwordInput.value.trim() : '';
+      
+      if (!password) {
+        showStatus('パスワードを入力してください', 'error');
+        console.warn('⚠️ パスワードが空です');
+        return;
+      }
+
+      console.log(`📤 socket.emit('join', '${password}') を送信します`);
+      socket.emit('join', password);
+      
+      // ボタン無効化と待機表示
+      if (startBtn) startBtn.disabled = true;
+      if (passwordInput) passwordInput.disabled = true;
+      showStatus('対戦相手を探しています...', 'info');
+    });
+  } else {
+    console.warn('⚠️ startBtn が見つかりません');
   }
-  socket.emit('join', password);
-  startBtn.disabled = true;
-  passwordInput.disabled = true;
-});
+
+  // 攻撃ボタン
+  if (attackBtn) {
+    attackBtn.addEventListener('click', () => {
+      const word = attackInput ? attackInput.value.trim() : '';
+      if (!word) {
+        showStatus('攻撃の言葉を入力してください', 'error');
+        return;
+      }
+      socket.emit('attackWord', { word });
+      if (attackInput) attackInput.value = '';
+      if (attackBtn) attackBtn.disabled = true;
+      if (attackInput) attackInput.disabled = true;
+    });
+  }
+
+  // 防御ボタン
+  if (defendBtn) {
+    defendBtn.addEventListener('click', () => {
+      const word = defendInput ? defendInput.value.trim() : '';
+      if (!word) {
+        showStatus('防御の言葉を入力してください', 'error');
+        return;
+      }
+      socket.emit('defendWord', { word });
+      if (defendInput) defendInput.value = '';
+      if (defendBtn) defendBtn.disabled = true;
+      if (defendInput) defendInput.disabled = true;
+    });
+  }
+
+  console.log('✅ イベントリスナーを登録しました');
+}
 
 // ========================================
 // ゲーム開始
 // ========================================
 socket.on('battleStart', ({ roomId: rid, players: p, currentTurn: ct }) => {
+  console.log('🎮 battleStart イベントを受信しました');
   roomId = rid;
   players = p;
   currentTurn = ct;
@@ -59,16 +134,17 @@ socket.on('battleStart', ({ roomId: rid, players: p, currentTurn: ct }) => {
   currentPlayerId = socket.id;
   opponentId = players.find(pl => pl.id !== socket.id).id;
 
-  console.log('🎮 バトル開始:', { roomId, players, currentTurn });
+  console.log('�� バトル開始:', { roomId, players: players.length + '人', currentTurn });
 
-  gameContainer.style.display = 'block';
-  document.getElementById('loginContainer').style.display = 'none';
+  if (gameContainer) gameContainer.style.display = 'block';
+  const loginContainer = document.getElementById('loginContainer');
+  if (loginContainer) loginContainer.style.display = 'none';
 
   const currentPlayer = players.find(pl => pl.id === currentPlayerId);
   const opponent = players.find(pl => pl.id !== currentPlayerId);
 
-  playerName.textContent = currentPlayer.name || 'Player 1';
-  opponentName.textContent = opponent.name || 'Player 2';
+  if (playerName) playerName.textContent = currentPlayer.name || 'Player 1';
+  if (opponentName) opponentName.textContent = opponent.name || 'Player 2';
 
   updateHealthBars();
   updateResourceBars();
@@ -82,36 +158,6 @@ socket.on('battleStart', ({ roomId: rid, players: p, currentTurn: ct }) => {
     disableAttack();
     appendLog(`${opponent.name || 'プレイヤー'} の攻撃ターン...`);
   }
-});
-
-// ========================================
-// 攻撃宣言
-// ========================================
-attackBtn.addEventListener('click', () => {
-  const word = attackInput.value.trim();
-  if (!word) {
-    showStatus('攻撃の言葉を入力してください', 'error');
-    return;
-  }
-  socket.emit('attackWord', { word });
-  attackInput.value = '';
-  attackBtn.disabled = true;
-  attackInput.disabled = true;
-});
-
-// ========================================
-// 防御宣言
-// ========================================
-defendBtn.addEventListener('click', () => {
-  const word = defendInput.value.trim();
-  if (!word) {
-    showStatus('防御の言葉を入力してください', 'error');
-    return;
-  }
-  socket.emit('defendWord', { word });
-  defendInput.value = '';
-  defendBtn.disabled = true;
-  defendInput.disabled = true;
 });
 
 // ========================================
@@ -356,6 +402,7 @@ function buildDefenseLog(card) {
 // 切入演出表示
 // ========================================
 function showCutin(card, side) {
+  if (!cutinCard) return;
   cutinCard.className = 'cutin-card';
 
   const roleBadgeEl = document.createElement('div');
@@ -406,38 +453,46 @@ function showCutin(card, side) {
   cutinCard.appendChild(attrEl);
   cutinCard.appendChild(statsEl);
 
-  cutinOverlay.className = 'cutin-overlay active';
-  if (side === 'attacker') {
-    cutinOverlay.classList.add('attacker-side');
-  } else {
-    cutinOverlay.classList.add('defender-side');
+  if (cutinOverlay) {
+    cutinOverlay.className = 'cutin-overlay active';
+    if (side === 'attacker') {
+      cutinOverlay.classList.add('attacker-side');
+    } else {
+      cutinOverlay.classList.add('defender-side');
+    }
+    cutinOverlay.style.display = 'flex';
   }
-  cutinOverlay.style.display = 'flex';
 }
 
 // ========================================
 // 切入演出非表示
 // ========================================
 function closeCutin() {
-  cutinOverlay.style.display = 'none';
-  cutinOverlay.className = 'cutin-overlay';
+  if (cutinOverlay) {
+    cutinOverlay.style.display = 'none';
+    cutinOverlay.className = 'cutin-overlay';
+  }
 }
 
 // ========================================
 // サポート効果表示
 // ========================================
 function showSupportOverlay(message) {
-  supportMessage.textContent = message;
-  supportOverlay.style.display = 'flex';
-  supportOverlay.classList.add('active');
+  if (supportMessage) supportMessage.textContent = message;
+  if (supportOverlay) {
+    supportOverlay.style.display = 'flex';
+    supportOverlay.classList.add('active');
+  }
 }
 
 // ========================================
 // サポート効果非表示
 // ========================================
 function closeSupportOverlay() {
-  supportOverlay.style.display = 'none';
-  supportOverlay.classList.remove('active');
+  if (supportOverlay) {
+    supportOverlay.style.display = 'none';
+    supportOverlay.classList.remove('active');
+  }
 }
 
 // ========================================
@@ -449,7 +504,7 @@ function updateHealthBars() {
   const currentPlayer = players.find(p => p.id === currentPlayerId);
   const opponent = players.find(p => p.id !== currentPlayerId);
 
-  if (currentPlayer) {
+  if (currentPlayer && playerHealth) {
     const maxHp = currentPlayer.maxHp || 120;
     const percentage = Math.max(0, Math.min(100, (currentPlayer.hp / maxHp) * 100));
     playerHealth.style.width = percentage + '%';
@@ -460,7 +515,7 @@ function updateHealthBars() {
     }
   }
 
-  if (opponent) {
+  if (opponent && opponentHealth) {
     const maxHp = opponent.maxHp || 120;
     const percentage = Math.max(0, Math.min(100, (opponent.hp / maxHp) * 100));
     opponentHealth.style.width = percentage + '%';
@@ -480,10 +535,10 @@ function updateResourceBars() {
 
   if (currentPlayer) {
     const stPercent = (currentPlayer.stamina / (currentPlayer.maxStamina || 100)) * 100;
-    playerStamina.style.width = stPercent + '%';
+    if (playerStamina) playerStamina.style.width = stPercent + '%';
 
     const mpPercent = (currentPlayer.magic / (currentPlayer.maxMagic || 100)) * 100;
-    playerMagic.style.width = mpPercent + '%';
+    if (playerMagic) playerMagic.style.width = mpPercent + '%';
 
     const playerStText = document.getElementById('playerStText');
     if (playerStText) {
@@ -498,10 +553,10 @@ function updateResourceBars() {
 
   if (opponent) {
     const stPercent = (opponent.stamina / (opponent.maxStamina || 100)) * 100;
-    opponentStamina.style.width = stPercent + '%';
+    if (opponentStamina) opponentStamina.style.width = stPercent + '%';
 
     const mpPercent = (opponent.magic / (opponent.maxMagic || 100)) * 100;
-    opponentMagic.style.width = mpPercent + '%';
+    if (opponentMagic) opponentMagic.style.width = mpPercent + '%';
 
     const opponentStText = document.getElementById('opponentStText');
     if (opponentStText) {
@@ -516,30 +571,31 @@ function updateResourceBars() {
 }
 
 function enableAttack() {
-  attackInput.disabled = false;
-  attackBtn.disabled = false;
-  defendInput.disabled = true;
-  defendBtn.disabled = true;
+  if (attackInput) attackInput.disabled = false;
+  if (attackBtn) attackBtn.disabled = false;
+  if (defendInput) defendInput.disabled = true;
+  if (defendBtn) defendBtn.disabled = true;
 }
 
 function disableAttack() {
-  attackInput.disabled = true;
-  attackBtn.disabled = true;
+  if (attackInput) attackInput.disabled = true;
+  if (attackBtn) attackBtn.disabled = true;
 }
 
 function enableDefend() {
-  defendInput.disabled = false;
-  defendBtn.disabled = false;
-  attackInput.disabled = true;
-  attackBtn.disabled = true;
+  if (defendInput) defendInput.disabled = false;
+  if (defendBtn) defendBtn.disabled = false;
+  if (attackInput) attackInput.disabled = true;
+  if (attackBtn) attackBtn.disabled = true;
 }
 
 function disableDefend() {
-  defendInput.disabled = true;
-  defendBtn.disabled = true;
+  if (defendInput) defendInput.disabled = true;
+  if (defendBtn) defendBtn.disabled = true;
 }
 
 function appendLog(message) {
+  if (!battleLog) return;
   const logEntry = document.createElement('div');
   logEntry.className = 'log-entry';
   logEntry.textContent = message;
@@ -548,13 +604,18 @@ function appendLog(message) {
 }
 
 function clearBattleLog() {
-  battleLog.innerHTML = '';
+  if (battleLog) battleLog.innerHTML = '';
 }
 
 function showStatus(message, type = 'info') {
+  if (!statusMessage) {
+    console.warn('statusMessage が見つかりません:', message);
+    return;
+  }
   statusMessage.textContent = message;
   statusMessage.className = 'status-message ' + type;
   statusMessage.style.display = 'block';
+  console.log(`📢 ステータス[${type}]: ${message}`);
   if (type !== 'error') {
     setTimeout(() => {
       statusMessage.style.display = 'none';
@@ -571,11 +632,21 @@ socket.on('errorMessage', ({ message }) => {
 });
 
 socket.on('statusUpdate', ({ message }) => {
-  console.log('📢 ステータス:', message);
+  console.log('📢 ステータス受信:', message);
   showStatus(message, 'info');
   if (message.includes('相手が切断')) {
     gameStarted = false;
     disableAttack();
     disableDefend();
   }
+});
+
+// ========================================
+// DOMContentLoaded時の初期化
+// ========================================
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('📦 DOMContentLoaded イベント発火');
+  initializeDOM();
+  setupEventListeners();
+  console.log('✅ game.js の初期化が完了しました');
 });
