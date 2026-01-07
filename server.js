@@ -5,17 +5,6 @@ const crypto = require('crypto');
 const { Server } = require('socket.io');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-/**
- * 厳格定義モード対応版 server.js
- * 
- * 実装仕様:
- * 1. AIプロンプト: role の絶対化（Attack → defense=0, Defense → attack=0, Support → attack=defense=0）
- * 2. 数値の不規則化: 14, 31, 47, 82 などキリの良い数字を厳禁
- * 3. バトル判定: card.role 文字列を唯一の判定基準（if card.attack > 0 などは廃止）
- * 4. サポート効果: supportType 別の具体的な switch 文処理実装
- * 5. 防御失敗: defRole !== 'defense' で判定
- */
-
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -28,7 +17,9 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const STARTING_HP = 120;
 
-// Gemini API初期化
+// ========================================
+// グローバル変数
+// ========================================
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
   console.error('⚠️ GEMINI_API_KEY が設定されていません');
@@ -36,36 +27,12 @@ if (!apiKey) {
 }
 const genAI = new GoogleGenerativeAI(apiKey);
 
-const waitingPlayersByPass = new Map();
-const rooms = new Map();
+const waitingPlayers = new Map(); // パスワード => [{ socket, name }, ...]
+const rooms = new Map(); // roomId => { id, players: [...], started, currentTurn, pendingAttack, usedWords, fieldEffect }
 
-const TURN_LIMIT_MS = 30000; // 1ターン30秒
-
-function clearTurnTimer(room) {
-  if (room.timer) {
-    clearTimeout(room.timer);
-    room.timer = null;
-  }
-}
-
-function startTurnTimer(roomId) {
-  const room = rooms.get(roomId);
-  if (!room) return;
-  clearTurnTimer(room);
-  
-  room.timer = setTimeout(() => {
-    if (!rooms.has(roomId)) return;
-    const nextTurnId = room.players.find(p => p.id !== room.currentTurn).id;
-    room.currentTurn = nextTurnId;
-    room.pendingAttack = null;
-    io.to(roomId).emit('turnTimeout', { message: '⏰ 時間切れ！ターンが移ります', nextTurn: nextTurnId });
-    startTurnTimer(roomId);
-  }, TURN_LIMIT_MS);
-}
-
-// =====================================
+// ========================================
 // 属性相性関数
-// =====================================
+// ========================================
 function getAffinity(attackerAttr, defenderAttr) {
   const strongAgainst = {
     fire: 'earth',
@@ -89,9 +56,9 @@ function getAffinity(attackerAttr, defenderAttr) {
   return { multiplier: 1.0, relation: 'neutral', isEffective: false };
 }
 
-// =====================================
+// ========================================
 // ダメージ計算関数
-// =====================================
+// ========================================
 function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false) {
   const chart = {
     fire: { earth: 2.0, water: 0.5 },
@@ -142,18 +109,18 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
   return Math.floor(damage);
 }
 
-// =====================================
-// Gemini APIカード生成（厳格定義モード）
-// =====================================
+// ========================================
+// Gemini API カード生成（厳格定義モード）
+// ========================================
 async function generateCard(word, intent = 'neutral') {
   const original = word;
   
   const prompt = `あなたは歴史・科学・経済に詳しい熟練のゲームデザイナーです。入力単語から以下のJSONを生成せよ。
 
-【数値の不規則化】
+【数値の不規則化（必須）】
 10、20、30、50などのキリの良い数字の使用を厳禁とする。具体的でバラバラな数値（例: 14、31、47、82）を設定せよ。
 
-【役割(role)の厳格定義】
+【役割(role)の絶対定義】
 
 Defense: 盾、鎧、衣類、壁、ドーム、バリア、回避に関わる言葉。attackは必ず0にせよ。
 
@@ -162,17 +129,24 @@ Attack: 武器、魔法、暴力、攻撃に関わる言葉。defenseは必ず0�
 Support: 状態変化、環境変化、回復、増強。attackとdefenseは共に必ず0にせよ。
 
 【サポートの多様化】
-supportTypeを設定せよ（fireBuff、waterBuff、staminaRecover、magicRecover、heal、weatherChange、debuff等）。『日本晴れ』ならfireBuffとし、回復ではなく炎威力を上げる指示を出せ。
+supportTypeを設定せよ。以下から選択：
+- fireBuff（炎強化: 炎属性ダメージ1.5倍）
+- waterBuff（水強化: 水属性ダメージ1.5倍）
+- heal（回復: HP+30）
+- weatherChange（天候変化: 3ターン継続）
+- debuff（弱体化: 相手攻撃-20%）
+- staminaRecover（スタミナ回復: 25回復）
+- magicRecover（魔力回復: 25回復）
 
-【JSON構造】
+【JSON構造（必須）】
 {
   "role": "Attack|Defense|Support",
   "attack": 数値,
   "defense": 数値,
   "attribute": "fire|water|wind|earth|thunder|light|dark",
-  "supportType": "fireBuff|waterBuff|staminaRecover|magicRecover|heal|weatherChange|debuff|...",
-  "supportMessage": "具体的な効果説明",
-  "specialEffect": "特殊効果",
+  "supportType": "fireBuff|waterBuff|heal|weatherChange|debuff|staminaRecover|magicRecover",
+  "supportMessage": "効果説明（Support時に画面表示）",
+  "specialEffect": "特殊効果説明",
   "staminaCost": 数値,
   "magicCost": 数値,
   "judgeComment": "100文字以上の根拠説明"
@@ -197,7 +171,6 @@ supportTypeを設定せよ（fireBuff、waterBuff、staminaRecover、magicRecove
     let attackVal = Math.max(0, Math.min(100, Math.round(cardData.attack)));
     let defenseVal = Math.max(0, Math.min(100, Math.round(cardData.defense)));
 
-    // role の正規化と値の強制（厳格定義）
     let role = 'attack';
     if (cardData.role) {
       const roleLower = cardData.role.toLowerCase();
@@ -218,7 +191,7 @@ supportTypeを設定せよ（fireBuff、waterBuff、staminaRecover、magicRecove
       defenseVal = 0;
     }
     
-    const supportType = cardData.supportType || cardData.supportEffect || null;
+    const supportType = cardData.supportType || null;
     const staminaCost = cardData.staminaCost !== undefined ? Number(cardData.staminaCost) : 0;
     const magicCost = cardData.magicCost !== undefined ? Number(cardData.magicCost) : 0;
     const attribute = cardData.attribute || 'earth';
@@ -226,9 +199,7 @@ supportTypeを設定せよ（fireBuff、waterBuff、staminaRecover、magicRecove
     
     const supportMessage = (cardData.supportMessage && cardData.supportMessage.trim() !== '') 
                            ? cardData.supportMessage 
-                           : (cardData.supportDetail && cardData.supportDetail.trim() !== '') 
-                             ? cardData.supportDetail 
-                             : '';
+                           : '';
     
     const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
 
@@ -238,18 +209,14 @@ supportTypeを設定せよ（fireBuff、waterBuff、staminaRecover、magicRecove
       attack: attackVal,
       defense: defenseVal,
       role,
-      effect: role,
       tier,
       supportType,
       supportMessage,
-      supportDetail: supportMessage,
       specialEffect,
       staminaCost,
       magicCost,
       evasion: cardData.evasion || 0,
-      judgeComment: cardData.judgeComment || '審判のコメント',
-      fieldEffect: cardData.fieldEffect || null,
-      statusAilment: Array.isArray(cardData.statusAilment) ? cardData.statusAilment : (cardData.statusAilment ? [cardData.statusAilment] : [])
+      judgeComment: cardData.judgeComment || '審判のコメント'
     };
   } catch (error) {
     console.error('❌ Gemini API エラー:', error);
@@ -257,9 +224,9 @@ supportTypeを設定せよ（fireBuff、waterBuff、staminaRecover、magicRecove
   }
 }
 
-// =====================================
+// ========================================
 // リソースコスト適用
-// =====================================
+// ========================================
 function applyResourceCost(player, card) {
   if (!player) return { card, shortage: false, staminaShort: false, magicShort: false };
   
@@ -284,9 +251,9 @@ function applyResourceCost(player, card) {
   return { card: adjusted, shortage, staminaShort, magicShort };
 }
 
-// =====================================
+// ========================================
 // 状態異常処理
-// =====================================
+// ========================================
 function tickStatusEffects(room) {
   if (!room || !room.players) return { ticks: [] };
   const ticks = [];
@@ -312,15 +279,15 @@ function tickStatusEffects(room) {
   return { ticks };
 }
 
-// =====================================
+// ========================================
 // ユーティリティ関数
-// =====================================
+// ========================================
 function findPlayer(room, socketId) {
   return room.players ? room.players.find(p => p.id === socketId) : null;
 }
 
 function updateStatus(roomId, message) {
-  io.to(roomId).emit('status', { message });
+  io.to(roomId).emit('statusUpdate', { message });
 }
 
 function getOpponent(room, socketId) {
@@ -347,9 +314,9 @@ function applyStatus(sourceCard, targetPlayer, appliedList) {
   return { dot };
 }
 
-// =====================================
-// 防御ハンドラー（role 文字列ベースの判定）
-// =====================================
+// ========================================
+// 防御ハンドラー
+// ========================================
 function handleDefend(roomId, socket, word) {
   const room = rooms.get(roomId);
   if (!room || !room.started || !room.pendingAttack) {
@@ -382,7 +349,6 @@ function handleDefend(roomId, socket, word) {
     return;
   }
 
-  // ターン開始時の状態異常処理
   const statusTick = tickStatusEffects(room);
   let preWinner = null;
   const maybeWinner = room.players.find(p => p.hp <= 0);
@@ -415,7 +381,6 @@ function handleDefend(roomId, socket, word) {
       nextTurn: null,
       winnerId: preWinner
     });
-    clearTurnTimer(room); // 勝敗が決まったらタイマー停止
     updateStatus(roomId, `${room.players.find(p => p.id === preWinner)?.name || 'プレイヤー'} の勝利！`);
     room.pendingAttack = null;
     return;
@@ -424,7 +389,6 @@ function handleDefend(roomId, socket, word) {
   const attackCard = room.pendingAttack.card;
   const atkResource = applyResourceCost(attacker, attackCard);
   
-  // 非同期で防御カードを生成
   generateCard(cleanWord, 'defense').then(defenseCard => {
     console.log('🛡️ 防御カード生成完了:', defenseCard);
     room.usedWordsGlobal.add(lower);
@@ -432,14 +396,13 @@ function handleDefend(roomId, socket, word) {
 
     const defResource = applyResourceCost(defender, defenseCard);
 
-    // 防御失敗ロジック：role 文字列が 'defense' でない場合は防御失敗
+    // 防御失敗ロジック: role が 'defense' でない場合は失敗
     let defenseFailed = false;
     const defRole = (defenseCard.role || '').toLowerCase();
     if (defRole !== 'defense') {
       defenseFailed = true;
     }
 
-    // ダメージ計算
     const affinity = getAffinity(atkResource.card.attribute, defResource.card.attribute);
     let damage = calculateDamage(atkResource.card, defResource.card, attacker, defender, defenseFailed);
     const appliedStatus = [];
@@ -448,25 +411,30 @@ function handleDefend(roomId, socket, word) {
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
 
-    // Support役のサポート効果反映（攻撃側）
+    // Support役のサポート効果（攻撃側）
     if (atkResource.card.role === 'support') {
       const atkSupportType = (atkResource.card.supportType || '').toLowerCase();
       switch (atkSupportType) {
         case 'heal':
-          attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(Math.abs(atkResource.card.attack || 0) * 0.6));
+          attacker.hp = Math.min(attackerMaxHp, attacker.hp + 30);
           break;
         case 'weatherchange':
-        case 'weather':
-        case 'field':
-          if (atkResource.card.fieldEffect) room.fieldEffect = atkResource.card.fieldEffect;
+          if (atkResource.card.attribute) {
+            room.fieldEffect = { 
+              name: `${atkResource.card.attribute}の天候`, 
+              attribute: atkResource.card.attribute,
+              turns: 3,
+              multiplier: 1.5
+            };
+          }
           break;
         case 'firebuff':
           attacker.attackBoost = (attacker.attackBoost || 0) + 30;
-          room.fieldEffect = { name: '炎強化', visual: 'linear-gradient(135deg, rgba(255, 100, 30, 0.3), rgba(255, 200, 100, 0.2))' };
+          room.fieldEffect = { name: '炎強化', attribute: 'fire', turns: 3, multiplier: 1.5 };
           break;
         case 'waterbuff':
           attacker.attackBoost = (attacker.attackBoost || 0) + 30;
-          room.fieldEffect = { name: '水強化', visual: 'linear-gradient(135deg, rgba(30, 144, 255, 0.2), rgba(100, 180, 255, 0.15))' };
+          room.fieldEffect = { name: '水強化', attribute: 'water', turns: 3, multiplier: 1.5 };
           break;
         case 'staminarecover':
           attacker.stamina = Math.min(attacker.maxStamina || 100, attacker.stamina + 25);
@@ -477,35 +445,35 @@ function handleDefend(roomId, socket, word) {
         case 'debuff':
           defender.attackBoost = Math.max(-50, (defender.attackBoost || 0) - 20);
           break;
-        case 'ailment':
-          const ailRes = applyStatus(atkResource.card, defender, appliedStatus);
-          dotDamage += ailRes.dot;
-          break;
       }
       damage = 0;
     }
 
-    // Support役のサポート効果反映（防御側）
+    // Support役のサポート効果（防御側）
     if (defResource.card.role === 'support' && !defenseFailed) {
       const defSupportType = (defResource.card.supportType || '').toLowerCase();
       switch (defSupportType) {
         case 'heal':
-          defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(Math.abs(defResource.card.defense || 0) * 0.5));
-          break;
-        case 'buff':
-          defender.attackBoost = (defender.attackBoost || 0) + 30;
+          defender.hp = Math.min(defenderMaxHp, defender.hp + 30);
           break;
         case 'weatherchange':
-        case 'weather':
-        case 'field':
-          if (defResource.card.fieldEffect) room.fieldEffect = defResource.card.fieldEffect;
+          if (defResource.card.attribute) {
+            room.fieldEffect = { 
+              name: `${defResource.card.attribute}の天候`, 
+              attribute: defResource.card.attribute,
+              turns: 3,
+              multiplier: 1.5
+            };
+          }
           break;
         case 'debuff':
           attacker.attackBoost = Math.max(-50, (attacker.attackBoost || 0) - 20);
           break;
-        case 'ailment':
-          const ailRes2 = applyStatus(defResource.card, attacker, appliedStatus);
-          dotDamage += ailRes2.dot;
+        case 'staminarecover':
+          defender.stamina = Math.min(defender.maxStamina || 100, defender.stamina + 25);
+          break;
+        case 'magicrecover':
+          defender.magic = Math.min(defender.maxMagic || 100, defender.magic + 25);
           break;
       }
     }
@@ -574,11 +542,6 @@ function handleDefend(roomId, socket, word) {
       statusTick
     });
 
-    if (winnerId) {
-      clearTurnTimer(room);
-    } else {
-      startTurnTimer(roomId); // 次のターンのタイマー開始
-    }
     if (!winnerId) {
       room.currentTurn = attacker.id === room.currentTurn ? defender.id : attacker.id;
     }
@@ -589,56 +552,45 @@ function handleDefend(roomId, socket, word) {
   });
 }
 
-// =====================================
+// ========================================
 // Socket.io イベントハンドラ
-// =====================================
+// ========================================
 io.on('connection', (socket) => {
   console.log('👤 ユーザー接続:', socket.id);
 
-  socket.on('matchmaking', async ({ name, password }) => {
-    // パスワードがない場合（ランダムマッチ等）の安全策
+  socket.on('join', (password) => {
     const passKey = (password || '').trim().toLowerCase();
     if (!passKey) {
       socket.emit('errorMessage', { message: 'パスワードを入力してください' });
       return;
     }
 
-    // 既存の待機リストから自分を削除（連打・再接続対策）
-    for (const [key, list] of waitingPlayersByPass.entries()) {
-      const idx = list.findIndex(p => p.socket.id === socket.id);
-      if (idx !== -1) {
-        list.splice(idx, 1);
-        if (list.length === 0) waitingPlayersByPass.delete(key);
-      }
+    if (!waitingPlayers.has(passKey)) {
+      waitingPlayers.set(passKey, []);
     }
+    const queue = waitingPlayers.get(passKey);
 
-    if (!waitingPlayersByPass.has(passKey)) {
-      waitingPlayersByPass.set(passKey, []);
-    }
-    const waiting = waitingPlayersByPass.get(passKey);
+    const playerEntry = { socket, id: socket.id, name: 'Player' };
+    queue.push(playerEntry);
 
-    waiting.push({ socket, name, password });
+    console.log(`⏳ プレイヤー ${socket.id} がマッチング待機: パスワード="${passKey}"`);
 
-    if (waiting.length === 1) {
-      socket.emit('status', { message: '相手を待っています...' });
-      socket.emit('waitingUpdate', { 
-        players: waiting.map(p => ({ name: p.name, id: p.socket.id })), 
-        password: passKey === 'random_match_room' ? null : passKey 
-      });
+    if (queue.length === 1) {
+      socket.emit('statusUpdate', { message: '相手を待機中...' });
       return;
     }
 
-    const player1Data = waiting[0];
-    const player2Data = waiting[1];
-    waiting.splice(0, 2);
+    // 2人目が来た場合、対戦開始
+    const player1 = queue.shift();
+    const player2 = queue.shift();
 
     const roomId = crypto.randomBytes(8).toString('hex');
     const room = {
       id: roomId,
       players: [
         {
-          id: player1Data.socket.id,
-          name: player1Data.name,
+          id: player1.socket.id,
+          name: player1.name,
           hp: STARTING_HP,
           maxHp: STARTING_HP,
           stamina: 100,
@@ -651,8 +603,8 @@ io.on('connection', (socket) => {
           defenseBoost: 0
         },
         {
-          id: player2Data.socket.id,
-          name: player2Data.name,
+          id: player2.socket.id,
+          name: player2.name,
           hp: STARTING_HP,
           maxHp: STARTING_HP,
           stamina: 100,
@@ -666,25 +618,27 @@ io.on('connection', (socket) => {
         }
       ],
       started: true,
-      currentTurn: player1Data.socket.id,
+      currentTurn: player1.socket.id,
       pendingAttack: null,
       usedWordsGlobal: new Set(),
       fieldEffect: null
     };
 
     rooms.set(roomId, room);
-    player1Data.socket.join(roomId);
-    player2Data.socket.join(roomId);
+    player1.socket.join(roomId);
+    player2.socket.join(roomId);
 
-    // イベント名をクライアントに合わせて 'battleStarted' に修正
-    io.to(roomId).emit('battleStarted', {
+    io.to(roomId).emit('battleStart', {
       roomId,
       players: room.players,
       currentTurn: room.currentTurn
     });
 
-    startTurnTimer(roomId); // バトル開始時にタイマー始動
-    console.log(`🎮 バトル開始: ${roomId}`);
+    console.log(`🎮 バトル開始: ${roomId} (${player1.socket.id} vs ${player2.socket.id})`);
+
+    if (queue.length === 0) {
+      waitingPlayers.delete(passKey);
+    }
   });
 
   socket.on('attackWord', async ({ word }) => {
@@ -725,7 +679,6 @@ io.on('connection', (socket) => {
     console.log('⚔️ 攻撃処理開始:', { roomId, attacker: socket.id, word: cleanWord });
 
     try {
-      clearTurnTimer(room); // 攻撃宣言したらタイマー停止（防御待ちへ）
       const attackCard = await generateCard(cleanWord, 'attack');
       room.usedWordsGlobal.add(lower);
 
@@ -758,52 +711,17 @@ io.on('connection', (socket) => {
     await handleDefend(roomId, socket, word);
   });
 
-  // マッチングキャンセル処理を追加
-  socket.on('cancelMatching', () => {
-    for (const [key, list] of waitingPlayersByPass.entries()) {
-      const idx = list.findIndex(p => p.socket.id === socket.id);
-      if (idx !== -1) {
-        list.splice(idx, 1);
-        if (list.length === 0) waitingPlayersByPass.delete(key);
-        console.log('🚫 マッチングキャンセル:', socket.id);
-        socket.emit('matchCancelled', { message: 'マッチングをキャンセルしました' });
-        break;
-      }
-    }
-  });
-
   socket.on('disconnect', () => {
     console.log('👤 ユーザー切断:', socket.id);
-    
-    // 待機リストから削除
-    for (const [key, list] of waitingPlayersByPass.entries()) {
-      const idx = list.findIndex(p => p.socket.id === socket.id);
-      if (idx !== -1) {
-        list.splice(idx, 1);
-        if (list.length === 0) waitingPlayersByPass.delete(key);
-        break;
-      }
-    }
-
-    // 進行中のルームからの切断処理
-    for (const [roomId, room] of rooms.entries()) {
-      const player = room.players.find(p => p.id === socket.id);
-      if (player) {
-        clearTurnTimer(room); // 切断時にタイマー破棄
-        const opponent = room.players.find(p => p.id !== socket.id);
-        if (opponent) {
-          io.to(opponent.id).emit('opponentLeft', { message: '相手が切断しました' });
-        }
-        rooms.delete(roomId);
-        break;
-      }
+    const roomId = Array.from(socket.rooms).find(r => r !== socket.id);
+    if (roomId && rooms.has(roomId)) {
+      const room = rooms.get(roomId);
+      room.started = false;
+      io.to(roomId).emit('statusUpdate', { message: '相手が切断しました' });
     }
   });
 });
 
-// =====================================
-// サーバー起動
-// =====================================
 server.listen(PORT, () => {
   console.log(`🚀 サーバー起動: ポート ${PORT}`);
 });

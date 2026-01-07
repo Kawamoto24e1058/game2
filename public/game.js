@@ -1,1267 +1,581 @@
-const SOCKET_URL = 'https://create-cards.onrender.com';
+const socket = io();
 
-const MAX_HP_BASE = 120;
+// ========================================
+// DOM要素取得
+// ========================================
+const passwordInput = document.getElementById('passwordInput');
+const startBtn = document.getElementById('startBtn');
+const gameContainer = document.getElementById('gameContainer');
+const battleLog = document.getElementById('battleLog');
+const playerHealth = document.getElementById('playerHealth');
+const opponentHealth = document.getElementById('opponentHealth');
+const playerStamina = document.getElementById('playerStamina');
+const playerMagic = document.getElementById('playerMagic');
+const opponentStamina = document.getElementById('opponentStamina');
+const opponentMagic = document.getElementById('opponentMagic');
+const attackInput = document.getElementById('attackInput');
+const attackBtn = document.getElementById('attackBtn');
+const defendInput = document.getElementById('defendInput');
+const defendBtn = document.getElementById('defendBtn');
+const playerName = document.getElementById('playerName');
+const opponentName = document.getElementById('opponentName');
+const statusMessage = document.getElementById('statusMessage');
+const cutinOverlay = document.getElementById('cutinOverlay');
+const cutinCard = document.getElementById('cutinCard');
+const cutinRole = document.getElementById('cutinRole');
+const cutinStats = document.getElementById('cutinStats');
+const supportOverlay = document.getElementById('supportOverlay');
+const supportMessage = document.getElementById('supportMessage');
 
-let socket = null;
-let playerId = null;
-let playerName = '';
-let roomId = null;
-let isHost = false;
+let currentPlayerId = null;
+let opponentId = null;
 let currentTurn = null;
-let myHp = 0;
-let opponentHp = 0;
-let myMaxHp = MAX_HP_BASE;
-let opponentMaxHp = MAX_HP_BASE;
-let myStamina = 100;
-let myMagic = 100;
-let opponentStamina = 100;
-let opponentMagic = 100;
-let myMaxStamina = 100;
-let myMaxMagic = 100;
-let opponentMaxStamina = 100;
-let opponentMaxMagic = 100;
-let supportRemaining = 3;
-let defaultBackground = '';
-let activeFieldName = null;
-let activeFieldEffect = null;
-let isMatching = false;
-const statusState = { my: [], op: [] };
-const roleState = { my: '--', op: '--' };
-let turnTimerInterval = null;
-
-// 演出関数群
-function showFloatingText(x, y, text, type = 'damage') {
-  const container = document.getElementById('effectContainer');
-  const floatingText = document.createElement('div');
-  floatingText.className = `floating-text ${type}`;
-  floatingText.textContent = text;
-  floatingText.style.left = x + 'px';
-  floatingText.style.top = y + 'px';
-  container.appendChild(floatingText);
-  setTimeout(() => floatingText.remove(), 1500);
-}
-
-function flashAttackEffect() {
-  const battleSection = document.getElementById('battleSection');
-  battleSection.classList.add('flash-effect');
-  setTimeout(() => battleSection.classList.remove('flash-effect'), 400);
-}
-
-function bounceEffect(elementId) {
-  const el = document.getElementById(elementId);
-  el.classList.add('bounce-effect');
-  setTimeout(() => el.classList.remove('bounce-effect'), 500);
-}
-
-function showDamageAnimation(targetHp, damage) {
-  const targetBar = targetHp === 'my' ? document.getElementById('myHealthFill') : document.getElementById('opHealthFill');
-  const rect = targetBar.getBoundingClientRect();
-  const x = rect.left + rect.width / 2 - 20;
-  const y = rect.top + rect.height;
-  
-  flashAttackEffect();
-  showFloatingText(x, y, `-${damage}`, 'damage');
-  bounceEffect(targetHp === 'my' ? 'myHealthFill' : 'opHealthFill');
-}
-
-function showHealAnimation(targetHp, amount) {
-  const targetBar = targetHp === 'my' ? document.getElementById('myHealthFill') : document.getElementById('opHealthFill');
-  const rect = targetBar.getBoundingClientRect();
-  const x = rect.left + rect.width / 2 - 20;
-  const y = rect.top + rect.height;
-  
-  showFloatingText(x, y, `+${amount}`, 'heal');
-}
-
-function showGuardAnimation() {
-  const container = document.getElementById('effectContainer');
-  const guardText = document.createElement('div');
-  guardText.className = 'floating-text guard';
-  guardText.textContent = 'Guard!';
-  guardText.style.left = 'calc(50% - 30px)';
-  guardText.style.top = '20px';
-  container.appendChild(guardText);
-  setTimeout(() => guardText.remove(), 1500);
-}
-
-function screenShake() {
-  const battleSection = document.getElementById('battleSection');
-  if (battleSection) {
-    battleSection.classList.add('screen-shake');
-    setTimeout(() => battleSection.classList.remove('screen-shake'), 500);
-  }
-}
-
-function showAffinityMessage(relation) {
-  if (relation === 'advantage') {
-    const msg = document.createElement('div');
-    msg.className = 'affinity-message advantage';
-    msg.textContent = '効果はばつぐんだ！';
-    document.body.appendChild(msg);
-    setTimeout(() => msg.remove(), 2000);
-  } else if (relation === 'disadvantage') {
-    const msg = document.createElement('div');
-    msg.className = 'affinity-message disadvantage';
-    msg.textContent = 'いまひとつのようだ...';
-    document.body.appendChild(msg);
-    setTimeout(() => msg.remove(), 2000);
-  }
-}
-
-function showSupportOverlay(detailText, attribute = '') {
-  const overlay = document.getElementById('supportOverlay');
-  const detailEl = document.getElementById('supportOverlayDetail');
-  if (!overlay || !detailEl) return;
-  
-  detailEl.textContent = detailText || '効果が発動！';
-  
-  // 属性に応じた背景色変更
-  const attrLower = (attribute || '').toLowerCase();
-  let bgColor = 'rgba(8, 22, 46, 0.85)'; // デフォルト（暗色）
-  let accentColor = 'rgba(255, 209, 102, 0.65)'; // デフォルト（金色）
-  let glowColor = 'rgba(255, 209, 102, 0.9)'; // デフォルト（金色）
-  
-  // 属性による色分け
-  if (attrLower === 'fire') {
-    // 火属性: オレンジ系
-    bgColor = 'rgba(255, 100, 30, 0.7)';
-    accentColor = 'rgba(255, 200, 100, 0.8)';
-    glowColor = 'rgba(255, 120, 40, 0.9)';
-  } else if (attrLower === 'water') {
-    // 水属性: 青系
-    bgColor = 'rgba(30, 144, 255, 0.6)';
-    accentColor = 'rgba(100, 180, 255, 0.8)';
-    glowColor = 'rgba(50, 150, 255, 0.9)';
-  } else if (attrLower === 'wind') {
-    // 風属性: 水色系
-    bgColor = 'rgba(100, 200, 220, 0.5)';
-    accentColor = 'rgba(150, 220, 240, 0.8)';
-    glowColor = 'rgba(120, 200, 255, 0.8)';
-  } else if (attrLower === 'earth') {
-    // 土属性: 茶色系
-    bgColor = 'rgba(139, 90, 43, 0.65)';
-    accentColor = 'rgba(210, 160, 100, 0.8)';
-    glowColor = 'rgba(184, 134, 84, 0.8)';
-  } else if (attrLower === 'thunder') {
-    // 雷属性: 黄色系
-    bgColor = 'rgba(255, 200, 30, 0.6)';
-    accentColor = 'rgba(255, 240, 100, 0.8)';
-    glowColor = 'rgba(255, 220, 50, 0.9)';
-  } else if (attrLower === 'light') {
-    // 光属性: 白系
-    bgColor = 'rgba(220, 220, 255, 0.5)';
-    accentColor = 'rgba(255, 255, 200, 0.8)';
-    glowColor = 'rgba(200, 200, 255, 0.8)';
-  } else if (attrLower === 'dark') {
-    // 暗属性: 紫系
-    bgColor = 'rgba(100, 50, 150, 0.65)';
-    accentColor = 'rgba(180, 100, 220, 0.8)';
-    glowColor = 'rgba(140, 80, 200, 0.9)';
-  }
-  
-  // 背景色を適用（一時的に変更）
-  const originalBg = overlay.style.background;
-  overlay.style.background = `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.18), ${bgColor})`;
-  
-  // 詳細テキストの枠線色を更新
-  if (detailEl) {
-    const originalBorder = detailEl.style.borderColor;
-    const originalGlow = detailEl.style.textShadow;
-    detailEl.style.borderColor = accentColor;
-    detailEl.style.boxShadow = `0 0 26px ${accentColor}, 0 0 40px ${glowColor}`;
-  }
-  
-  overlay.classList.remove('hidden');
-  overlay.classList.add('show');
-  
-  setTimeout(() => {
-    overlay.classList.remove('show');
-    setTimeout(() => {
-      overlay.classList.add('hidden');
-      // スタイルをリセット
-      overlay.style.background = originalBg;
-      if (detailEl) {
-        detailEl.style.borderColor = '';
-        detailEl.style.boxShadow = '';
-      }
-    }, 260);
-  }, 2000);
-}
-
-function updateRoleBadge(targetKey, role) {
-  const el = document.getElementById(targetKey === 'my' ? 'myRoleBadge' : 'opRoleBadge');
-  if (!el) return;
-  const roleLower = (role || '--').toLowerCase();
-  el.className = 'role-chip';
-  if (roleLower === 'attack') {
-    el.classList.add('attack');
-    el.textContent = 'ATK';
-  } else if (roleLower === 'defense') {
-    el.classList.add('defense');
-    el.textContent = 'DEF';
-  } else if (roleLower === 'support') {
-    el.classList.add('support');
-    el.textContent = 'SUP';
-  } else {
-    el.textContent = '--';
-  }
-  roleState[targetKey] = el.textContent;
-}
-
-// 戦歴管理
-function getWinCount() {
-  return parseInt(localStorage.getItem('battleWins') || '0');
-}
-
-function incrementWinCount() {
-  const wins = getWinCount() + 1;
-  localStorage.setItem('battleWins', wins.toString());
-  return wins;
-}
-
-function displayWinCount() {
-  const wins = getWinCount();
-  const statusMsg = document.getElementById('statusMessage');
-  if (statusMsg && wins > 0) {
-    statusMsg.textContent += ` | 通算勝利数: ${wins}`;
-  }
-}
-
-function buildCutinFlavor({ affinity, defenseCard, defenseFailed }) {
-  const notes = [];
-  if (affinity?.relation === 'advantage') {
-    notes.push('効果はばつぐんだ！');
-  } else if (affinity?.relation === 'disadvantage') {
-    notes.push('いまひとつの相性だ...');
-  }
-  if (defenseCard?.hasReflect && !defenseFailed) {
-    notes.push('反射ダメージ発動！');
-  }
-  return notes.join(' / ');
-}
-
-// カットイン演出表示（任意で追加コメントを表示）
-function showCutin(card, duration = 2500, extraComment = '') {
-  return new Promise((resolve) => {
-    const cutinModal = document.getElementById('cutinModal');
-    const cutinWord = document.getElementById('cutinWord');
-    const cutinStats = document.getElementById('cutinStats');
-    const cutinTier = document.getElementById('cutinTier');
-    const cutinRoleBadge = document.getElementById('cutinRoleBadge');
-    const cutinSpecial = document.getElementById('cutinSpecial');
-    const cutinComment = document.getElementById('cutinComment');
-
-    cutinWord.textContent = card.word;
-    const stCost = card.staminaCost != null ? card.staminaCost : 0;
-    const mpCost = card.magicCost != null ? card.magicCost : 0;
-    
-    // 役割別のUI切り替え
-    const roleLower = (card.role || 'attack').toLowerCase();
-    if (roleLower === 'support') {
-      // Support役: 攻撃力・防御力を完全に非表示、supportMessageを強調表示
-      const supportMsg = card.supportMessage || card.supportDetail || `サポート効果: ${card.supportType || '効果'}`;
-      cutinStats.textContent = `【サポート効果】${supportMsg}`;
-      cutinStats.style.background = 'rgba(100, 200, 255, 0.2)';
-      cutinStats.style.borderLeft = '4px solid rgba(100, 200, 255, 0.8)';
-      cutinStats.style.padding = '12px 16px';
-      cutinStats.style.fontWeight = 'bold';
-    } else if (roleLower === 'attack') {
-      // Attack役: 攻撃力と追加効果を表示
-      cutinStats.textContent = `攻撃力: ${card.attack} / 属性: ${card.attribute.toUpperCase()} / 追加効果: ${card.specialEffect || 'なし'}`;
-      cutinStats.style.background = 'rgba(255, 100, 100, 0.1)';
-      cutinStats.style.borderLeft = '4px solid rgba(255, 100, 100, 0.8)';
-      cutinStats.style.padding = '';
-      cutinStats.style.fontWeight = '';
-    } else if (roleLower === 'defense') {
-      // Defense役: 防御力と特殊ガード内容を表示
-      cutinStats.textContent = `防御力: ${card.defense} / 属性: ${card.attribute.toUpperCase()} / ガード内容: ${card.specialEffect || 'なし'}`;
-      cutinStats.style.background = 'rgba(100, 200, 100, 0.1)';
-      cutinStats.style.borderLeft = '4px solid rgba(100, 200, 100, 0.8)';
-      cutinStats.style.padding = '';
-      cutinStats.style.fontWeight = '';
-    }
-    
-    cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}]`;
-    const roleRaw = (card.role || 'unknown').toString();
-    const roleLabel = roleRaw.toUpperCase();
-    if (cutinRoleBadge) {
-      cutinRoleBadge.textContent = roleLabel;
-      cutinRoleBadge.className = 'cutin-role-badge';
-      const roleLower = roleRaw.toLowerCase();
-      if (roleLower === 'attack') {
-        cutinRoleBadge.classList.add('attack');
-      } else if (roleLower === 'defense') {
-        cutinRoleBadge.classList.add('defense');
-      } else if (roleLower === 'support') {
-        cutinRoleBadge.classList.add('support');
-      }
-    }
-    cutinSpecial.textContent = `特殊効果: ${card.specialEffect || 'なし'}`;
-    const comments = [card.judgeComment || '審判: 良好'];
-    if (extraComment) comments.push(extraComment);
-    cutinComment.textContent = comments.join(' / ');
-
-    cutinModal.classList.remove('hidden');
-
-    setTimeout(() => {
-      cutinModal.classList.add('hidden');
-      resolve();
-    }, duration);
-  });
-}
-
-function updateSupportCounter() {
-  const supportRemainingEl = document.getElementById('supportRemaining');
-  if (supportRemainingEl) {
-    supportRemainingEl.textContent = supportRemaining;
-  }
-  const supportBtn = document.getElementById('supportBtn');
-  if (supportBtn) {
-    supportBtn.disabled = supportRemaining <= 0 || currentTurn !== playerId;
-  }
-}
-
-function updateTurnIndicator(isMyTurn) {
-  const indicator = document.getElementById('turnIndicator');
-  const turnBanner = document.getElementById('turnBanner');
-  const turnBannerText = document.getElementById('turnBannerText');
-  const attackInput = document.getElementById('attackWordInput');
-  const attackBtn = document.getElementById('attackBtn');
-  const supportBtn = document.getElementById('supportBtn');
-
-  if (isMyTurn) {
-    indicator.textContent = '🔵 あなたのターンです！';
-    indicator.classList.remove('opponent-turn');
-    indicator.classList.add('my-turn');
-    turnBannerText.textContent = 'あなたの番';
-    turnBanner.classList.remove('opponent');
-    turnBanner.classList.add('mine');
-
-    if (attackInput) attackInput.disabled = false;
-    if (attackBtn) attackBtn.disabled = false;
-    if (supportBtn) supportBtn.disabled = supportRemaining <= 0;
-  } else {
-    indicator.textContent = '⌛ 相手のターンを待機中...';
-    indicator.classList.remove('my-turn');
-    indicator.classList.add('opponent-turn');
-    turnBannerText.textContent = '相手の番';
-    turnBanner.classList.remove('mine');
-    turnBanner.classList.add('opponent');
-
-    if (attackInput) attackInput.disabled = true;
-    if (attackBtn) attackBtn.disabled = true;
-    if (supportBtn) supportBtn.disabled = true;
-  }
-}
-
-function startTurnTimerDisplay(durationSec = 30) {
-  const indicator = document.getElementById('turnIndicator');
-  if (!indicator) return;
-  
-  clearInterval(turnTimerInterval);
-  let remaining = durationSec;
-  // 既存のテキスト（"あなたのターンです！"など）を保持
-  const baseText = indicator.textContent.split(' (')[0];
-  
-  const update = () => {
-    indicator.textContent = `${baseText} (残り ${remaining}秒)`;
-    indicator.style.color = remaining <= 10 ? '#ff4444' : '';
-    if (remaining <= 0) clearInterval(turnTimerInterval);
-    remaining--;
-  };
-  
-  update();
-  turnTimerInterval = setInterval(update, 1000);
-}
-
-function stopTurnTimerDisplay() {
-  clearInterval(turnTimerInterval);
-  const indicator = document.getElementById('turnIndicator');
-  if (indicator) {
-    indicator.textContent = indicator.textContent.split(' (')[0];
-    indicator.style.color = '';
-  }
-}
-
-function showSection(id) {
-  ['homeSection', 'matchingSection', 'waitingSection', 'battleSection', 'resultSection'].forEach(sec => {
-    document.getElementById(sec).classList.add('hidden');
-  });
-  document.getElementById(id).classList.remove('hidden');
-}
-
-function updateHealthBars(my, op, myMax = myMaxHp, opMax = opponentMaxHp) {
-  myHp = my;
-  opponentHp = op;
-  myMaxHp = myMax || MAX_HP_BASE;
-  opponentMaxHp = opMax || MAX_HP_BASE;
-  const myFill = document.getElementById('myHealthFill');
-  const opFill = document.getElementById('opHealthFill');
-  document.getElementById('myHealthText').textContent = `${Math.round(myHp)}/${myMaxHp}`;
-  document.getElementById('opHealthText').textContent = `${Math.round(opponentHp)}/${opponentMaxHp}`;
-  const myPercent = myMaxHp > 0 ? Math.max(0, Math.min(100, (myHp / myMaxHp) * 100)) : 0;
-  const opPercent = opponentMaxHp > 0 ? Math.max(0, Math.min(100, (opponentHp / opponentMaxHp) * 100)) : 0;
-  myFill.style.width = `${myPercent}%`;
-  opFill.style.width = `${opPercent}%`;
-}
-
-function updateResourceBars({
-  mySt = myStamina,
-  myMp = myMagic,
-  myStMax = myMaxStamina,
-  myMpMax = myMaxMagic,
-  opSt = opponentStamina,
-  opMp = opponentMagic,
-  opStMax = opponentMaxStamina,
-  opMpMax = opponentMaxMagic
-} = {}) {
-  myStamina = mySt; myMagic = myMp; myMaxStamina = myStMax || 100; myMaxMagic = myMpMax || 100;
-  opponentStamina = opSt; opponentMagic = opMp; opponentMaxStamina = opStMax || 100; opponentMaxMagic = opMpMax || 100;
-
-  const sets = [
-    { fill: 'myStaminaFill', text: 'myStaminaText', val: myStamina, max: myMaxStamina },
-    { fill: 'myMagicFill', text: 'myMagicText', val: myMagic, max: myMaxMagic },
-    { fill: 'opStaminaFill', text: 'opStaminaText', val: opponentStamina, max: opponentMaxStamina },
-    { fill: 'opMagicFill', text: 'opMagicText', val: opponentMagic, max: opponentMaxMagic }
-  ];
-
-  sets.forEach(({ fill, text, val, max }) => {
-    const fillEl = document.getElementById(fill);
-    const textEl = document.getElementById(text);
-    if (!fillEl || !textEl) return;
-    const pct = max > 0 ? Math.max(0, Math.min(100, (val / max) * 100)) : 0;
-    fillEl.style.width = `${pct}%`;
-    textEl.textContent = `${Math.round(val)}/${max}`;
-  });
-}
-
-function appendLog(message, type = 'info') {
-  const log = document.getElementById('battleLog');
-  const entry = document.createElement('div');
-  entry.className = `log-entry ${type}`;
-  entry.textContent = message;
-  log.appendChild(entry);
-  log.scrollTop = log.scrollHeight;
-}
-
-function ensureStatusContainers() {
-  const areas = Array.from(document.querySelectorAll('.player-area'));
-  areas.forEach((area, idx) => {
-    const bar = area.querySelector('.health-bar');
-    if (!bar || bar.parentElement.classList.contains('hp-row')) return;
-    const row = document.createElement('div');
-    row.className = 'hp-row';
-    const badgeRow = document.createElement('div');
-    badgeRow.className = 'status-badge-row';
-    badgeRow.id = idx === 0 ? 'myStatusBadges' : 'opStatusBadges';
-    row.appendChild(bar);
-    row.appendChild(badgeRow);
-    area.appendChild(row);
-  });
-}
-
-function renderStatusBadges() {
-  const map = { my: document.getElementById('myStatusBadges'), op: document.getElementById('opStatusBadges') };
-  Object.entries(map).forEach(([key, el]) => {
-    if (!el) return;
-    el.innerHTML = '';
-    const list = statusState[key] || [];
-    list.slice(0, 3).forEach((s) => {
-      const badge = document.createElement('span');
-      badge.className = 'status-badge';
-      badge.textContent = s.name || '効果';
-      el.appendChild(badge);
-    });
-  });
-}
-
-function setStatusList(targetKey, list) {
-  statusState[targetKey] = (list || []).slice(0, 3).map((s) => ({ name: s.name, turns: s.turns, effectType: s.effectType }));
-  renderStatusBadges();
-}
-
-function addStatuses(appliedStatus = []) {
-  appliedStatus.forEach((s) => {
-    const targetKey = s.targetId === playerId ? 'my' : 'op';
-    const current = statusState[targetKey] || [];
-    if (current.length >= 3) return;
-    current.push({ name: s.name, turns: s.turns, effectType: s.effectType });
-    statusState[targetKey] = current.slice(0, 3);
-  });
-  renderStatusBadges();
-}
-
-function applyStatusTick(statusTick) {
-  if (!statusTick || !Array.isArray(statusTick.ticks)) return;
-  statusTick.ticks.forEach((t) => {
-    const targetKey = t.playerId === playerId ? 'my' : 'op';
-    const before = statusState[targetKey]?.length || 0;
-    const remaining = (t.remaining || []).map((a) => ({ name: a.name, turns: a.turns, effectType: a.effectType }));
-    setStatusList(targetKey, remaining);
-    if (t.dot > 0) {
-      const label = targetKey === 'my' ? 'あなた' : '相手';
-      const names = remaining.map((r) => r.name).join(' / ') || '―';
-      appendLog(`⏳ ${label} は状態異常で ${t.dot} ダメージ (残り: ${names})`, 'debuff');
-    } else if (before > 0 && remaining.length === 0) {
-      const label = targetKey === 'my' ? 'あなた' : '相手';
-      appendLog(`✨ ${label} の状態異常が解除された`, 'buff');
-    }
-  });
-}
-
-function resetStatuses() {
-  setStatusList('my', []);
-  setStatusList('op', []);
-}
-
-function getFieldBanner() {
-  let el = document.getElementById('fieldBanner');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'fieldBanner';
-    el.className = 'field-banner';
-    document.body.appendChild(el);
-  }
-  return el;
-}
-
-function getFieldIndicator() {
-  let el = document.getElementById('fieldIndicator');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'fieldIndicator';
-    el.className = 'field-indicator';
-    document.body.appendChild(el);
-  }
-  return el;
-}
-
-let fieldBannerTimer = null;
-function showFieldBanner(name) {
-  const banner = getFieldBanner();
-  banner.textContent = name;
-  banner.classList.add('show');
-  if (fieldBannerTimer) clearTimeout(fieldBannerTimer);
-  fieldBannerTimer = setTimeout(() => banner.classList.remove('show'), 2200);
-}
-
-function applyFieldVisual(fieldEffect, { silentLog = false } = {}) {
-  const newName = fieldEffect && fieldEffect.name ? fieldEffect.name : null;
-  const changed = newName !== activeFieldName;
-  activeFieldName = newName;
-  activeFieldEffect = fieldEffect;
-  
-  // フィールド効果のビジュアル適用：グラデーションを強調+画面全体に反映
-  if (fieldEffect && fieldEffect.visual) {
-    document.body.style.background = fieldEffect.visual;
-    // バトルセクション全体をフィールド色でハイライト
-    const battleSection = document.getElementById('battleSection');
-    if (battleSection) {
-      const gradientMatch = fieldEffect.visual.match(/#[0-9a-fA-F]{6}|rgb[a]?\([^)]+\)/g);
-      if (gradientMatch && gradientMatch.length > 0) {
-        const primaryColor = gradientMatch[0];
-        const secondaryColor = gradientMatch[1] || primaryColor;
-        // グロー効果 + インセットハイライト + 色の重ね合わせ
-        battleSection.style.boxShadow = `0 0 80px ${primaryColor}60, 0 0 40px ${secondaryColor}40, inset 0 0 50px ${primaryColor}25`;
-        battleSection.style.borderColor = primaryColor;
-      }
-    }
-    
-    // フィールドインジケーターを常時表示
-    const indicator = getFieldIndicator();
-    indicator.textContent = `${newName} 展開中`;
-    indicator.style.display = 'block';
-    indicator.style.borderColor = fieldEffect.visual.match(/#[0-9a-fA-F]{6}|rgb[a]?\([^)]+\)/g)?.[0] || 'rgba(76, 160, 242, 0.6)';
-  } else {
-    document.body.style.background = defaultBackground;
-    const battleSection = document.getElementById('battleSection');
-    if (battleSection) {
-      battleSection.style.boxShadow = '';
-      battleSection.style.borderColor = '';
-    }
-    
-    // フィールドインジケーターを非表示
-    const indicator = getFieldIndicator();
-    indicator.style.display = 'none';
-  }
-  
-  if (changed) {
-    if (newName) {
-      showFieldBanner(newName);
-      if (!silentLog) {
-        appendLog(`🌐 フィールドチェンジ: ${newName}${fieldEffect.buff ? ` (${fieldEffect.buff})` : ''}`, 'field');
-      }
-    } else if (!silentLog) {
-      appendLog('🌐 フィールド効果が消滅', 'field');
-    }
-  }
-}
-
-function setStatus(message) {
-  document.getElementById('statusMessage').textContent = message;
-}
-
-function toggleInputs(canAttack) {
-  document.getElementById('attackWordInput').disabled = !canAttack;
-  document.getElementById('attackBtn').disabled = !canAttack;
-}
-
-function renderWaiting(players, canStart, hostId) {
-  const list = document.getElementById('playerList');
-  list.innerHTML = '';
-  players.forEach(p => {
-    const row = document.createElement('div');
-    row.className = 'log-entry info';
-    row.textContent = `${p.name}${p.id === hostId ? ' (ホスト)' : ''}`;
-    list.appendChild(row);
-  });
-  const startBtn = document.getElementById('startBattleBtn');
-  // 全員が開始できるよう、人数条件のみで有効化
-  startBtn.disabled = !canStart;
-}
-
-function initSocket() {
-  if (socket) return;
-  socket = io(SOCKET_URL, {
-    transports: ['websocket'],
-  });
-
-  socket.on('connect', () => {
-    console.log('connected', socket.id);
-    playerId = socket.id;
-  });
-
-  socket.on('errorMessage', ({ message }) => alert(message));
-
-  // 以前の仕様との互換性のため statusUpdate もリッスン
-  socket.on('statusUpdate', ({ message }) => setStatus(message));
-
-  socket.on('joinedRoom', ({ roomId: rId, players, isHost: hostFlag, playerId: pid }) => {
-    roomId = rId;
-    isHost = hostFlag;
-    playerId = pid;
-    showSection('waitingSection');
-    document.getElementById('waitingInfo').textContent = `ルームID: ${roomId}`;
-    renderWaiting(players, false, players[0]?.id);
-  });
-
-  socket.on('waitingUpdate', ({ players = [], canStart = false, hostId, password }) => {
-    if (roomId) {
-      showSection('waitingSection');
-      renderWaiting(players, canStart, hostId);
-      document.getElementById('waitingInfo').textContent = `参加人数: ${players.length}人`;
-    } else {
-      showSection('matchingSection');
-      const matchingMessage = document.getElementById('matchingMessage');
-      if (password) {
-        matchingMessage.textContent = `パスワード「${password}」で待機中: ${players.length}人。相手を待っています...`;
-      } else {
-        matchingMessage.textContent = `参加待ち: ${players.length}人。相手を待っています...`;
-      }
-    }
-  });
-
-  socket.on('battleStarted', ({ players, turn, resources }) => {
-    if (!playerId && socket) playerId = socket.id;
-    isMatching = false;
-    showSection('battleSection');
-    const me = players.find(p => p.id === playerId);
-    const op = players.find(p => p.id !== playerId);
-    const myMax = me?.maxHp || MAX_HP_BASE;
-    const opMax = op?.maxHp || MAX_HP_BASE;
-    myMaxHp = myMax;
-    opponentMaxHp = opMax;
-    updateHealthBars(me ? me.hp : myMax, op ? op.hp : opMax, myMax, opMax);
-    if (resources) {
-      const myRes = resources[playerId] || {};
-      const opEntry = Object.entries(resources).find(([id]) => id !== playerId);
-      const opRes = opEntry ? opEntry[1] : {};
-      updateResourceBars({
-        mySt: myRes.stamina ?? myStamina,
-        myMp: myRes.magic ?? myMagic,
-        myStMax: myRes.maxStamina ?? myMaxStamina,
-        myMpMax: myRes.maxMagic ?? myMaxMagic,
-        opSt: opRes.stamina ?? opponentStamina,
-        opMp: opRes.magic ?? opponentMagic,
-        opStMax: opRes.maxStamina ?? opponentMaxStamina,
-        opMpMax: opRes.maxMagic ?? opponentMaxMagic
-      });
-    }
-    resetStatuses();
-    updateRoleBadge('my', '--');
-    updateRoleBadge('op', '--');
-    applyFieldVisual(null, { silentLog: true });
-    currentTurn = turn;
-    supportRemaining = 3;
-    updateSupportCounter();
-    const myTurn = currentTurn === playerId;
-    updateTurnIndicator(myTurn);
-    toggleInputs(myTurn);
-    const wins = getWinCount();
-    if (myTurn) startTurnTimerDisplay(30);
-    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
-    appendLog('バトル開始！', 'info');
-    if (wins > 0) {
-      appendLog(`あなたの通算勝利数: ${wins}`, 'info');
-    }
-  });
-
-  socket.on('attackDeclared', async ({ attackerId, defenderId, card }) => {
-    const isAttacker = attackerId === playerId;
-    const isDefender = defenderId === playerId;
-    const attackerKey = isAttacker ? 'my' : 'op';
-    
-    // カットイン演出
-    await showCutin(card, 2000);
-
-    updateRoleBadge(attackerKey, card.role || 'attack');
-    
-    // 役割別のログ
-    const atkRole = (card.role || 'attack').toLowerCase();
-    if (atkRole === 'support') {
-      appendLog(`🎯 【${card.word}】 効果発動！`, 'buff');
-    } else if (atkRole === 'attack') {
-      appendLog(`⚔️ 【${card.word}】 数値: ${card.attack} / 効果: ${card.specialEffect || 'なし'}`, 'damage');
-    } else {
-      appendLog(`🛡️ 【${card.word}】 数値: ${card.defense} / 効果: ${card.specialEffect || 'なし'}`, 'info');
-    }
-    flashAttackEffect();
-    toggleInputs(false);
-    stopTurnTimerDisplay(); // 攻撃宣言でタイマーストップ
-    
-    if (isDefender) {
-      // 防御ポップアップモーダル表示
-      showDefenseModal(card);
-    } else {
-      setStatus('相手の防御を待っています...');
-      updateTurnIndicator(false);
-    }
-  });
-
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, hp, maxHp, resources, shortageWarnings = [], nextTurn, winnerId, defenseFailed, affinity, statusTick }) => {
-    const meHp = hp[playerId] ?? myHp;
-    const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
-    const maxHpMap = maxHp || {};
-    const meMax = maxHpMap[playerId] ?? myMaxHp ?? MAX_HP_BASE;
-    const opMax = Object.entries(maxHpMap).find(([id]) => id !== playerId)?.[1] ?? opponentMaxHp ?? MAX_HP_BASE;
-
-    const cutinFlavor = buildCutinFlavor({ affinity, defenseCard, defenseFailed });
-
-    // 防御カードのカットイン（相性・反射の一言付き）
-    if (defenseCard) {
-      await showCutin(defenseCard, 2000, cutinFlavor);
-    }
-
-    if (attackCard) {
-      const atkKey = attackerId === playerId ? 'my' : 'op';
-      updateRoleBadge(atkKey, attackCard.role || 'attack');
-    }
-    if (defenseCard) {
-      const defKey = defenderId === playerId ? 'my' : 'op';
-      updateRoleBadge(defKey, defenseCard.role || 'defense');
-    }
-
-    // 防御失敗メッセージ
-    if (defenseFailed) {
-      appendLog('⚠️ 防御失敗！攻撃カードを使用したためフルダメージ！', 'damage');
-    }
-
-    // ダメージ表示
-    if (damage > 0) {
-      showDamageAnimation(defenderId === playerId ? 'my' : 'op', damage);
-      if (defenderId === playerId && damage > 20) {
-        screenShake();
-      }
-    }
-
-    // カウンターダメージ表示（トゲ系）
-    if (counterDamage > 0) {
-      setTimeout(() => {
-        showDamageAnimation(attackerId === playerId ? 'my' : 'op', counterDamage);
-        appendLog(`🌵 カウンター！ トゲで ${counterDamage} ダメージ`, 'damage');
-        showFloatingText(attackerId === playerId ? 'my' : 'op', `カウンター -${counterDamage}`, 'counter');
-      }, 800);
-    }
-
-    applyStatusTick(statusTick);
-
-    // DoT 追加ダメージ表示（リアルタイム）
-    if (dotDamage > 0) {
-      appendLog(`⏳ 状態異常の継続ダメージ合計: ${dotDamage}`, 'debuff');
-    }
-
-    // 状態異常付与ログとバッジ更新
-    if (appliedStatus && appliedStatus.length > 0) {
-      appliedStatus.forEach(s => {
-        const toMe = s.targetId === playerId;
-        appendLog(`${toMe ? 'あなた' : '相手'} に状態異常付与: ${s.name} (${s.effectType || 'effect'}, ${s.turns}ターン, 値:${s.value ?? 0})`, 'debuff');
-      });
-      addStatuses(appliedStatus);
-    }
-
-    if (fieldEffect) {
-      applyFieldVisual(fieldEffect);
-    }
-
-    if (resources) {
-      const myRes = resources[playerId] || {};
-      const opEntry = Object.entries(resources).find(([id]) => id !== playerId);
-      const opRes = opEntry ? opEntry[1] : {};
-      updateResourceBars({
-        mySt: myRes.stamina ?? myStamina,
-        myMp: myRes.magic ?? myMagic,
-        myStMax: myRes.maxStamina ?? myMaxStamina,
-        myMpMax: myRes.maxMagic ?? myMaxMagic,
-        opSt: opRes.stamina ?? opponentStamina,
-        opMp: opRes.magic ?? opponentMagic,
-        opStMax: opRes.maxStamina ?? opponentMaxStamina,
-        opMpMax: opRes.maxMagic ?? opponentMaxMagic
-      });
-    }
-
-    if (shortageWarnings.length > 0) {
-      shortageWarnings.forEach(w => {
-        const isMe = w.playerId === playerId;
-        appendLog(`⚠️ ${isMe ? 'あなた' : '相手'}: ${w.message}`, 'damage');
-      });
-    }
-
-    // 回復表示
-    if (attackCard.role === 'support') {
-      showHealAnimation(attackerId === playerId ? 'my' : 'op', Math.round(attackCard.attack * 0.6));
-      // Support カード発動時は大型オーバーレイを表示（攻撃演出をスキップ）
-      const supportMsg = attackCard.supportMessage || attackCard.supportDetail || `【${attackCard.word}】 効果発動！`;
-      showSupportOverlay(supportMsg, attackCard.attribute);
-    }
-
-    updateHealthBars(meHp, opHp, meMax, opMax);
-    
-    // ターン結果ログを統一フォーマットで表示
-    const atkRole = (attackCard.role || 'attack').toLowerCase();
-    
-    if (atkRole === 'support') {
-      appendLog(`✨ 【${attackCard.word}】 効果発動！`, 'buff');
-    } else {
-      appendLog(`⚔️ 【${attackCard.word}】 vs 🛡️ 【${defenseCard.word}】`, 'info');
-      
-      if (affinity && affinity.multiplier && affinity.multiplier !== 1.0) {
-        const relation = affinity.relation || 'neutral';
-        appendLog(`属性相性: ${attackCard.attribute} vs ${defenseCard.attribute} → x${affinity.multiplier} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
-        showAffinityMessage(relation);
-      }
-      
-      if (defenseFailed) {
-        appendLog(`💥 防御失敗！フルダメージ ${damage}`, 'damage');
-      } else {
-        appendLog(`💢 ダメージ: ${damage}`, 'damage');
-      }
-    }
-
-    if (winnerId) {
-      const winMe = winnerId === playerId;
-      stopTurnTimerDisplay();
-      if (winMe) {
-        const totalWins = incrementWinCount();
-        setStatus(`🎉 あなたの勝利！🎉 (通算 ${totalWins} 勝)`);
-        appendLog(`あなたの勝利！(通算 ${totalWins} 勝)`, 'win');
-        document.getElementById('resultMessage').textContent = `勝利しました！🎊\n通算勝利数: ${totalWins}`;
-      } else {
-        setStatus('😢 敗北...');
-        appendLog('相手の勝利', 'win');
-        document.getElementById('resultMessage').textContent = '敗北しました...😢';
-      }
-      showSection('resultSection');
-      return;
-    }
-
-    currentTurn = nextTurn;
-    const myTurn = currentTurn === playerId;
-    updateTurnIndicator(myTurn);
-    toggleInputs(myTurn);
-    if (myTurn) startTurnTimerDisplay(30);
-    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
-  });
-
-  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, maxHp, resources, shortageWarnings = [], supportRemaining: newRemaining, winnerId, nextTurn, appliedStatus, fieldEffect, statusTick, supportDetail }) => {
-    if (card) {
-      await showCutin(card, 2000);
-    }
-
-    const isMe = supportPlayerId === playerId;
-    const resolvedDetail = supportDetail || (card && card.supportDetail) || '';
-    const resolvedMessage = (card && card.supportMessage) || resolvedDetail || '';
-    if (card) {
-      appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: 【${card.word}】`, 'info');
-      if (resolvedMessage) {
-        appendLog(`✨ ${resolvedMessage}`, 'buff');
-      }
-    }
-
-    const roleKey = isMe ? 'my' : 'op';
-    updateRoleBadge(roleKey, 'support');
-
-    // UIに表示するサポートメッセージ：supportMessage（解説文）を最優先
-    const overlayDetail = resolvedMessage || (card ? `${card.word}` : 'サポートが発動');
-    const cardAttribute = card ? card.attribute : '';
-    showSupportOverlay(overlayDetail, cardAttribute);
-
-    applyStatusTick(statusTick);
-
-    if (appliedStatus && appliedStatus.length > 0) {
-      appliedStatus.forEach(s => {
-        const toMe = s.targetId === playerId;
-        appendLog(`${toMe ? 'あなた' : '相手'} に状態異常付与: ${s.name} (${s.effectType || 'effect'}, ${s.turns}ターン, 値:${s.value ?? 0})`, 'debuff');
-      });
-      addStatuses(appliedStatus);
-    }
-
-    if (card && (card.effectType === 'cleanse' || card.supportType === 'cleanse')) {
-      const targetKey = supportPlayerId === playerId ? 'my' : 'op';
-      setStatusList(targetKey, []);
-      appendLog(`${targetKey === 'my' ? 'あなた' : '相手'} の状態異常を解除`, 'buff');
-    }
-
-    if (fieldEffect) {
-      applyFieldVisual(fieldEffect);
-    }
-
-    if (resources) {
-      const myRes = resources[playerId] || {};
-      const opId = Object.keys(resources).find(id => id !== playerId);
-      const opRes = opId ? resources[opId] : {};
-      updateResourceBars({
-        mySt: myRes.stamina ?? myStamina,
-        myMp: myRes.magic ?? myMagic,
-        myStMax: myRes.maxStamina ?? myMaxStamina,
-        myMpMax: myRes.maxMagic ?? myMaxMagic,
-        opSt: opRes.stamina ?? opponentStamina,
-        opMp: opRes.magic ?? opponentMagic,
-        opStMax: opRes.maxStamina ?? opponentMaxStamina,
-        opMpMax: opRes.maxMagic ?? opponentMaxMagic
-      });
-    }
-
-    if (shortageWarnings.length > 0) {
-      shortageWarnings.forEach(w => {
-        const isMe = w.playerId === playerId;
-        appendLog(`⚠️ ${isMe ? 'あなた' : '相手'}: ${w.message}`, 'damage');
-      });
-    }
-
-    if (isMe && typeof newRemaining === 'number') {
-      supportRemaining = newRemaining;
-      updateSupportCounter();
-    }
-
-    myHp = hp[playerId];
-    const opponentId = Object.keys(hp).find(id => id !== playerId);
-    opponentHp = hp[opponentId];
-    const maxHpMap = maxHp || {};
-    const meMax = maxHpMap[playerId] ?? myMaxHp ?? MAX_HP_BASE;
-    const opMax = opponentId ? (maxHpMap[opponentId] ?? opponentMaxHp ?? MAX_HP_BASE) : opponentMaxHp;
-
-    updateHealthBars(myHp, opponentHp, meMax, opMax);
-
-    if (winnerId) {
-      const winMe = winnerId === playerId;
-      stopTurnTimerDisplay();
-      if (winMe) {
-        const totalWins = incrementWinCount();
-        setStatus(`🎉 あなたの勝利！🎉 (通算 ${totalWins} 勝)`);
-        appendLog(`あなたの勝利！(通算 ${totalWins} 勝)`, 'win');
-        document.getElementById('resultMessage').textContent = `勝利しました！🎊\n通算勝利数: ${totalWins}`;
-      } else {
-        setStatus('😢 敗北...');
-        appendLog('相手の勝利', 'win');
-        document.getElementById('resultMessage').textContent = '敗北しました...😢';
-      }
-      showSection('resultSection');
-      return;
-    }
-
-    if (nextTurn) {
-      currentTurn = nextTurn;
-    }
-    const myTurn = currentTurn === playerId;
-    updateTurnIndicator(myTurn);
-    toggleInputs(myTurn);
-    if (myTurn) startTurnTimerDisplay(30);
-  });
-
-  socket.on('opponentLeft', ({ message }) => {
-    alert(message || '相手との通信が切れました。タイトルに戻ります。');
-    location.reload();
-  });
-
-  socket.on('turnTimeout', ({ message, nextTurn }) => {
-    appendLog(message, 'info');
-    setStatus(message);
-    currentTurn = nextTurn;
-    const myTurn = currentTurn === playerId;
-    updateTurnIndicator(myTurn);
-    toggleInputs(myTurn);
-    if (myTurn) startTurnTimerDisplay(30);
-  });
-
-  socket.on('status', ({ message }) => setStatus(message));
-
-  const handleFieldChange = ({ fieldEffect }) => applyFieldVisual(fieldEffect);
-  socket.on('fieldEffectUpdate', handleFieldChange);
-  socket.on('fieldChanged', handleFieldChange);
-
-  socket.on('matchCancelled', ({ message }) => {
-    console.log('🚫 マッチングがキャンセルされました');
-    isMatching = false;
-    
-    // 状態を完全にリセット
-    roomId = null;
-    currentTurn = null;
-    isHost = false;
-    playerId = null;
-    myHp = 0;
-    opponentHp = 0;
-    myMaxHp = MAX_HP_BASE;
-    opponentMaxHp = MAX_HP_BASE;
-    myStamina = 0; myMagic = 0; opponentStamina = 0; opponentMagic = 0;
-    supportRemaining = 3;
-    
-    // ホーム画面に戻る
-    showSection('homeSection');
-    setStatus(message || 'マッチングをキャンセルしました');
-    updateResourceBars({
-      mySt: 0, myMp: 0, myStMax: 100, myMpMax: 100,
-      opSt: 0, opMp: 0, opStMax: 100, opMpMax: 100
-    });
-    
-    // 入力欄をクリア
-    const attackInput = document.getElementById('attackWordInput');
-    const defenseInput = document.getElementById('defenseModalInput');
-    if (attackInput) attackInput.value = '';
-    if (defenseInput) defenseInput.value = '';
-  });
-}
-
-let joinRetryCount = 0;
-function join(matchType) {
-  playerName = document.getElementById('playerNameInput').value.trim();
-  const password = document.getElementById('passwordInput').value.trim();
-  if (!playerName) {
-    alert('プレイヤー名を入力してください');
+let roomId = null;
+let gameStarted = false;
+let players = [];
+
+// ========================================
+// 初期化
+// ========================================
+startBtn.addEventListener('click', () => {
+  const password = passwordInput.value.trim();
+  if (!password) {
+    showStatus('パスワードを入力してください', 'error');
     return;
   }
-  if (isMatching && socket && socket.connected) return;
-  const matchingMessage = document.getElementById('matchingMessage');
-  matchingMessage.textContent = matchType === 'password'
-    ? `パスワード: ${password} で対戦相手を探しています...`
-    : '相手を探しています...';
-  roomId = null;
-  myMaxHp = MAX_HP_BASE;
-  opponentMaxHp = MAX_HP_BASE;
-  showSection('matchingSection');
-  if (!socket) {
-    initSocket();
-    joinRetryCount++;
-    setTimeout(() => join(matchType), 500);
-    return;
+  socket.emit('join', password);
+  startBtn.disabled = true;
+  passwordInput.disabled = true;
+});
+
+// ========================================
+// ゲーム開始
+// ========================================
+socket.on('battleStart', ({ roomId: rid, players: p, currentTurn: ct }) => {
+  roomId = rid;
+  players = p;
+  currentTurn = ct;
+  gameStarted = true;
+  currentPlayerId = socket.id;
+  opponentId = players.find(pl => pl.id !== socket.id).id;
+
+  console.log('🎮 バトル開始:', { roomId, players, currentTurn });
+
+  gameContainer.style.display = 'block';
+  document.getElementById('loginContainer').style.display = 'none';
+
+  const currentPlayer = players.find(pl => pl.id === currentPlayerId);
+  const opponent = players.find(pl => pl.id !== currentPlayerId);
+
+  playerName.textContent = currentPlayer.name || 'Player 1';
+  opponentName.textContent = opponent.name || 'Player 2';
+
+  updateHealthBars();
+  updateResourceBars();
+
+  clearBattleLog();
+  appendLog('【ゲーム開始】バトルが始まりました！');
+
+  if (currentPlayerId === currentTurn) {
+    enableAttack();
+  } else {
+    disableAttack();
+    appendLog(`${opponent.name || 'プレイヤー'} の攻撃ターン...`);
   }
-  if (!socket.connected) {
-    if (joinRetryCount > 10) {
-      alert('サーバーに接続できません。ページを再読み込みしてください。');
-      joinRetryCount = 0;
-      showSection('homeSection');
-      return;
-    }
-    joinRetryCount++;
-    setTimeout(() => join(matchType), 500);
-    return;
-  }
-  joinRetryCount = 0;
-  isMatching = true;
-  // サーバー側のイベント名 'matchmaking' に合わせる。ランダムマッチの場合は共通のキーを使用。
-  const sendPassword = matchType === 'password' ? password : 'random_match_room';
-  socket.emit('matchmaking', { name: playerName, password: sendPassword });
-}
+});
 
-function requestStart() {
-  socket.emit('requestStart');
-}
-
-function submitAttack() {
-  const word = document.getElementById('attackWordInput').value.trim();
-  socket.emit('playWord', { word });
-  document.getElementById('attackWordInput').value = '';
-}
-
-function showDefenseModal(attackCard) {
-  const modal = document.getElementById('defenseModal');
-  const message = document.getElementById('defenseModalMessage');
-  message.textContent = `相手が「${attackCard.word}」で攻撃してきた！ 防御してください！`;
-  modal.classList.remove('hidden');
-  document.getElementById('defenseModalInput').focus();
-  setStatus('⚔️ 防御フェーズ - 言葉を入力してください ⚔️');
-  updateTurnIndicator(false);
-}
-
-function hideDefenseModal() {
-  const modal = document.getElementById('defenseModal');
-  modal.classList.add('hidden');
-  document.getElementById('defenseModalInput').value = '';
-}
-
-function submitDefenseModal() {
-  const word = document.getElementById('defenseModalInput').value.trim();
+// ========================================
+// 攻撃宣言
+// ========================================
+attackBtn.addEventListener('click', () => {
+  const word = attackInput.value.trim();
   if (!word) {
-    alert('防御の言葉を入力してください！');
+    showStatus('攻撃の言葉を入力してください', 'error');
     return;
   }
-  console.log('🛡️ 防御を送信:', word);
+  socket.emit('attackWord', { word });
+  attackInput.value = '';
+  attackBtn.disabled = true;
+  attackInput.disabled = true;
+});
+
+// ========================================
+// 防御宣言
+// ========================================
+defendBtn.addEventListener('click', () => {
+  const word = defendInput.value.trim();
+  if (!word) {
+    showStatus('防御の言葉を入力してください', 'error');
+    return;
+  }
   socket.emit('defendWord', { word });
-  hideDefenseModal();
-  setStatus('防御を送信しました...');
-}
-function submitSupport() {
-  const word = document.getElementById('attackWordInput').value.trim();
-  if (!word) {
-    alert('サポートの言葉を入力してください');
-    return;
-  }
-  if (supportRemaining <= 0) {
-    alert('サポートはこの試合で使用できません');
-    return;
-  }
-  document.getElementById('attackBtn').disabled = true;
-  document.getElementById('supportBtn').disabled = true;
-  document.getElementById('attackWordInput').disabled = true;
-  
-  socket.emit('supportAction', { word });
-  document.getElementById('attackWordInput').value = '';
-}
+  defendInput.value = '';
+  defendBtn.disabled = true;
+  defendInput.disabled = true;
+});
 
-function cancelMatching() {
-  console.log('🚫 キャンセルボタンが押されました');
-  isMatching = false;
-  
-  if (socket && socket.connected) {
-    socket.emit('cancelMatching');
-    console.log('  → サーバーにcancelMatchingを送信');
+// ========================================
+// 攻撃宣言受信
+// ========================================
+socket.on('attackDeclared', ({ attackerId, defenderId, card }) => {
+  const attacker = players.find(p => p.id === attackerId);
+  const defender = players.find(p => p.id === defenderId);
+
+  console.log('⚔️ 攻撃宣言:', { attacker: attacker.name, card });
+
+  if (defenderId === currentPlayerId) {
+    enableDefend();
+    appendLog(`${attacker.name || 'プレイヤー'} が【${card.word}】で攻撃！`);
   } else {
-    console.warn('  ⚠️ socketが接続されていません');
+    appendLog(`${attacker.name || 'プレイヤー'} が【${card.word}】で攻撃を仕掛けました`);
   }
-  
-  // UIを即座にホームに戻す
-  showSection('homeSection');
-  applyFieldVisual(null, { silentLog: true });
-  resetStatuses();
-  updateRoleBadge('my', '--');
-  updateRoleBadge('op', '--');
-  setStatus('マッチングをキャンセルしています...');
+});
 
-   updateHealthBars(0, 0, MAX_HP_BASE, MAX_HP_BASE);
-   updateResourceBars({
-     mySt: 0, myMp: 0, myStMax: 100, myMpMax: 100,
-     opSt: 0, opMp: 0, opStMax: 100, opMpMax: 100
-   });
-}
+// ========================================
+// ターン解決
+// ========================================
+socket.on('turnResolved', (data) => {
+  const {
+    attackerId,
+    defenderId,
+    attackCard,
+    defenseCard,
+    damage,
+    defenseFailed,
+    affinity,
+    hp,
+    maxHp,
+    resources,
+    fieldEffect,
+    shortageWarnings,
+    nextTurn,
+    winnerId,
+    statusTick
+  } = data;
 
-function initAffinityPanel() {
-  const toggle = document.getElementById('affinityToggle');
-  const panel = document.getElementById('affinityPanel');
-  const closeBtn = document.getElementById('affinityClose');
-  if (!toggle || !panel) return;
+  const attacker = players.find(p => p.id === attackerId);
+  const defender = players.find(p => p.id === defenderId);
 
-  const hide = () => panel.classList.add('hidden');
-  const togglePanel = () => panel.classList.toggle('hidden');
-
-  toggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    togglePanel();
+  console.log('✅ ターン解決:', {
+    attacker: attacker.name,
+    defender: defender.name,
+    damage,
+    defenseFailed,
+    affinity: affinity?.relation
   });
 
-  if (closeBtn) {
-    closeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      hide();
-    });
+  // HP更新
+  if (hp) {
+    attacker.hp = hp[attackerId];
+    defender.hp = hp[defenderId];
   }
 
-  document.addEventListener('click', (e) => {
-    if (!panel.classList.contains('hidden') && !panel.contains(e.target) && !toggle.contains(e.target)) {
-      hide();
+  // リソース更新
+  if (resources) {
+    if (resources[attackerId]) {
+      attacker.stamina = resources[attackerId].stamina;
+      attacker.magic = resources[attackerId].magic;
+      attacker.maxStamina = resources[attackerId].maxStamina;
+      attacker.maxMagic = resources[attackerId].maxMagic;
     }
-  });
-}
-
-function bindUI() {
-  document.getElementById('matchCardRandom').addEventListener('click', () => selectMatchMode('random'));
-  document.getElementById('matchCardPassword').addEventListener('click', () => selectMatchMode('password'));
-  document.getElementById('matchStartBtn').addEventListener('click', startMatch);
-  document.getElementById('startBattleBtn').addEventListener('click', requestStart);
-  document.getElementById('waitingCancelBtn').addEventListener('click', cancelMatching);
-  document.getElementById('cancelMatchingBtn').addEventListener('click', cancelMatching);
-  document.getElementById('returnHomeBtn').addEventListener('click', () => location.reload());
-  document.getElementById('attackBtn').addEventListener('click', submitAttack);
-  document.getElementById('defenseModalBtn').addEventListener('click', submitDefenseModal);
-  document.getElementById('defenseModalInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') submitDefenseModal();
-  });
-
-  // サポートボタンのハンドラー
-  const supportBtn = document.getElementById('supportBtn');
-  if (supportBtn) {
-    supportBtn.addEventListener('click', submitSupport);
+    if (resources[defenderId]) {
+      defender.stamina = resources[defenderId].stamina;
+      defender.magic = resources[defenderId].magic;
+      defender.maxStamina = resources[defenderId].maxStamina;
+      defender.maxMagic = resources[defenderId].maxMagic;
+    }
   }
 
-  const guideBtn = document.getElementById('supportGuideBtn');
-  const guideModal = document.getElementById('supportGuideModal');
-  const guideClose = document.getElementById('supportGuideClose');
-  if (guideBtn && guideModal && guideClose) {
-    const open = () => guideModal.classList.remove('hidden');
-    const close = () => guideModal.classList.add('hidden');
-    guideBtn.addEventListener('click', open);
-    guideClose.addEventListener('click', close);
-    guideModal.addEventListener('click', (e) => {
-      if (e.target === guideModal) close();
+  updateHealthBars();
+  updateResourceBars();
+
+  // リソース不足警告
+  if (shortageWarnings && shortageWarnings.length > 0) {
+    shortageWarnings.forEach(w => {
+      appendLog(`⚠️ ${w.message}`);
     });
   }
-}
 
-document.addEventListener('DOMContentLoaded', () => {
-  defaultBackground = getComputedStyle(document.body).background;
-  ensureStatusContainers();
-  renderStatusBadges();
-  bindUI();
-  initAffinityPanel();
-  initSocket();
-  showSection('homeSection');
-  toggleInputs(false);
-  
-  // 戦歴を表示
-  const wins = getWinCount();
-  if (wins > 0) {
-    const badge = document.getElementById('winCountBadge');
-    if (badge) {
-      badge.textContent = `🏆 ${wins}勝`;
-      badge.classList.remove('hidden');
+  // 攻撃カード表示（攻撃側）
+  if (attackCard) {
+    showCutin(attackCard, 'attacker');
+    setTimeout(() => {
+      const attackMsg = buildAttackLog(attackCard);
+      appendLog(attackMsg);
+
+      if (attackCard.role === 'support') {
+        const supportMsg = attackCard.supportMessage || '効果を発動';
+        showSupportOverlay(supportMsg);
+        setTimeout(() => {
+          closeSupportOverlay();
+
+          // 防御カード表示（防御側）
+          if (defenseCard) {
+            showCutin(defenseCard, 'defender');
+            setTimeout(() => {
+              const defendMsg = buildDefenseLog(defenseCard);
+              appendLog(defendMsg);
+
+              if (defenseCard.role === 'support') {
+                const defSupportMsg = defenseCard.supportMessage || '効果を発動';
+                showSupportOverlay(defSupportMsg);
+                setTimeout(() => {
+                  closeSupportOverlay();
+                  processResolveLogic(data);
+                }, 1500);
+              } else {
+                setTimeout(() => {
+                  processResolveLogic(data);
+                }, 1500);
+              }
+            }, 400);
+          } else {
+            processResolveLogic(data);
+          }
+        }, 1500);
+      } else {
+        // 防御カード表示（防御側）
+        if (defenseCard) {
+          showCutin(defenseCard, 'defender');
+          setTimeout(() => {
+            const defendMsg = buildDefenseLog(defenseCard);
+            appendLog(defendMsg);
+
+            if (defenseCard.role === 'support') {
+              const defSupportMsg = defenseCard.supportMessage || '効果を発動';
+              showSupportOverlay(defSupportMsg);
+              setTimeout(() => {
+                closeSupportOverlay();
+                processResolveLogic(data);
+              }, 1500);
+            } else {
+              setTimeout(() => {
+                processResolveLogic(data);
+              }, 1500);
+            }
+          }, 400);
+        } else {
+          setTimeout(() => {
+            processResolveLogic(data);
+          }, 1500);
+        }
+      }
+    }, 400);
+  } else {
+    processResolveLogic(data);
+  }
+
+  function processResolveLogic(resolveData) {
+    const { damage: dmg, affinity: aff, winnerId, nextTurn: nt, defenseFailed: df } = resolveData;
+
+    // ダメージログ
+    if (dmg > 0) {
+      const affinityMsg = aff?.relation === 'advantage'
+        ? '💥有効！'
+        : aff?.relation === 'disadvantage'
+          ? '🛡️不利...'
+          : '';
+      appendLog(`【ダメージ】${dmg} ${affinityMsg}`);
+    } else if (df) {
+      appendLog('【ダメージ】防御失敗！回避されました！');
+    } else {
+      appendLog('【ダメージ】0 （完全に防いだ！）');
+    }
+
+    // 勝者判定
+    if (winnerId) {
+      const winner = players.find(p => p.id === winnerId);
+      appendLog(`\n【ゲーム終了】${winner.name || 'プレイヤー'} の勝利！`);
+      gameStarted = false;
+      disableAttack();
+      disableDefend();
+    } else {
+      // 次のターン
+      currentTurn = nt;
+      if (currentPlayerId === currentTurn) {
+        enableAttack();
+        appendLog(`\n${attacker.name || 'プレイヤー'} のターン終了。\nあなたの攻撃ターンです！`);
+      } else {
+        disableAttack();
+        disableDefend();
+        appendLog(`\n${defender.name || 'プレイヤー'} の攻撃ターン...`);
+      }
     }
   }
 });
 
-// マッチタイプ選択（新UI）
-let selectedMode = 'random';
-function selectMatchMode(mode) {
-  selectedMode = mode;
-  const randomCard = document.getElementById('matchCardRandom');
-  const passwordCard = document.getElementById('matchCardPassword');
-  randomCard.classList.toggle('selected', mode === 'random');
-  passwordCard.classList.toggle('selected', mode === 'password');
-  const wrap = document.getElementById('passwordWrap');
-  wrap.classList.toggle('hidden', mode !== 'password');
+// ========================================
+// 攻撃ログ生成
+// ========================================
+function buildAttackLog(card) {
+  const roleName = card.role === 'attack'
+    ? '【攻撃】'
+    : card.role === 'defense'
+      ? '【防御】'
+      : card.role === 'support'
+        ? '【支援】'
+        : '【技】';
+
+  if (card.role === 'support') {
+    return `${roleName} 【${card.word}】`;
+  }
+
+  const stats = [];
+  if (card.attack > 0) stats.push(`攻撃: ${card.attack}`);
+  if (card.defense > 0) stats.push(`防御: ${card.defense}`);
+  const statsStr = stats.length > 0 ? ' / ' + stats.join(', ') : '';
+
+  return `${roleName} 【${card.word}】${statsStr}`;
 }
 
-function startMatch() {
-  if (selectedMode === 'password' && !document.getElementById('passwordInput').value.trim()) {
-    alert('パスワードを入力してください');
-    return;
+// ========================================
+// 防御ログ生成
+// ========================================
+function buildDefenseLog(card) {
+  const roleName = card.role === 'attack'
+    ? '【攻撃】'
+    : card.role === 'defense'
+      ? '【防御】'
+      : card.role === 'support'
+        ? '【支援】'
+        : '【技】';
+
+  if (card.role === 'support') {
+    return `${roleName} 【${card.word}】`;
   }
-  join(selectedMode);
+
+  const stats = [];
+  if (card.attack > 0) stats.push(`攻撃: ${card.attack}`);
+  if (card.defense > 0) stats.push(`防御: ${card.defense}`);
+  const statsStr = stats.length > 0 ? ' / ' + stats.join(', ') : '';
+
+  return `${roleName} 【${card.word}】${statsStr}`;
 }
+
+// ========================================
+// 切入演出表示
+// ========================================
+function showCutin(card, side) {
+  cutinCard.className = 'cutin-card';
+
+  const roleBadgeEl = document.createElement('div');
+  roleBadgeEl.className = 'role-badge';
+  if (card.role === 'attack') {
+    roleBadgeEl.className += ' attack-role';
+    roleBadgeEl.textContent = '⚔️ ATTACK';
+  } else if (card.role === 'defense') {
+    roleBadgeEl.className += ' defense-role';
+    roleBadgeEl.textContent = '🛡️ DEFENSE';
+  } else if (card.role === 'support') {
+    roleBadgeEl.className += ' support-role';
+    roleBadgeEl.textContent = '✨ SUPPORT';
+  }
+
+  const wordEl = document.createElement('div');
+  wordEl.className = 'cutin-word';
+  wordEl.textContent = card.word;
+
+  const attrEl = document.createElement('div');
+  attrEl.className = 'cutin-attribute';
+  attrEl.textContent = card.attribute ? `属性: ${card.attribute}` : '';
+
+  const statsEl = document.createElement('div');
+  statsEl.className = 'cutin-stats';
+
+  // role に応じて表示を分ける
+  if (card.role === 'support') {
+    // Support時は数字を完全に表示しない（display: none）
+    statsEl.style.display = 'none';
+  } else if (card.role === 'attack') {
+    // Attack時は attack のみ表示
+    const atkDiv = document.createElement('div');
+    atkDiv.className = 'stat-line attack';
+    atkDiv.innerHTML = `<span class="stat-label">攻撃力:</span> <span class="stat-value">${card.attack || 0}</span>`;
+    statsEl.appendChild(atkDiv);
+  } else if (card.role === 'defense') {
+    // Defense時は defense のみ表示
+    const defDiv = document.createElement('div');
+    defDiv.className = 'stat-line defense';
+    defDiv.innerHTML = `<span class="stat-label">防御力:</span> <span class="stat-value">${card.defense || 0}</span>`;
+    statsEl.appendChild(defDiv);
+  }
+
+  cutinCard.innerHTML = '';
+  cutinCard.appendChild(roleBadgeEl);
+  cutinCard.appendChild(wordEl);
+  cutinCard.appendChild(attrEl);
+  cutinCard.appendChild(statsEl);
+
+  cutinOverlay.className = 'cutin-overlay active';
+  if (side === 'attacker') {
+    cutinOverlay.classList.add('attacker-side');
+  } else {
+    cutinOverlay.classList.add('defender-side');
+  }
+  cutinOverlay.style.display = 'flex';
+}
+
+// ========================================
+// 切入演出非表示
+// ========================================
+function closeCutin() {
+  cutinOverlay.style.display = 'none';
+  cutinOverlay.className = 'cutin-overlay';
+}
+
+// ========================================
+// サポート効果表示
+// ========================================
+function showSupportOverlay(message) {
+  supportMessage.textContent = message;
+  supportOverlay.style.display = 'flex';
+  supportOverlay.classList.add('active');
+}
+
+// ========================================
+// サポート効果非表示
+// ========================================
+function closeSupportOverlay() {
+  supportOverlay.style.display = 'none';
+  supportOverlay.classList.remove('active');
+}
+
+// ========================================
+// UI更新関数
+// ========================================
+function updateHealthBars() {
+  if (!players || players.length < 2) return;
+
+  const currentPlayer = players.find(p => p.id === currentPlayerId);
+  const opponent = players.find(p => p.id !== currentPlayerId);
+
+  if (currentPlayer) {
+    const maxHp = currentPlayer.maxHp || 120;
+    const percentage = Math.max(0, Math.min(100, (currentPlayer.hp / maxHp) * 100));
+    playerHealth.style.width = percentage + '%';
+
+    const playerHpText = document.getElementById('playerHpText');
+    if (playerHpText) {
+      playerHpText.textContent = `${currentPlayer.hp}/${maxHp}`;
+    }
+  }
+
+  if (opponent) {
+    const maxHp = opponent.maxHp || 120;
+    const percentage = Math.max(0, Math.min(100, (opponent.hp / maxHp) * 100));
+    opponentHealth.style.width = percentage + '%';
+
+    const opponentHpText = document.getElementById('opponentHpText');
+    if (opponentHpText) {
+      opponentHpText.textContent = `${opponent.hp}/${maxHp}`;
+    }
+  }
+}
+
+function updateResourceBars() {
+  if (!players || players.length < 2) return;
+
+  const currentPlayer = players.find(p => p.id === currentPlayerId);
+  const opponent = players.find(p => p.id !== currentPlayerId);
+
+  if (currentPlayer) {
+    const stPercent = (currentPlayer.stamina / (currentPlayer.maxStamina || 100)) * 100;
+    playerStamina.style.width = stPercent + '%';
+
+    const mpPercent = (currentPlayer.magic / (currentPlayer.maxMagic || 100)) * 100;
+    playerMagic.style.width = mpPercent + '%';
+
+    const playerStText = document.getElementById('playerStText');
+    if (playerStText) {
+      playerStText.textContent = `${currentPlayer.stamina}/${currentPlayer.maxStamina || 100}`;
+    }
+
+    const playerMpText = document.getElementById('playerMpText');
+    if (playerMpText) {
+      playerMpText.textContent = `${currentPlayer.magic}/${currentPlayer.maxMagic || 100}`;
+    }
+  }
+
+  if (opponent) {
+    const stPercent = (opponent.stamina / (opponent.maxStamina || 100)) * 100;
+    opponentStamina.style.width = stPercent + '%';
+
+    const mpPercent = (opponent.magic / (opponent.maxMagic || 100)) * 100;
+    opponentMagic.style.width = mpPercent + '%';
+
+    const opponentStText = document.getElementById('opponentStText');
+    if (opponentStText) {
+      opponentStText.textContent = `${opponent.stamina}/${opponent.maxStamina || 100}`;
+    }
+
+    const opponentMpText = document.getElementById('opponentMpText');
+    if (opponentMpText) {
+      opponentMpText.textContent = `${opponent.magic}/${opponent.maxMagic || 100}`;
+    }
+  }
+}
+
+function enableAttack() {
+  attackInput.disabled = false;
+  attackBtn.disabled = false;
+  defendInput.disabled = true;
+  defendBtn.disabled = true;
+}
+
+function disableAttack() {
+  attackInput.disabled = true;
+  attackBtn.disabled = true;
+}
+
+function enableDefend() {
+  defendInput.disabled = false;
+  defendBtn.disabled = false;
+  attackInput.disabled = true;
+  attackBtn.disabled = true;
+}
+
+function disableDefend() {
+  defendInput.disabled = true;
+  defendBtn.disabled = true;
+}
+
+function appendLog(message) {
+  const logEntry = document.createElement('div');
+  logEntry.className = 'log-entry';
+  logEntry.textContent = message;
+  battleLog.appendChild(logEntry);
+  battleLog.scrollTop = battleLog.scrollHeight;
+}
+
+function clearBattleLog() {
+  battleLog.innerHTML = '';
+}
+
+function showStatus(message, type = 'info') {
+  statusMessage.textContent = message;
+  statusMessage.className = 'status-message ' + type;
+  statusMessage.style.display = 'block';
+  if (type !== 'error') {
+    setTimeout(() => {
+      statusMessage.style.display = 'none';
+    }, 3000);
+  }
+}
+
+// ========================================
+// エラーハンドリング
+// ========================================
+socket.on('errorMessage', ({ message }) => {
+  console.error('❌ エラー:', message);
+  showStatus(message, 'error');
+});
+
+socket.on('statusUpdate', ({ message }) => {
+  console.log('📢 ステータス:', message);
+  showStatus(message, 'info');
+  if (message.includes('相手が切断')) {
+    gameStarted = false;
+    disableAttack();
+    disableDefend();
+  }
+});
