@@ -23,6 +23,7 @@ let opponentMaxMagic = 100;
 let supportRemaining = 3;
 let defaultBackground = '';
 let activeFieldName = null;
+let activeFieldEffect = null;
 let isMatching = false;
 const statusState = { my: [], op: [] };
 const roleState = { my: '--', op: '--' };
@@ -494,6 +495,17 @@ function getFieldBanner() {
   return el;
 }
 
+function getFieldIndicator() {
+  let el = document.getElementById('fieldIndicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fieldIndicator';
+    el.className = 'field-indicator';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
 let fieldBannerTimer = null;
 function showFieldBanner(name) {
   const banner = getFieldBanner();
@@ -507,6 +519,7 @@ function applyFieldVisual(fieldEffect, { silentLog = false } = {}) {
   const newName = fieldEffect && fieldEffect.name ? fieldEffect.name : null;
   const changed = newName !== activeFieldName;
   activeFieldName = newName;
+  activeFieldEffect = fieldEffect;
   
   // フィールド効果のビジュアル適用：グラデーションを強調+画面全体に反映
   if (fieldEffect && fieldEffect.visual) {
@@ -523,6 +536,12 @@ function applyFieldVisual(fieldEffect, { silentLog = false } = {}) {
         battleSection.style.borderColor = primaryColor;
       }
     }
+    
+    // フィールドインジケーターを常時表示
+    const indicator = getFieldIndicator();
+    indicator.textContent = `${newName} 展開中`;
+    indicator.style.display = 'block';
+    indicator.style.borderColor = fieldEffect.visual.match(/#[0-9a-fA-F]{6}|rgb[a]?\([^)]+\)/g)?.[0] || 'rgba(76, 160, 242, 0.6)';
   } else {
     document.body.style.background = defaultBackground;
     const battleSection = document.getElementById('battleSection');
@@ -530,6 +549,10 @@ function applyFieldVisual(fieldEffect, { silentLog = false } = {}) {
       battleSection.style.boxShadow = '';
       battleSection.style.borderColor = '';
     }
+    
+    // フィールドインジケーターを非表示
+    const indicator = getFieldIndicator();
+    indicator.style.display = 'none';
   }
   
   if (changed) {
