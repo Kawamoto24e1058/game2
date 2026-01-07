@@ -680,9 +680,9 @@ function handleDefend(roomId, socket, word) {
     const appliedStatus = [];
     let dotDamage = 0;
 
-    // カウンターダメージ処理（トゲ系）
+    // カウンターダメージ処理（トゲ系・Defense役でのみ発動）
     let counterDamage = 0;
-    if (defResource.card.counterDamage && !defenseFailed) {
+    if (defResource.card.counterDamage && !defenseFailed && defResource.card.role === 'defense') {
       counterDamage = defResource.card.counterDamage;
       attacker.hp = Math.max(0, attacker.hp - counterDamage);
       console.log(`🌵 カウンターダメージ発動: ${defResource.card.counterDamage}ダメージを攻撃者に与えた`);
@@ -691,12 +691,34 @@ function handleDefend(roomId, socket, word) {
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
 
+    // Support役のサポート効果反映（攻撃側がSupport出す場合）
     if (atkResource.card.role === 'support') {
-      attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(atkResource.card.attack * 0.6));
+      const atkSupportType = (atkResource.card.supportType || '').toLowerCase();
+      if (atkSupportType === 'heal') {
+        attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(atkResource.card.attack * 0.6));
+      } else if (atkSupportType === 'weather' || atkSupportType === 'field') {
+        if (atkResource.card.fieldEffect) room.fieldEffect = atkResource.card.fieldEffect;
+      } else if (atkSupportType === 'ailment') {
+        const ailRes = applyStatus(atkResource.card, defender, appliedStatus);
+        dotDamage += ailRes.dot;
+      } else if (atkSupportType === 'buff') {
+        attacker.attackBoost = (attacker.attackBoost || 0) + 30;
+      }
       damage = 0;
     }
+    // Support役のサポート効果反映（防御側がSupport出す場合）
     if (defResource.card.role === 'support' && !defenseFailed) {
-      defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(defResource.card.defense * 0.5));
+      const defSupportType = (defResource.card.supportType || '').toLowerCase();
+      if (defSupportType === 'heal') {
+        defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(defResource.card.defense * 0.5));
+      } else if (defSupportType === 'buff') {
+        defender.attackBoost = (defender.attackBoost || 0) + 30;
+      } else if (defSupportType === 'weather' || defSupportType === 'field') {
+        if (defResource.card.fieldEffect) room.fieldEffect = defResource.card.fieldEffect;
+      } else if (defSupportType === 'ailment') {
+        const ailRes = applyStatus(defResource.card, attacker, appliedStatus);
+        dotDamage += ailRes.dot;
+      }
     }
 
     defender.hp = Math.max(0, defender.hp - damage);
@@ -1063,6 +1085,31 @@ io.on('connection', (socket) => {
       };
 
       switch (effectTypeRaw) {
+        case 'weather': {
+          // 天候効果：属性倍率変更・継続ターン
+          if (effectiveCard.fieldEffect && effectiveCard.fieldEffect.name) {
+            room.fieldEffect = effectiveCard.fieldEffect;
+            io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
+            const turns = effectiveCard.fieldEffect.turns || 3;
+            const mult = effectiveCard.fieldEffect.multiplier || 1.0;
+            const attr = effectiveCard.fieldEffect.attribute || 'fire';
+            detailParts.push(`天候「${effectiveCard.fieldEffect.name}」を${turns}ターン展開（${attr}属性${Math.round(mult * 100)}%）`);
+          }
+          break;
+        }
+        case 'ailment': {
+          // 状態異常：相手に付与
+          if (opponent) {
+            const res = applyStatus(effectiveCard, opponent);
+            if (res.dot > 0) {
+              opponent.hp = Math.max(0, opponent.hp - res.dot);
+              detailParts.push(`相手に状態異常付与（即時ダメージ ${res.dot}）`);
+            } else {
+              detailParts.push('相手に状態異常を付与');
+            }
+          }
+          break;
+        }
         case 'hpmaxup': {
           const gain = effectValue && effectValue > 0 ? effectValue : 20;
           player.maxHp = (player.maxHp || STARTING_HP) + gain;
