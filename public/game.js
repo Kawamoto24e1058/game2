@@ -253,19 +253,30 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const stCost = card.staminaCost != null ? card.staminaCost : 0;
     const mpCost = card.magicCost != null ? card.magicCost : 0;
     
-    // Support役は攻撃力/防御力を非表示にして、サポート情報を表示
-    if (card.role === 'support') {
-      // Support役の場合、supportMessageを優先して表示
-      const supportMsg = card.supportMessage || card.supportDetail || `サポート効果: ${card.effectType || '効果'}`;
-      cutinStats.textContent = `${supportMsg} / 消費ST:${stCost} 消費MP:${mpCost}`;
-      // cutinStats の背景をハイライト
-      cutinStats.style.background = 'rgba(100, 200, 255, 0.15)';
+    // 役割別のUI切り替え
+    const roleLower = (card.role || 'attack').toLowerCase();
+    if (roleLower === 'support') {
+      // Support役: 攻撃力・防御力を完全に非表示、supportMessageを強調表示
+      const supportMsg = card.supportMessage || card.supportDetail || `サポート効果: ${card.supportType || '効果'}`;
+      cutinStats.textContent = `【サポート効果】${supportMsg}`;
+      cutinStats.style.background = 'rgba(100, 200, 255, 0.2)';
       cutinStats.style.borderLeft = '4px solid rgba(100, 200, 255, 0.8)';
-    } else {
-      cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense} / 消費ST:${stCost} 消費MP:${mpCost}`;
-      // スタイルをリセット
-      cutinStats.style.background = '';
-      cutinStats.style.borderLeft = '';
+      cutinStats.style.padding = '12px 16px';
+      cutinStats.style.fontWeight = 'bold';
+    } else if (roleLower === 'attack') {
+      // Attack役: 攻撃力と追加効果を表示
+      cutinStats.textContent = `攻撃力: ${card.attack} / 属性: ${card.attribute.toUpperCase()} / 追加効果: ${card.specialEffect || 'なし'}`;
+      cutinStats.style.background = 'rgba(255, 100, 100, 0.1)';
+      cutinStats.style.borderLeft = '4px solid rgba(255, 100, 100, 0.8)';
+      cutinStats.style.padding = '';
+      cutinStats.style.fontWeight = '';
+    } else if (roleLower === 'defense') {
+      // Defense役: 防御力と特殊ガード内容を表示
+      cutinStats.textContent = `防御力: ${card.defense} / 属性: ${card.attribute.toUpperCase()} / ガード内容: ${card.specialEffect || 'なし'}`;
+      cutinStats.style.background = 'rgba(100, 200, 100, 0.1)';
+      cutinStats.style.borderLeft = '4px solid rgba(100, 200, 100, 0.8)';
+      cutinStats.style.padding = '';
+      cutinStats.style.fontWeight = '';
     }
     
     cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}]`;
@@ -645,7 +656,15 @@ function initSocket() {
 
     updateRoleBadge(attackerKey, card.role || 'attack');
     
-    appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${card.attribute}) ATK:${card.attack}`, 'damage');
+    // 役割別のログ
+    const atkRole = (card.role || 'attack').toLowerCase();
+    if (atkRole === 'support') {
+      appendLog(`🎯 【${card.word}】 効果発動！`, 'buff');
+    } else if (atkRole === 'attack') {
+      appendLog(`⚔️ 【${card.word}】 数値: ${card.attack} / 効果: ${card.specialEffect || 'なし'}`, 'damage');
+    } else {
+      appendLog(`🛡️ 【${card.word}】 数値: ${card.defense} / 効果: ${card.specialEffect || 'なし'}`, 'info');
+    }
     flashAttackEffect();
     toggleInputs(false);
     
@@ -752,15 +771,27 @@ function initSocket() {
     }
 
     updateHealthBars(meHp, opHp, meMax, opMax);
-    appendLog(`攻撃: ${attackCard.word} (${attackCard.role}) / 防御: ${defenseCard.word} (${defenseCard.role})`, 'info');
-
-    if (affinity) {
-      const relation = affinity.relation || 'neutral';
-      appendLog(`属性相性: ${attackCard.attribute} vs ${defenseCard.attribute} → x${affinity.multiplier ?? 1} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
-      showAffinityMessage(relation);
+    
+    // ターン結果ログを統一フォーマットで表示
+    const atkRole = (attackCard.role || 'attack').toLowerCase();
+    
+    if (atkRole === 'support') {
+      appendLog(`✨ 【${attackCard.word}】 効果発動！`, 'buff');
+    } else {
+      appendLog(`⚔️ 【${attackCard.word}】 vs 🛡️ 【${defenseCard.word}】`, 'info');
+      
+      if (affinity && affinity.multiplier && affinity.multiplier !== 1.0) {
+        const relation = affinity.relation || 'neutral';
+        appendLog(`属性相性: ${attackCard.attribute} vs ${defenseCard.attribute} → x${affinity.multiplier} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
+        showAffinityMessage(relation);
+      }
+      
+      if (defenseFailed) {
+        appendLog(`💥 防御失敗！フルダメージ ${damage}`, 'damage');
+      } else {
+        appendLog(`💢 ダメージ: ${damage}`, 'damage');
+      }
     }
-
-    appendLog(`ダメージ: ${damage}`, 'damage');
 
     if (winnerId) {
       const winMe = winnerId === playerId;
