@@ -56,18 +56,46 @@ function getAffinity(attackerAttr, defenderAttr) {
 }
 
 // =====================================
-// ダメージ計算関数（属性相性2.0倍対応）
+// 属性ユーティリティと相性ロジック（刷新）
+// =====================================
+function attributeToElementJP(attr) {
+  switch ((attr || '').toLowerCase()) {
+    case 'fire': return '火';
+    case 'water': return '水';
+    case 'wind': return '風';
+    case 'earth': return '土';
+    case 'thunder': return '雷';
+    case 'light': return '光';
+    case 'dark': return '闇';
+    default: return null;
+  }
+}
+
+function getAffinityByElement(attackerElem, defenderElem) {
+  const beats = { '火': '草', '草': '土', '土': '雷', '雷': '水', '水': '火' };
+  const atk = attackerElem || null;
+  const def = defenderElem || null;
+  if (!atk || !def) return { multiplier: 1.0, relation: 'neutral', isEffective: false };
+
+  // 光⇄闇 は互いに弱点
+  if ((atk === '光' && def === '闇') || (atk === '闇' && def === '光')) {
+    return { multiplier: 0.75, relation: 'disadvantage', isEffective: false };
+  }
+
+  // 有利（1.5倍）/ 不利（0.75倍）/ 中立（1.0倍）
+  if (beats[atk] === def) {
+    return { multiplier: 1.5, relation: 'advantage', isEffective: true };
+  }
+  if (beats[def] === atk) {
+    return { multiplier: 0.75, relation: 'disadvantage', isEffective: false };
+  }
+  return { multiplier: 1.0, relation: 'neutral', isEffective: false };
+}
+
+// =====================================
+// ダメージ計算関数（刷新相性ロジック対応）
 // =====================================
 function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false) {
-  const chart = {
-    fire: { earth: 2.0, water: 0.5 },
-    earth: { wind: 2.0, fire: 0.5 },
-    wind: { thunder: 2.0, earth: 0.5 },
-    thunder: { water: 2.0, wind: 0.5 },
-    water: { fire: 2.0, thunder: 0.5 },
-    light: { dark: 2.0 },
-    dark: { light: 2.0 }
-  };
 
   // 攻撃力（未定義は0）
   const baseAttack = Number(attackCard?.attack) || 0;
@@ -87,13 +115,11 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
   }
 
   // 属性相性補正
-  let attrMultiplier = 1.0;
-  const atkAttr = (attackCard.attribute || '').toLowerCase();
-  const defAttr = (defenseCard?.attribute || '').toLowerCase();
-  if (chart[atkAttr] && chart[atkAttr][defAttr]) {
-    attrMultiplier = chart[atkAttr][defAttr];
-  }
-  finalAttack = Math.round(finalAttack * attrMultiplier);
+  // 属性相性（element優先）
+  const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
+  const defElem = (defenseCard && defenseCard.element) || attributeToElementJP(defenseCard?.attribute);
+  const affinity = getAffinityByElement(atkElem, defElem);
+  finalAttack = Math.round(finalAttack * affinity.multiplier);
 
   // ダメージ計算
   let damage = 0;
@@ -766,8 +792,10 @@ function handleDefend(roomId, socket, word) {
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
     
-    // 属性相性計算（基本）
-    const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
+    // 属性相性計算（element優先）
+    const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
+    const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
+    const affinity = getAffinityByElement(atkElem, defElem);
 
     // === Attack vs Defense 標準バトル ===
     if (attackRole === 'attack' && defenseRole === 'defense') {
