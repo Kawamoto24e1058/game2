@@ -134,6 +134,46 @@ function showCutin(card, duration = 2500, extraComment = '') {
     // カードネーム表示（card.name または word をフォールバック）
     cutinWord.textContent = card.name || card.word || '不明なカード';
 
+    // element に応じた背景色・アイコン切り替え
+    const elementDisplayJP = card.element || null;
+    const elementColorMap = {
+      '火': 'linear-gradient(135deg, rgba(244,67,54,0.35), rgba(255,87,34,0.35))',
+      '水': 'linear-gradient(135deg, rgba(33,150,243,0.35), rgba(0,188,212,0.35))',
+      '草': 'linear-gradient(135deg, rgba(76,175,80,0.35), rgba(139,195,74,0.35))',
+      '雷': 'linear-gradient(135deg, rgba(255,235,59,0.35), rgba(255,193,7,0.35))',
+      '土': 'linear-gradient(135deg, rgba(121,85,72,0.35), rgba(158,118,104,0.35))',
+      '風': 'linear-gradient(135deg, rgba(0,150,136,0.35), rgba(0,188,212,0.35))',
+      '光': 'linear-gradient(135deg, rgba(255,215,0,0.35), rgba(255,255,255,0.35))',
+      '闇': 'linear-gradient(135deg, rgba(63,81,181,0.35), rgba(103,58,183,0.35))'
+    };
+    const elementIconMap = {
+      '火': '🔥',
+      '水': '🌊',
+      '草': '🌿',
+      '雷': '⚡',
+      '土': '🪨',
+      '風': '🍃',
+      '光': '✨',
+      '闇': '🌑'
+    };
+    const defaultGradient = 'linear-gradient(135deg, rgba(100, 150, 255, 0.25), rgba(200, 100, 255, 0.25))';
+    const bgGradient = elementDisplayJP ? (elementColorMap[elementDisplayJP] || defaultGradient) : defaultGradient;
+    cutinModal.style.background = bgGradient;
+    // アイコンを左上に表示
+    const existingElemIcon = document.getElementById('cutinElemIcon');
+    if (existingElemIcon) existingElemIcon.remove();
+    const elemIcon = document.createElement('div');
+    elemIcon.id = 'cutinElemIcon';
+    elemIcon.textContent = elementDisplayJP ? (elementIconMap[elementDisplayJP] || '📌') : '📌';
+    elemIcon.style.cssText = `
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-size: 2rem;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+    `;
+    cutinModal.appendChild(elemIcon);
+
     // ステータス要素の生成（roleに基づき片方のみ表示、無い枠は非表示）
     const role = (card.role || 'Unknown').toLowerCase();
     cutinStats.innerHTML = '';
@@ -217,6 +257,9 @@ function showCutin(card, duration = 2500, extraComment = '') {
       cutinModal.classList.add('hidden');
       // 表示状態を戻す（次回のため）
       cutinStats.style.display = '';
+      cutinModal.style.background = '';
+      const iconEl = document.getElementById('cutinElemIcon');
+      if (iconEl) iconEl.remove();
       resolve();
     }, duration);
   });
@@ -811,6 +854,11 @@ function initSocket() {
       const atkElem = attackCard.element || (attackCard.attribute || '').toUpperCase();
       const defElem = defenseCard.element || (defenseCard.attribute || '').toUpperCase();
       appendLog(`属性相性: ${atkElem} vs ${defElem} → x${affinity.multiplier ?? 1} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
+      if (relation === 'advantage') {
+        appendLog('属性有利！ダメージ増加！', 'buff');
+      } else if (relation === 'disadvantage') {
+        appendLog('属性不利…ダメージ減少', 'debuff');
+      }
       showAffinityMessage(relation);
     }
 
