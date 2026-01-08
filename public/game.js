@@ -42,16 +42,31 @@ function bounceEffect(elementId) {
   setTimeout(() => el.classList.remove('bounce-effect'), 500);
 }
 
-function showDamageAnimation(targetHp, damage, affinity = null) {
+async function showDamageAnimation(targetHp, damage, affinity = null) {
   const targetBar = targetHp === 'my' ? document.getElementById('myHealthFill') : document.getElementById('opHealthFill');
   const rect = targetBar.getBoundingClientRect();
   const x = rect.left + rect.width / 2 - 20;
   const y = rect.top + rect.height;
   
+  // 大ダメージ時（30以上）はヒットストップ演出
+  if (damage >= 30) {
+    await hitStop(100);
+  }
+  
   flashAttackEffect();
   const isAdvantage = affinity && affinity.relation === 'advantage';
   showFloatingText(x, y, `-${damage}`, 'damage', isAdvantage);
   bounceEffect(targetHp === 'my' ? 'myHealthFill' : 'opHealthFill');
+  
+  // パーティクル演出: 中央からHPバーへ飛ぶ
+  const playArea = document.getElementById('playArea');
+  if (playArea) {
+    const centerRect = playArea.getBoundingClientRect();
+    const centerX = centerRect.left + centerRect.width / 2;
+    const centerY = centerRect.top + centerRect.height / 2;
+    const targetBarId = targetHp === 'my' ? 'myHpBar' : 'opHpBar';
+    createDamageParticle(centerX, centerY, targetBarId, damage, false);
+  }
 }
 
 function showHealAnimation(targetHp, amount) {
@@ -61,6 +76,16 @@ function showHealAnimation(targetHp, amount) {
   const y = rect.top + rect.height;
   
   showFloatingText(x, y, `+${amount}`, 'heal');
+  
+  // パーティクル演出: 中央からHPバーへ飛ぶ（回復）
+  const playArea = document.getElementById('playArea');
+  if (playArea) {
+    const centerRect = playArea.getBoundingClientRect();
+    const centerX = centerRect.left + centerRect.width / 2;
+    const centerY = centerRect.top + centerRect.height / 2;
+    const targetBarId = targetHp === 'my' ? 'myHpBar' : 'opHpBar';
+    createDamageParticle(centerX, centerY, targetBarId, amount, true);
+  }
 }
 
 function showGuardAnimation() {
@@ -80,6 +105,44 @@ function screenShake() {
     battleSection.classList.add('screen-shake');
     setTimeout(() => battleSection.classList.remove('screen-shake'), 500);
   }
+}
+
+// パーティクル演出: ダメージ数値がHPバーへ飛んでいく
+function createDamageParticle(startX, startY, targetElementId, damage, isHeal = false) {
+  const particle = document.createElement('div');
+  particle.className = isHeal ? 'heal-particle' : 'damage-particle';
+  particle.textContent = isHeal ? `+${damage}` : `-${damage}`;
+  particle.style.left = `${startX}px`;
+  particle.style.top = `${startY}px`;
+  
+  // ターゲット位置を計算
+  const targetEl = document.getElementById(targetElementId);
+  if (targetEl) {
+    const targetRect = targetEl.getBoundingClientRect();
+    const targetX = targetRect.left + targetRect.width / 2 - startX;
+    const targetY = targetRect.top + targetRect.height / 2 - startY;
+    particle.style.setProperty('--target-x', `${targetX}px`);
+    particle.style.setProperty('--target-y', `${targetY}px`);
+  }
+  
+  document.body.appendChild(particle);
+  setTimeout(() => particle.remove(), 800);
+}
+
+// ヒットストップ: 大ダメージ時に画面を一瞬フリーズ
+function hitStop(duration = 100) {
+  return new Promise(resolve => {
+    const battleSection = document.getElementById('battleSection');
+    if (battleSection) {
+      battleSection.classList.add('hit-freeze');
+      setTimeout(() => {
+        battleSection.classList.remove('hit-freeze');
+        resolve();
+      }, duration);
+    } else {
+      setTimeout(resolve, duration);
+    }
+  });
 }
 
 function showAffinityMessage(relation) {
@@ -377,7 +440,15 @@ function showCenterCard(card) {
   const supportEmoji = supportEmojiMap[supportType] || '🌟';
   const supportLabel = supportLabelMap[supportType] || 'サポート';
   const cardEl = document.createElement('div');
-  cardEl.className = 'center-card card-enter';
+  // 手札から飛んでくる演出（ランダムな横位置から）
+  const isSubmit = card.isSubmit || false;
+  if (isSubmit) {
+    cardEl.className = 'center-card card-submit';
+    const randomX = (Math.random() - 0.5) * 200;
+    cardEl.style.setProperty('--submit-x', `${randomX}px`);
+  } else {
+    cardEl.className = 'center-card card-enter';
+  }
   
   if (role === 'attack') {
     const atk = Number(card.attack) || 0;
@@ -989,8 +1060,8 @@ function initSocket() {
     
     // カットイン演出
     await showCutin(card, 2000);
-    // 中央プレイエリア表示
-    showCenterCard(card);
+    // 中央プレイエリア表示（提出演出付き）
+    showCenterCard({ ...card, isSubmit: true });
     
     const statLabel = buildRoleStatLabel(card);
     const attr = (card.element || (card.attribute || '')?.toUpperCase());
@@ -1039,7 +1110,7 @@ function initSocket() {
     // 防御カードのカットイン（相性・反射の一言付き）
     if (defenseCard) {
       await showCutin(defenseCard, 2000, cutinFlavor);
-      showCenterCard(defenseCard);
+      showCenterCard({ ...defenseCard, isSubmit: true });
     }
 
     // 防御失敗メッセージ
@@ -1161,11 +1232,11 @@ function initSocket() {
     if (isSupport) {
       // サポート専用演出：カットインなし、オーバーレイのみ表示
       await showSupportOverlay(card, 3000);
-      showCenterCard(card);
+      showCenterCard({ ...card, isSubmit: true });
     } else {
       // 通常カード：カットイン演出を表示
       await showCutin(card, 2000);
-      showCenterCard(card);
+      showCenterCard({ ...card, isSubmit: true });
     }
 
     const isMe = supportPlayerId === playerId;
