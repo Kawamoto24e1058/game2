@@ -69,57 +69,57 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
     dark: { light: 2.0 }
   };
 
-  // 攻撃力が存在しない場合は最小ダメージ
-  if (attackCard.attack === undefined || attackCard.attack === null) {
-    return 5; // Support カードなど攻撃力がない場合の最小ダメージ
-  }
-
-  // 攻撃力補正（ブースト + 乗数適用）
-  let finalAttack = attackCard.attack;
+  // 攻撃力（未定義は0）
+  const baseAttack = Number(attackCard?.attack) || 0;
+  let finalAttack = baseAttack;
   
   // 古い attackBoost システムを継続サポート
-  if (attacker.attackBoost > 0) {
-    finalAttack = Math.round(finalAttack * (1 + attacker.attackBoost / 100));
+  const attackBoost = Number(attacker?.attackBoost) || 0;
+  if (attackBoost > 0) {
+    finalAttack = Math.round(finalAttack * (1 + attackBoost / 100));
     attacker.attackBoost = 0;
   }
   
   // 新しい atkMultiplier システム（バフ優先）
-  if (attacker.atkMultiplier && attacker.atkMultiplier !== 1.0) {
-    finalAttack = Math.round(finalAttack * attacker.atkMultiplier);
+  const atkMultiplier = Number(attacker?.atkMultiplier) || 1.0;
+  if (atkMultiplier !== 1.0) {
+    finalAttack = Math.round(finalAttack * atkMultiplier);
   }
 
   // 属性相性補正
-  let multiplier = 1.0;
-  const atk = (attackCard.attribute || '').toLowerCase();
-  const def = (defenseCard.attribute || '').toLowerCase();
-  if (chart[atk] && chart[atk][def]) {
-    multiplier = chart[atk][def];
+  let attrMultiplier = 1.0;
+  const atkAttr = (attackCard.attribute || '').toLowerCase();
+  const defAttr = (defenseCard?.attribute || '').toLowerCase();
+  if (chart[atkAttr] && chart[atkAttr][defAttr]) {
+    attrMultiplier = chart[atkAttr][defAttr];
   }
-  finalAttack = Math.round(finalAttack * multiplier);
+  finalAttack = Math.round(finalAttack * attrMultiplier);
 
   // ダメージ計算
   let damage = 0;
-  if (defenseFailed) {
-    damage = finalAttack;
-  } else {
-    // 防御力が存在しない場合（Support カード）の処理
-    let finalDefense = defenseCard.defense !== undefined ? defenseCard.defense : 0;
-    
-    // 防御力補正（ブースト + 乗数適用）
-    if (finalDefense > 0) {
-      if (defender.defenseBoost > 0) {
-        finalDefense = Math.round(finalDefense * (1 + defender.defenseBoost / 100));
-        defender.defenseBoost = 0;
-      }
-      
-      // 新しい defMultiplier システム（バフ優先）
-      if (defender.defMultiplier && defender.defMultiplier !== 1.0) {
-        finalDefense = Math.round(finalDefense * defender.defMultiplier);
-      }
-    }
-    
-    damage = Math.max(5, finalAttack - finalDefense);
+  // 防御値（未定義は0）
+  let finalDefense = Number(defenseCard?.defense) || 0;
+  // 防御補正（ブースト + 乗数）
+  if (finalDefense > 0) {
+    const defenseBoost = Number(defender?.defenseBoost) || 0;
+    const defMultiplier = Number(defender?.defMultiplier) || 1.0;
+    finalDefense = Math.round(finalDefense * (1 + defenseBoost / 100) * defMultiplier);
+    // ブーストは使用時に消費
+    if (defenseBoost > 0) defender.defenseBoost = 0;
   }
+
+  // 予約防御（前ターンのDefense適用）
+  const reservedDefense = Number(defender?.reservedDefense) || 0;
+  let totalDefense = finalDefense + reservedDefense;
+
+  if (defenseFailed) {
+    // 防御失敗でも予約防御は確実に差し引く
+    damage = Math.max(0, finalAttack - reservedDefense);
+  } else {
+    damage = Math.max(0, finalAttack * 1 - totalDefense);
+  }
+  // 予約防御は消費
+  if (reservedDefense > 0) defender.reservedDefense = 0;
 
   return Math.floor(damage);
 }
@@ -388,6 +388,7 @@ function createRoom(players, mode, password) {
       defenseBoost: 0,
       atkMultiplier: 1.0,              // 攻撃力乗数
       defMultiplier: 1.0,              // 防御力乗数
+      reservedDefense: 0,              // 前ターンの防御予約値
       statusAilments: [],
       buffs: {                         // バフ管理
         atkUp: 0,                       // ターン数
@@ -449,6 +450,7 @@ function startBattle(roomId) {
     p.defenseBoost = 0;
     p.atkMultiplier = 1.0;
     p.defMultiplier = 1.0;
+    p.reservedDefense = 0;
     p.statusAilments = [];
     p.buffs = { atkUp: 0, defUp: 0, allStatUp: 0 };
     p.usedWords.clear();
@@ -744,14 +746,8 @@ function handleDefend(roomId, socket, word) {
     if (attackRole === 'attack' && defenseRole === 'defense') {
       console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
       damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
-      
-      // Defense ロール時のダメージ減衰（防御値で減衰）
-      const defenseValue = defenseCard.defense || 0;
-      if (defenseValue > 0) {
-        const damageReduction = Math.round(damage * (defenseValue / 100));
-        damage = Math.max(5, damage - damageReduction);
-        console.log(`🛡️ Defense ロール防御適用: ダメージ減衰: ${defenseValue}% → ${damage}に軽減`);
-      }
+      // 次ターン用の防御予約（前ターンに確実適用）
+      defender.reservedDefense = Number(defenseCard?.defense) || 0;
       defender.hp = Math.max(0, defender.hp - damage);
     }
     
@@ -786,6 +782,9 @@ function handleDefend(roomId, socket, word) {
       console.log('🛡️ 【両防御】Defense vs Defense: ダメージなし');
       damage = 0;
       counterDamage = 0;
+      // 双方、次ターンに防御値を予約
+      attacker.reservedDefense = Number(attackCard?.defense) || 0;
+      defender.reservedDefense = Number(defenseCard?.defense) || 0;
     }
     
     // === Defense vs Support: 防御フェーズ ===
@@ -806,6 +805,8 @@ function handleDefend(roomId, socket, word) {
     else if (attackRole === 'support' && defenseRole === 'defense') {
       console.log('🛡️ 【防御態勢】Support vs Defense: 防御力適用、サポートなし');
       damage = 0;
+      // 防御カードの値を次ターンに予約
+      defender.reservedDefense = Number(defenseCard?.defense) || 0;
     }
     
     // === Support vs Support: 両者サポート ===
