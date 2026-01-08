@@ -134,14 +134,14 @@ function showCutin(card, duration = 2500, extraComment = '') {
     // カードネーム表示（card.name または word をフォールバック）
     cutinWord.textContent = card.name || card.word || '不明なカード';
 
-    // ステータス要素の生成（存在するものだけを追加し、無いものはDOMに出さない）
+    // ステータス要素の生成（roleに基づき片方のみ表示、無い枠は非表示）
     const role = (card.role || 'Unknown').toLowerCase();
     cutinStats.innerHTML = '';
 
     const statsFragment = document.createDocumentFragment();
 
-    // 攻撃力: card.attack が存在する時だけ生成
-    const hasAttack = card.attack !== undefined && card.attack !== null;
+    // 攻撃力（Attackロールのみ）
+    const hasAttack = card.attack !== undefined && card.attack !== null && role === 'attack';
     if (hasAttack) {
       const atkEl = document.createElement('div');
       atkEl.className = 'stat-pill attack-pill';
@@ -149,8 +149,8 @@ function showCutin(card, duration = 2500, extraComment = '') {
       statsFragment.appendChild(atkEl);
     }
 
-    // 防御力: card.defense が存在する時だけ生成
-    const hasDefense = card.defense !== undefined && card.defense !== null;
+    // 防御力（Defenseロールのみ）
+    const hasDefense = card.defense !== undefined && card.defense !== null && role === 'defense';
     if (hasDefense) {
       const defEl = document.createElement('div');
       defEl.className = 'stat-pill defense-pill';
@@ -632,6 +632,19 @@ function renderWaiting(players, canStart, hostId) {
 }
 
 function initSocket() {
+    // 役割に応じたステータスラベルを組み立てるヘルパー
+    function buildRoleStatLabel(card) {
+      const role = (card?.role || '').toLowerCase();
+      if (role === 'attack') {
+        const atk = Number(card?.attack);
+        return isFinite(atk) ? `ATK:${atk}` : '';
+      }
+      if (role === 'defense') {
+        const def = Number(card?.defense);
+        return isFinite(def) ? `DEF:${def}` : '';
+      }
+      return '';
+    }
   socket = io(SOCKET_URL, {
     transports: ['websocket'],
   });
@@ -689,7 +702,10 @@ function initSocket() {
     // カットイン演出
     await showCutin(card, 2000);
     
-    appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${card.attribute}) ATK:${card.attack}`, 'damage');
+    const statLabel = buildRoleStatLabel(card);
+    const attr = (card.attribute || '').toUpperCase();
+    const labelText = statLabel ? ` ${statLabel}` : '';
+    appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${attr})${labelText}`, 'damage');
     flashAttackEffect();
     toggleInputs(false);
     
@@ -782,7 +798,11 @@ function initSocket() {
     }
 
     updateHealthBars(meHp, opHp);
-    appendLog(`攻撃: ${attackCard.word} (${attackCard.effect}) / 防御: ${defenseCard.word} (${defenseCard.effect})`, 'info');
+    const atkLabel = buildRoleStatLabel(attackCard);
+    const defLabel = buildRoleStatLabel(defenseCard);
+    const atkText = atkLabel ? ` [${atkLabel}]` : '';
+    const defText = defLabel ? ` [${defLabel}]` : '';
+    appendLog(`攻撃: ${attackCard.word}${atkText} / 防御: ${defenseCard.word}${defText}`, 'info');
 
     if (affinity) {
       const relation = affinity.relation || 'neutral';
