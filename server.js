@@ -712,54 +712,101 @@ function handleDefend(roomId, socket, word) {
     room.usedWordsGlobal.add(lower);
     defender.usedWords.add(lower);
 
-    // 防御失敗ロジック：防御フェーズで攻撃カード(role=attack)を出した場合
-    let defenseFailed = false;
-    if (defenseCard.role === 'attack') {
-      defenseFailed = true;
-      console.log('⚠️ 防御失敗: 防御フェーズで攻撃カード (role=attack) が出された');
-    }
-
-    // ダメージ計算（属性相性2.0倍対応）
-    const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
-    let damage = calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed);
-    const appliedStatus = [];
-    let dotDamage = 0;
-
-    // カウンターダメージ処理（Defense ロール専用）
+    // 【役割別バトルロジック】 - 文字列ベースの役割判定
+    const attackRole = (attackCard.role || '').toLowerCase();
+    const defenseRole = (defenseCard.role || '').toLowerCase();
+    
+    let damage = 0;
     let counterDamage = 0;
-    if (defenseCard.role === 'defense' && defenseCard.counterDamage && !defenseFailed) {
-      counterDamage = defenseCard.counterDamage;
-      attacker.hp = Math.max(0, attacker.hp - counterDamage);
-      console.log(`🌵 カウンターダメージ発動 (${defenseCard.word}): ${counterDamage}ダメージを攻撃者に与えた`);
-    }
-
+    let dotDamage = 0;
+    let defenseFailed = false;
+    const appliedStatus = [];
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
+    
+    // 属性相性計算（基本）
+    const affinity = getAffinity(attackCard.attribute, defenseCard.attribute);
 
-    // Support ロール特別処理
-    if (attackCard.role === 'support') {
-      // サポートは攻撃として機能しない
-      damage = 0;
-      console.log(`📦 攻撃カードがサポート (role=support): ダメージなし`);
-    }
-    if (defenseCard.role === 'support' && !defenseFailed) {
-      // 防御フェーズのサポート効果
-      const supportHeal = Math.round(defenseCard.defense || 0);
-      defender.hp = Math.min(defenderMaxHp, defender.hp + supportHeal);
-      console.log(`📦 防御カードがサポート (role=support): ${supportHeal}回復`);
-    }
-
-    // Defense ロール時のダメージ減衰（防御値で減衰）
-    if (defenseCard.role === 'defense' && !defenseFailed) {
+    // === Attack vs Defense 標準バトル ===
+    if (attackRole === 'attack' && defenseRole === 'defense') {
+      console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      
+      // Defense ロール時のダメージ減衰（防御値で減衰）
       const defenseValue = defenseCard.defense || 0;
       if (defenseValue > 0) {
         const damageReduction = Math.round(damage * (defenseValue / 100));
         damage = Math.max(5, damage - damageReduction);
-        console.log(`🛡️ Defense ロール: ダメージ減衰: ${defenseValue}% → ${damage}に軽減`);
+        console.log(`🛡️ Defense ロール防御適用: ダメージ減衰: ${defenseValue}% → ${damage}に軽減`);
       }
+      defender.hp = Math.max(0, defender.hp - damage);
     }
-
-    defender.hp = Math.max(0, defender.hp - damage);
+    
+    // === Attack vs Attack 衝突 ===
+    else if (attackRole === 'attack' && defenseRole === 'attack') {
+      console.log('⚔️ 【衝突】Attack vs Attack: 双方ダメージ');
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false);
+      defender.hp = Math.max(0, defender.hp - damage);
+      attacker.hp = Math.max(0, attacker.hp - counterDamage);
+    }
+    
+    // === Attack vs Support: 攻撃がサポートを突破 ===
+    else if (attackRole === 'attack' && defenseRole === 'support') {
+      console.log('📦 【サポート突破】Attack が Support を突破: ダメージなし、サポート効果なし');
+      damage = 0;
+      // サポート効果は無視（攻撃で完全に遮断）
+    }
+    
+    // === Defense vs Attack: 防御態勢フェーズ ===
+    else if (attackRole === 'defense' && defenseRole === 'attack') {
+      console.log('🛡️ 【防御態勢】Defense が攻撃判定をスキップ: 防御力を適用');
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      // Defense ロール（攻撃側）のdifference フィールドは攻撃力がないため最小ダメージ
+      defenseRole === 'attack' && 
+        ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false)));
+      attacker.hp = Math.max(0, attacker.hp - counterDamage);
+    }
+    
+    // === Defense vs Defense: 両防御 ===
+    else if (attackRole === 'defense' && defenseRole === 'defense') {
+      console.log('🛡️ 【両防御】Defense vs Defense: ダメージなし');
+      damage = 0;
+      counterDamage = 0;
+    }
+    
+    // === Defense vs Support: 防御フェーズ ===
+    else if (attackRole === 'defense' && defenseRole === 'support') {
+      console.log('📦 【防御+サポート】Defense vs Support: ダメージなし');
+      damage = 0;
+      // サポート効果も無視
+    }
+    
+    // === Support vs Attack: サポート対攻撃 ===
+    else if (attackRole === 'support' && defenseRole === 'attack') {
+      console.log('📦 【サポート対攻撃】Support vs Attack: 攻撃がサポートを押し通す');
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      defender.hp = Math.max(0, defender.hp - damage);
+    }
+    
+    // === Support vs Defense: 防御態勢 ===
+    else if (attackRole === 'support' && defenseRole === 'defense') {
+      console.log('🛡️ 【防御態勢】Support vs Defense: 防御力適用、サポートなし');
+      damage = 0;
+    }
+    
+    // === Support vs Support: 両者サポート ===
+    else if (attackRole === 'support' && defenseRole === 'support') {
+      console.log('📦 【相互サポート】Support vs Support: ダメージなし');
+      damage = 0;
+    }
+    
+    // === デフォルト（未想定） ===
+    else {
+      console.log(`⚠️ 未想定の役割組み合わせ: Attack[${attackRole}] vs Defense[${defenseRole}]`);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      defender.hp = Math.max(0, defender.hp - damage);
+    }
 
     // 状態異常付与と即時DoT適用
     const res1 = applyStatus(attackCard, defender, appliedStatus); dotDamage += res1.dot;
