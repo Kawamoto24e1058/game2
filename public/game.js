@@ -227,27 +227,25 @@ function updateStatusBadges(playerId, statusAilments) {
 }
 
 function showFieldEffect(fieldEffect) {
-  let overlay = document.getElementById('fieldEffectOverlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'fieldEffectOverlay';
-    overlay.className = 'field-effect-overlay';
-    document.body.appendChild(overlay);
-  }
-  
   if (fieldEffect && fieldEffect.visual) {
-    overlay.style.background = fieldEffect.visual;
+    // 背景グラデーションを適用
+    document.body.style.background = fieldEffect.visual;
+    document.body.style.backgroundAttachment = 'fixed';
     
+    // 中央に大きく効果名を表示
     const announcement = document.createElement('div');
     announcement.className = 'field-announcement';
     announcement.textContent = fieldEffect.name || 'フィールド効果発動！';
     document.body.appendChild(announcement);
     
-    setTimeout(() => announcement.remove(), 3000);
+    // 3秒後に背景を戻す
+    setTimeout(() => {
+      announcement.remove();
+      // 背景をデフォルトに戻す（戦闘画面のスタイルに依存）
+      document.body.style.background = '';
+    }, 3000);
     
-    appendLog(`🌐 フィールド効果: ${fieldEffect.name}`, 'info');
-  } else {
-    overlay.style.background = '';
+    appendLog(`🌐 フィールド効果発動: ${fieldEffect.name}`, 'info');
   }
 }
 
