@@ -433,12 +433,12 @@ ${intentNote}`;
       specialEffect,
       judgeComment,
       role,
-      // fieldChange の場合、fieldEffect を抽出
-      ...(role === 'support' && supportType === 'fieldchange' ? {
-        fieldEffect: cardData.fieldEffect || null,
-        fieldMultiplier: cardData.fieldMultiplier || 1.5,
-        fieldTurns: cardData.fieldTurns || 3
-      } : {}),
+         // ★【Support時のフィールド常時含有】fieldEffect は fieldChange でなくても常に含める
+         ...(role === 'support' ? {
+           fieldEffect: (supportType === 'fieldchange' ? cardData.fieldEffect : '') || '',
+           fieldMultiplier: (supportType === 'fieldchange' ? cardData.fieldMultiplier : 1.0) || 1.0,
+           fieldTurns: (supportType === 'fieldchange' ? cardData.fieldTurns : 0) || 0
+         } : {}),
       description: `${attribute.toUpperCase()} [${role.toUpperCase()}] ATK:${attack} DEF:${defense} / ${specialEffect}`
     };
   } catch (error) {
@@ -494,6 +494,10 @@ function generateCardFallback(word) {
     // Support
     let supportType = 'heal';
     let supportMessage = 'HP を43回復';
+    // フィールド効果のデフォルト初期化（常にスコープ内で定義）
+    let fieldEffect = '';
+    let fieldMultiplier = 1.0;
+    let fieldTurns = 0;
     
     if (/毒|poison|ヘビ|蛇|沼/.test(lower)) {
       supportType = 'poison';
@@ -525,9 +529,9 @@ function generateCardFallback(word) {
     } else if (/嵐|地震|津波|竜巻|雷鳴|台風|晴|曇|雨|風|雲|月|光|砂|炎|水|電|冷|冬|夏|春|秋|季節|天候|気候/.test(lower)) {
       supportType = 'fieldChange';
       // 環境判定に基づいて fieldEffect を決定
-      let fieldEffect = '火';
-      let fieldMultiplier = 1.5;
-      let fieldTurns = 3;
+      fieldEffect = '火';
+      fieldMultiplier = 1.5;
+      fieldTurns = 3;
       
       if (/晴|太陽|日中|昼間|光|明る|ひ/.test(lower)) {
         fieldEffect = '火';
@@ -595,7 +599,10 @@ function generateCardFallback(word) {
       supportMessage,
       specialEffect: `【${supportType}】フォールバック効果`,
       judgeComment: 'フォールバック時のサポートカード。supportType自動判定から生成。',
-      ...(fieldEffectData ? { fieldEffect: fieldEffectData, fieldMultiplier: fieldMultiplierData, fieldTurns: fieldTurnsData } : {})
+      // ★【常に含める】fieldEffect 関連フィールドは undefined でなく、常にデフォルト値を含める
+      fieldEffect: supportType === 'fieldChange' ? fieldEffect : '',
+      fieldMultiplier: supportType === 'fieldChange' ? fieldMultiplier : 1.0,
+      fieldTurns: supportType === 'fieldChange' ? fieldTurns : 0
     };
   }
 }
@@ -1848,6 +1855,11 @@ io.on('connection', (socket) => {
       const opponent = getOpponent(room, socket.id);
       const appliedStatus = [];
 
+      // ★【fieldEffect の安全な初期化】
+      let fieldEffect = card.fieldEffect || '';
+      let fieldMultiplier = card.fieldMultiplier || 1.0;
+      let fieldTurns = card.fieldTurns || 0;
+       
       // supportMessage から数値を抽出するヘルパー関数
       const extractNumber = (text, defaultVal = 0) => {
         const match = text.match(/(\d+)/);
@@ -2035,6 +2047,21 @@ io.on('connection', (socket) => {
           : (Math.random() < 0.5 ? 3 : 5);
         const persistedElement = card.fieldEffect.name || card.fieldEffect.element || card.fieldEffect;
         room.field = { element: persistedElement, remainingTurns: persistedTurns };
+               // ★【安全な fieldEffect チェック】card.fieldEffect が存在し、かつ文字列か name プロパティを持つ場合のみ適用
+               if (supportTypeRaw === 'fieldchange' && (card.fieldEffect || fieldEffect)) {
+                 const safeFieldEffect = card.fieldEffect || fieldEffect;
+                 const safeFieldMult = card.fieldMultiplier || fieldMultiplier || 1.5;
+                 const safeTurns = card.fieldTurns || fieldTurns || 3;
+         
+                 room.fieldEffect = {
+                   name: typeof safeFieldEffect === 'object' ? safeFieldEffect.name : safeFieldEffect,
+                   multiplier: safeFieldMult,
+                   turns: safeTurns,
+                   originalTurns: safeTurns,
+                   visual: `linear-gradient(135deg, rgba(200, 100, 100, 0.4), rgba(100, 100, 200, 0.4))`
+                 };
+                 io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
+               }
         io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
       }
 
@@ -2062,14 +2089,37 @@ io.on('connection', (socket) => {
         room.turnIndex = (room.turnIndex + 1) % room.players.length;
       }
 
-      // サポートカード情報を構造化（supportMessage の確実な伝送）
+      // サポートカード情報を構造化（supportMessage の確実な伝送 + 統一フィールド付与）
+      const targetMap = {
+        'heal': 'player_hp',
+        'hpmaxup': 'player_hp',
+        'staminarecover': 'player_hp',
+        'magicrecover': 'player_hp',
+        'defensebuff': 'player_attack',
+        'poison': 'enemy_attack',
+        'burn': 'enemy_attack',
+        'allstatbuff': 'player_attack',
+        'debuff': 'enemy_attack',
+        'cleanse': 'player_hp',
+        'counter': 'player_attack',
+        'fieldchange': 'player_attack'
+      };
+      const effectTargetUnified = targetMap[supportTypeRaw] || 'player_hp';
+      const finalValueUnified = extractNumber(supportMessage, 0);
+
       const cardData = {
         ...card,
         supportMessage: card.supportMessage || '', // 明示的に含める
         word: card.word,
         supportType: card.supportType || '',
         specialEffect: card.specialEffect || '',
-        role: card.role || ''
+        role: card.role || '',
+        // ★ 新フォーマット（常に含める）
+        type: 'support',
+        finalValue: finalValueUnified,
+        effectTarget: effectTargetUnified,
+        specialEffectName: card.specialEffect || '',
+        specialEffectDescription: card.supportMessage || ''
       };
 
       // バトルログに サポート発動記録を追加

@@ -1494,6 +1494,41 @@ function initSocket() {
       appendLog(`  詳細: ${card.word || 'サポート'}が効果を発動した`, 'buff');
     }
 
+    // ★ UI調整: 攻撃力表示を隠し、効果情報バナーを表示
+    try {
+      // 攻撃力テキストを非表示（存在する場合のみ）
+      const atkEl = document.querySelector('.role-value.attack');
+      if (atkEl) atkEl.style.display = 'none';
+
+      // 効果情報バナー（effect-info）を作成/更新
+      let effectInfo = document.getElementById('effect-info');
+      if (!effectInfo) {
+        effectInfo = document.createElement('div');
+        effectInfo.id = 'effect-info';
+        effectInfo.style.cssText = `
+          position: fixed;
+          bottom: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0, 0, 0, 0.7);
+          color: #fff;
+          padding: 10px 14px;
+          border-radius: 12px;
+          font-weight: 700;
+          font-size: 14px;
+          z-index: 10000;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        `;
+        document.body.appendChild(effectInfo);
+      }
+      const effectName = (card.specialEffectName || card.specialEffect || 'なし').toString();
+      const effectValue = Number.isFinite(Number(card.finalValue)) ? Number(card.finalValue) : 0;
+      effectInfo.textContent = `現在発動中の効果: ${effectName} / 効果値: ${effectValue}`;
+      effectInfo.style.display = 'block';
+    } catch (uiError) {
+      console.warn('⚠️ effect-info の表示に失敗:', uiError);
+    }
+
     if (appliedStatus && appliedStatus.length > 0) {
       appliedStatus.forEach(s => {
         const toMe = s.targetId === playerId;
@@ -1537,6 +1572,34 @@ function initSocket() {
     opponentHp = hp[opponentId];
 
     updateHealthBars(myHp, opponentHp);
+
+    // ★ ステータス更新（AIデータの effectTarget と finalValue に基づくクライアント側表示）
+    try {
+      const effectTarget = (card.effectTarget || '').toString();
+      const value = Number.isFinite(Number(card.finalValue)) ? Number(card.finalValue) : 0;
+      if (effectTarget && value) {
+        switch (effectTarget) {
+          case 'player_hp':
+            if (isMe) {
+              showHealAnimation('my', value);
+            } else {
+              showHealAnimation('op', value);
+            }
+            break;
+          case 'player_attack':
+          case 'enemy_attack':
+          case 'player_speed':
+          case 'player_defense':
+            appendLog(`📈 ステータス変化: ${effectTarget} が ${value} 変化`, 'buff');
+            break;
+          default:
+            // 不明ターゲットはログのみ
+            appendLog(`ℹ️ 効果適用: target=${effectTarget} value=${value}`, 'info');
+        }
+      }
+    } catch (stError) {
+      console.warn('⚠️ ステータス表示更新に失敗:', stError);
+    }
     // Supportの種類に応じてST/MPを簡易的に更新（UI演出）
     const valueMatch = (card.supportMessage || '').match(/(\d+)/);
     const amount = valueMatch ? parseInt(valueMatch[1], 10) : 0;
