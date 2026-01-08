@@ -185,7 +185,7 @@ async function generateCard(word, intent = 'neutral') {
 }
 ※ "defense" は絶対に含めるな
 ※ 攻撃力は言葉の『鋭さ・殺傷力・破壊力・スピード・希少価値』から独自に分析し、バラバラな値を設定する
-例：剣=71, 矢=29, 炎=44, 隕石=87, 毒=36
+例：剣=71, 矢=29, 炎=44, 隕石=87, 毒=36, 槍=63, 爆弾=82, 雷撃=51, 氷刃=41, 毒ガス=58
 
 【2. Defense の場合】
 出力形式：
@@ -201,7 +201,7 @@ async function generateCard(word, intent = 'neutral') {
 }
 ※ "attack" は絶対に含めるな
 ※ 防御力は言葉の『硬さ・耐久性・物理的強度・歴史的防御価値』から独自に分析し、バラバラな値を設定する
-例：盾=65, 鎧=78, 氷壁=42, バリア=55, 城壁=82
+例：盾=65, 鎧=78, 氷壁=42, バリア=55, 城壁=82, 盾牌=61, 石壁=73, 魔盾=47, 反射膜=59, 城塁=84
 
 【3. Support の場合】
 出力形式：
@@ -210,39 +210,45 @@ async function generateCard(word, intent = 'neutral') {
   "name": "...",
   "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
   "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange",
-  "supportMessage": "効果説明・数値（heal=回復量、防御buff=軽減率、毒/焼け=継続ターン数など）",
+  "supportMessage": "効果説明・数値（heal例：HP回復43/37/51、防御buff例：被ダメージ-39%/-47%/-33%、毒/焼け例：毎ターンHP-7/-9/-5、stat例：+23/+31/+18）",
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
   "specialEffect": "【固有効果名】具体的な効果文",
   "judgeComment": "単語の意味分析（150字程度）"
 }
 ※ "attack" と "defense" は絶対に含めるな
 ※ supportType は以下の12種類から1つだけ選択：
-  - heal: HP即座回復（医療・薬学・治癒関連）例: 薬草、ポーション、聖水
-  - hpMaxUp: 最大HP永続増加（強化・進化・成長）例: 修行、進化、強鍛錬
-  - staminaRecover: スタミナ即座回復（休息・回復）例: 睡眠、瞑想、休息
-  - magicRecover: 魔力即座回復（魔法・祈り・集中）例: 祈祷、秘儀、魔法陣
-  - defenseBuff: 次ターン被ダメージ軽減（防御強化・堅牢）例: 堅牢化、鉄壁、要塞
-  - poison: 相手へ継続ダメージ毒付与（毒性・汚染）例: 毒、劇毒、ヴェノム
-  - burn: 相手へ継続ダメージ焼け付与（火傷・高温）例: 炎、灼熱、焦熱
-  - allStatBuff: 全ステータス微増（英雄・偉人・伝説）例: アーサー王、孫子、天才
-  - debuff: 相手攻撃力/防御力を弱体化（弱化・呪い）例: 呪い、制限、衰弱
-  - cleanse: 自身の状態異常をクリア（浄化・除去）例: 浄化、祓い、清水
-  - counter: 反撃・カウンター効果（反撃・返し・予測）例: 反撃、カウンター、先読み
-  - fieldChange: 天候や地形の変化（環境・地形・気象）例: 嵐、地震、津波
+  - heal: HP即座回復（医療・薬学・治癒関連）例: 薬草→「HP を43回復」、ポーション→「HP を51回復」、聖水→「HP を37回復」
+  - hpMaxUp: 最大HP永続増加（強化・進化・成長）例: 修行→「最大HP +29」、進化→「最大HP +47」、強鍛錬→「最大HP +31」
+  - staminaRecover: スタミナ即座回復（休息・回復）例: 睡眠→「スタミナを39回復」、瞑想→「スタミナを53回復」、休息→「スタミナを41回復」
+  - magicRecover: 魔力即座回復（魔法・祈り・集中）例: 祈祷→「魔力を27回復」、秘儀→「魔力を38回復」、魔法陣→「魔力を31回復」
+  - defenseBuff: 次ターン被ダメージ軽減（防御強化・堅牢）例: 堅牢化→「次ターン被ダメージ-39%」、鉄壁→「次ターン被ダメージ-47%」、要塞→「次ターン被ダメージ-33%」
+  - poison: 相手へ継続ダメージ毒付与（毒性・汚染）例: 毒→「毒を付与。3ターン継続、毎ターンHP-7」、劇毒→「毒を付与。3ターン継続、毎ターンHP-9」、ヴェノム→「毒を付与。3ターン継続、毎ターンHP-5」
+  - burn: 相手へ継続ダメージ焼け付与（火傷・高温）例: 炎→「焼けを付与。3ターン継続、毎ターンHP-8」、灼熱→「焼けを付与。3ターン継続、毎ターンHP-10」、焦熱→「焼けを付与。3ターン継続、毎ターンHP-6」
+  - allStatBuff: 全ステータス微増（英雄・偉人・伝説）例: アーサー王→「全ステータス +23」、孫子→「全ステータス +31」、天才→「全ステータス +19」
+  - debuff: 相手攻撃力/防御力を弱体化（弱化・呪い）例: 呪い→「相手の攻撃力 -29」、制限→「相手の防御力 -22」、衰弱→「相手の攻撃力 -17」
+  - cleanse: 自身の状態異常をクリア（浄化・除去）例: 浄化→「状態異常をすべてクリア」、祓い→「状態異常を3つまでクリア」、清水→「毒と焼けをクリア」
+  - counter: 反撃・カウンター効果（反撃・返し・予測）例: 反撃→「次ターン受けたダメージの53%を反射」、カウンター→「次ターン受けたダメージを反射」、先読み→「敵の次ターン攻撃を67%軽減」
+  - fieldChange: 天候や地形の変化（環境・地形・気象）例: 嵐→「嵐フィールドを発動（2ターン）」、地震→「大地フィールドを発動（2ターン）」、津波→「水フィールドを発動（2ターン）」
 
 【共通ルール】
 1. 数値は言葉の意味から独自に分析してバラバラな値を設定すること。テンプレート使用厳禁。
-2. 【数値多様化の厳命】13, 27, 46, 72 など、「5」や「0」で終わらない不規則な値のみを使え。10, 15, 20, 25, 30 などの丸め値は絶対に使うな。
+2. 【数値多様化の厳命】13, 27, 46, 72, 81, 59, 34, 68, 83, 41, 77, 92 など、「5」や「0」で終わらない不規則な値のみを使え。10, 15, 20, 25, 30, 35, 40, 45, 50 などの丸め値は絶対に使うな。
 3. 【意味付け】数値には根拠を持たせよ（例：単語の歴史年代/文字数/物質の密度や硬度/神話的階級など）。根拠は supportMessage や judgeComment に自然に滲ませてもよい（露骨な根拠説明は不要）。
 4. 【連続禁止】同一出力内で同じ数値を続けて使うな（例：同じ文中や箇条で 33, 33 と連続させない）。直前に出した数値とは異なる値を選べ。
-5. 数値は 1-99 範囲内（10, 20, 30 等のテンプレ値禁止）
+5. 数値は 1-99 範囲内（キリの良い数字10, 20, 30 等のテンプレ値は絶対に禁止）
 6. specialEffect は【】で囲むこと
 7. attribute は小文字統一（fire, water など）
 8. element は日本語の属性名（火/水/草/雷/土/風/光/闇）で、入力語から連想して必ず1つ選べ（AIが自動判別）。
 9. 各role で指定されたキーだけを含める（余分なキーは含めるな）
+10. 【最重要】AIプロンプトが返すJSON内のすべての数値は以下ルールに従え：
+    - Attack: attack は必ず13, 29, 41, 58, 67, 71, 83 など「5」「0」で終わらない数値（1-99範囲）
+    - Defense: defense は必ず14, 31, 46, 59, 67, 73, 82 など「5」「0」で終わらない数値（1-99範囲）
+    - Support: supportMessage内の数値（回復量、軽減率、ダメージ値）は毎回異なるユニークな値で、連続した数字は禁止。例：HP +37, 次ターン-43%, 毎ターンHP-6
+    - 同じJSON出力内で attack と defense が異なる値である必須（どちらも51なら禁止）
 
 【数値に関する追加指示（Support）】
 ・supportMessage には必ず具体的な数値を含め、上記の「数値多様化の厳命」「意味付け」「連続禁止」を厳守せよ。
+・Support型では attack/defense フィールドは返さず、supportMessage の数値を必ず異なる値にしよ。
 
 ${intentNote}`;
 
@@ -256,24 +262,27 @@ ${intentNote}`;
     
     const cardData = JSON.parse(responseText);
 
-    // 必須フィールドのチェック
-    if (cardData.attack === undefined || cardData.defense === undefined || !cardData.specialEffect) {
-      throw new Error('必須フィールドが不足しています');
+    const role = (cardData.role || 'attack').toLowerCase();
+    
+    // 役割別の必須フィールドチェック
+    if (role === 'attack') {
+      if (cardData.attack === undefined || !cardData.specialEffect) {
+        throw new Error('Attack: attack と specialEffect は必須');
+      }
+    } else if (role === 'defense') {
+      if (cardData.defense === undefined || !cardData.supportMessage || !cardData.specialEffect) {
+        throw new Error('Defense: defense, supportMessage, specialEffect は必須');
+      }
+    } else if (role === 'support') {
+      if (!cardData.supportMessage || !cardData.specialEffect || !cardData.supportType) {
+        throw new Error('Support: supportMessage, specialEffect, supportType は必須');
+      }
+    } else {
+      throw new Error(`不正な role: ${role}`);
     }
 
-    const role = (cardData.role || 'attack').toLowerCase();
-    let attack = Math.max(0, Math.min(99, Math.round(cardData.attack || 0)));
-    let defense = Math.max(0, Math.min(99, Math.round(cardData.defense || 0)));
-    
-    // 役割による厳格チェック
-    if (role === 'defense') {
-      attack = 0;  // Defense は必ず attack = 0
-    } else if (role === 'attack') {
-      defense = 0;  // Attack は必ず defense = 0
-    } else if (role === 'support') {
-      attack = 0;  // Support は両方ゼロ
-      defense = 0;
-    }
+    let attack = role === 'attack' ? Math.max(0, Math.min(99, Math.round(cardData.attack))) : 0;
+    let defense = role === 'defense' ? Math.max(0, Math.min(99, Math.round(cardData.defense))) : 0;
     
     const supportType = cardData.supportType || null;
     const supportMessage = cardData.supportMessage || '';
@@ -345,7 +354,7 @@ function generateCardFallback(word) {
     return {
       role: 'Attack',
       name: word,
-      attack: 56,
+      attack: 71,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
       specialEffect: '【基本攻撃】入力単語からの標準攻撃',
@@ -355,39 +364,39 @@ function generateCardFallback(word) {
     return {
       role: 'Defense',
       name: word,
-      defense: 73,
+      defense: 67,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
-      supportMessage: '被ダメージ34%軽減（2ターン有効）',
+      supportMessage: '被ダメージ39%軽減（2ターン有効）',
       specialEffect: '【基本防御】入力単語からの標準防御',
       judgeComment: 'フォールバック時の汎用防御カード。防護性能を重視した基本値として機能。'
     };
   } else {
     // Support
     let supportType = 'heal';
-    let supportMessage = 'HP を41回復';
+    let supportMessage = 'HP を43回復';
     
     if (/毒|poison|ヘビ|蛇|沼/.test(lower)) {
       supportType = 'poison';
-      supportMessage = '相手に毒を付与。3ターン継続、毎ターンHP-3';
+      supportMessage = '相手に毒を付与。3ターン継続、毎ターンHP-7';
     } else if (/焼|灼|焙|熱波|炎炎/.test(lower)) {
       supportType = 'burn';
-      supportMessage = '相手に焼けを付与。3ターン継続、毎ターンHP-3';
+      supportMessage = '相手に焼けを付与。3ターン継続、毎ターンHP-8';
     } else if (/修行|進化|強鍛|耐性|体質/.test(lower)) {
       supportType = 'hpMaxUp';
-      supportMessage = '最大HP +38';
+      supportMessage = '最大HP +36';
     } else if (/睡眠|瞑想|呼吸|休息|リラック/.test(lower)) {
       supportType = 'staminaRecover';
-      supportMessage = 'スタミナを44回復';
+      supportMessage = 'スタミナを48回復';
     } else if (/祈|秘儀|魔法陣|集中/.test(lower)) {
       supportType = 'magicRecover';
-      supportMessage = '魔力を32回復';
+      supportMessage = '魔力を31回復';
     } else if (/堅牢|鉄壁|要塞|強固|不動/.test(lower)) {
       supportType = 'defenseBuff';
-      supportMessage = '次ターン被ダメージ-39%';
+      supportMessage = '次ターン被ダメージ-44%';
     } else if (/呪|制限|弱体|縛|衰弱/.test(lower)) {
       supportType = 'debuff';
-      supportMessage = '相手の攻撃力 -22';
+      supportMessage = '相手の攻撃力 -29';
     } else if (/浄|祓|リセット|清|新生/.test(lower)) {
       supportType = 'cleanse';
       supportMessage = '状態異常をすべてクリア';
@@ -399,10 +408,10 @@ function generateCardFallback(word) {
       supportMessage = 'フィールド効果を発動（2ターン）';
     } else if (/アーサー|ナポレオン|孫子|天才|英雄/.test(lower)) {
       supportType = 'allStatBuff';
-      supportMessage = '全ステータス +26（1ターン）';
+      supportMessage = '全ステータス +23（1ターン）';
     } else {
       supportType = 'heal';
-      supportMessage = 'HP を41回復';
+      supportMessage = 'HP を43回復';
     }
     
     return {
