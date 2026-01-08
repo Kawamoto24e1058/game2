@@ -437,10 +437,23 @@
     };
     
     function updateGameStateDisplay() {
-      document.getElementById('playerHp').textContent = gameState.playerHp;
-      document.getElementById('playerAttack').textContent = gameState.playerAttack;
-      document.getElementById('playerSpeed').textContent = gameState.playerSpeed;
-      document.getElementById('enemyAttack').textContent = gameState.enemyAttack;
+      // ★ 各要素が存在するか確認してから更新
+      const playerHpEl = document.getElementById('playerHp');
+      const playerAtkEl = document.getElementById('playerAttack');
+      const playerSpdEl = document.getElementById('playerSpeed');
+      const enemyAtkEl = document.getElementById('enemyAttack');
+      
+      if (playerHpEl) playerHpEl.textContent = gameState.playerHp;
+      else console.warn(`⚠️ 要素が見つかりません: #playerHp`);
+      
+      if (playerAtkEl) playerAtkEl.textContent = gameState.playerAttack;
+      else console.warn(`⚠️ 要素が見つかりません: #playerAttack`);
+      
+      if (playerSpdEl) playerSpdEl.textContent = gameState.playerSpeed;
+      else console.warn(`⚠️ 要素が見つかりません: #playerSpeed`);
+      
+      if (enemyAtkEl) enemyAtkEl.textContent = gameState.enemyAttack;
+      else console.warn(`⚠️ 要素が見つかりません: #enemyAttack`);
     }
     
     function addLog(message, type = 'info') {
@@ -533,6 +546,8 @@
       resultDiv.innerHTML = '';
       
       try {
+        console.log(`📤 API リクエスト送信: cardName="${cardName}"`);
+        
         const response = await fetch('/api/judgeCard', {
           method: 'POST',
           headers: {
@@ -541,22 +556,68 @@
           body: JSON.stringify({ cardName })
         });
         
-        const data = await response.json();
+        console.log(`📥 API レスポンス受信: status=${response.status}`);
         
+        const data = await response.json();
+        console.log(`📊 解析済みデータ:`, data);
+        
+        // エラーチェック（詳細版）
         if (data.error) {
-          throw new Error(data.error);
+          const errorMsg = `API エラー: ${data.error}`;
+          console.error(`❌ ${errorMsg}`);
+          throw new Error(errorMsg);
+        }
+        
+        // data.type と data.finalValue の存在確認
+        if (!data.type || data.type === undefined) {
+          const errorMsg = `データ形式異常: type が undefined (受け取ったデータ: ${JSON.stringify(data)})`;
+          console.error(`❌ ${errorMsg}`);
+          throw new Error(errorMsg);
+        }
+        
+        if (data.finalValue === undefined || data.finalValue === null) {
+          const errorMsg = `データ形式異常: finalValue が undefined (受け取ったデータ: ${JSON.stringify(data)})`;
+          console.error(`❌ ${errorMsg}`);
+          throw new Error(errorMsg);
         }
         
         // サポート効果の反映処理
         if (data.type === 'support') {
+          console.log(`✨ サポートカード処理開始: ${data.specialEffectName}`);
           applySupport(data);
         }
         
         displayResult(data);
+        console.log(`✅ 判定完了`);
         
       } catch (error) {
-        console.error('判定エラー:', error);
-        resultDiv.innerHTML = `<div class="error">エラーが発生しました: ${error.message}</div>`;
+        console.error(`❌ 判定エラー: ${error.message}`);
+        console.error(`   エラースタック: ${error.stack}`);
+        
+        // ユーザーフレンドリーなエラー表示
+        let userMessage = error.message;
+        if (error.message.includes('JSON')) {
+          userMessage = '⚠️ データ形式エラー: AIからの返答が不正です（JSON パース失敗）';
+        } else if (error.message.includes('undefined')) {
+          userMessage = '⚠️ データ形式エラー: 必須フィールドが不足しています';
+        } else if (error.message.includes('Failed to fetch')) {
+          userMessage = '⚠️ 通信エラー: サーバーに接続できません';
+        }
+        
+        resultDiv.innerHTML = `
+          <div class="error">
+            <strong>エラーが発生しました</strong>
+            <div style="font-size: 14px; margin-top: 8px;">
+              ${userMessage}
+            </div>
+            <div style="font-size: 12px; color: #999; margin-top: 12px;">
+              <strong>詳細:</strong> ${error.message}
+            </div>
+            <div style="font-size: 11px; color: #ccc; margin-top: 8px; max-height: 80px; overflow-y: auto;">
+              <strong>ブラウザコンソール確認:</strong> F12 キーの Console タブで詳細なログが表示されています
+            </div>
+          </div>
+        `;
         resultDiv.classList.add('show');
       } finally {
         judgeBtn.disabled = false;
@@ -565,6 +626,15 @@
     }
     
     function displayResult(data) {
+      // ★ 必須フィールドの undefined チェック
+      if (!data || !data.type || data.finalValue === undefined || !data.cardName) {
+        const errorMsg = `displayResult エラー: 必須フィールドが不足 (data=${JSON.stringify(data)})`;
+        console.error(`❌ ${errorMsg}`);
+        resultDiv.innerHTML = `<div class="error">${errorMsg}</div>`;
+        resultDiv.classList.add('show');
+        return;
+      }
+      
       const typeClass = `type-${data.type}`;
       const typeLabel = data.type === 'attack' ? '攻撃' 
                       : data.type === 'defense' ? '防御' 
@@ -658,12 +728,28 @@
     
     // サポート効果をゲーム状態に反映
     function applySupport(data) {
+      // ★ 必須フィールドの undefined チェック
+      if (!data || data.finalValue === undefined || !data.effectTarget) {
+        const errorMsg = `applySupport エラー: 必須フィールドが不足 (data=${JSON.stringify(data)})`;
+        console.error(`❌ ${errorMsg}`);
+        return;
+      }
+      
       const value = data.finalValue;
       const target = data.effectTarget;
-      const effectName = data.effectName || 'サポート効果';
+      const effectName = data.specialEffectName || 'サポート効果';
       let description = '';
       let logMessage = '';
       let logType = 'buff';
+      
+      // ★ 有効な effectTarget かチェック
+      const validTargets = ['player_hp', 'player_attack', 'enemy_attack', 'player_speed'];
+      if (!validTargets.includes(target)) {
+        console.error(`❌ applySupport エラー: 無効な effectTarget="${target}"`);
+        return;
+      }
+      
+      console.log(`✨ サポート効果適用: ${effectName} (target=${target}, value=${value})`);
       
       switch (target) {
         case 'player_hp':

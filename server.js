@@ -1371,6 +1371,7 @@ app.post('/api/judgeCard', async (req, res) => {
     const { cardName } = req.body;
     
     if (!cardName || typeof cardName !== 'string' || cardName.trim().length === 0) {
+      console.error(`❌ /api/judgeCard: cardName が無効 (受け取り値: ${JSON.stringify(cardName)})`);
       return res.status(400).json({
         error: 'cardName は必須です',
         ...getDefaultCardJudgement('デフォルト')
@@ -1378,18 +1379,18 @@ app.post('/api/judgeCard', async (req, res) => {
     }
 
     const cleanName = cardName.trim();
-    console.log(`🃏 カード判定リクエスト: ${cleanName}`);
+    console.log(`🃏 カード判定リクエスト: "${cleanName}"`);
 
     // Gemini APIに投げる
     const aiResponse = await judgeCardByAI(cleanName);
     
     if (!aiResponse || aiResponse.error) {
-      console.warn(`⚠️ AI判定失敗、デフォルト値を返却: ${cleanName}`);
+      console.warn(`⚠️ AI判定失敗 [${cleanName}]: ${aiResponse?.message || '原因不明'} → デフォルト値を返却`);
       return res.json(getDefaultCardJudgement(cleanName));
     }
 
     // finalValue をそのまま使用（既に0～100の範囲）
-    res.json({
+    const responseData = {
       success: true,
       cardName: cleanName,
       type: aiResponse.type,
@@ -1397,12 +1398,16 @@ app.post('/api/judgeCard', async (req, res) => {
       specialEffectName: aiResponse.specialEffectName,
       specialEffectDescription: aiResponse.specialEffectDescription,
       effectTarget: aiResponse.effectTarget
-    });
+    };
+    
+    console.log(`✅ /api/judgeCard 応答完了: ${JSON.stringify(responseData)}`);
+    res.json(responseData);
 
   } catch (error) {
-    console.error('❌ /api/judgeCard エラー:', error);
+    console.error(`❌ /api/judgeCard エラー: ${error.message}`);
+    console.error(`   スタックトレース: ${error.stack}`);
     res.status(500).json({
-      error: 'サーバーエラー',
+      error: `サーバーエラー: ${error.message}`,
       ...getDefaultCardJudgement(req.body?.cardName || 'エラー')
     });
   }
@@ -1410,10 +1415,18 @@ app.post('/api/judgeCard', async (req, res) => {
 
 // Gemini APIでカード判定
 async function judgeCardByAI(cardName) {
-  const prompt = `【重要】あなたは JSON 出力専用のゲーム判定エンジンです。
+  const prompt = `【超重要】あなたは JSON 出力専用のゲーム判定エンジンです。
 
 『${cardName}』の言葉の意味を分析し、以下の JSON **のみ** を返してください。
-テキスト説明、改行、マークダウン、例示は一切出力してはいけません。
+
+【絶対ルール】
+- 出力するのは JSON オブジェクト 1 つだけ
+- テキスト説明は一切不要
+- マークダウン（\`\`\`json など）で囲まない
+- 改行は含めない
+- コメントは含めない
+- JSON 以外の文字は一切含めない
+- 有効な JSON として、JSON.parse() できる形式で返す
 
 【必須キー（すべて必ず含める）】
 1. type: "attack" | "defense" | "support"
@@ -1425,25 +1438,25 @@ async function judgeCardByAI(cardName) {
 4. specialEffectName: カード固有の特殊効果名（10文字以内、日本語推奨）
 5. specialEffectDescription: 効果内容の説明（30文字以内、簡潔に）
 
-【重要ルール】
-- JSON のみを出力する。説明文は入れない。
-- バッククォート、マークダウン、JSON 以外のテキストは一切含めない。
-- key はシングルクォート、ダブルクォートの混在は絶対禁止。すべてダブルクォートで統一。
+【キーのフォーマット】
+- キーは必ずダブルクォート（"）で囲む
+- シングルクォートは絶対禁止
+- 値も必ずダブルクォートで囲む（文字列の場合）
 - finalValue は整数のみ（小数点は入れない）
-- effectTarget は上記の4パターンのいずれかに完全一致
 
-【厳密な出力例】
+【正確な出力例】（括弧内は説明、出力には含めない）
 {"type":"attack","finalValue":65,"effectTarget":"enemy_hp","specialEffectName":"火だるま","specialEffectDescription":"敵を毎ターン燃やす"}
 {"type":"support","finalValue":42,"effectTarget":"player_hp","specialEffectName":"聖なる癒やし","specialEffectDescription":"HP を回復"}
 {"type":"defense","finalValue":58,"effectTarget":"player_defense","specialEffectName":"絶対障壁","specialEffectDescription":"ダメージを軽減"}
 
 【禁止事項】
 ❌ \`\`\`json で囲む
-❌ 説明文を加える
+❌ 説明文や前置きを加える
 ❌ 複数行に分割する
 ❌ シングルクォートを使う
 ❌ コメントを含める
 ❌ JSON 以外のテキストを含める
+❌ 複数の JSON を返す
 
 以下の言葉を判定し、JSON のみを返してください：「${cardName}」`;
 
@@ -1457,24 +1470,57 @@ async function judgeCardByAI(cardName) {
     let responseText = result.response.text().trim();
     console.log(`📝 Gemini raw response: ${responseText}`);
     
-    // JSON マークダウン装飾を削除（念のため）
-    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    // ★【厳密な JSON 抽出】複数のマークダウン装飾パターンに対応
+    // 1. ```json...``` ブロックの削除
+    responseText = responseText.replace(/```json\n?/gi, '').replace(/```\n?/gi, '');
     
-    // 複数行のJSON整形に対応（改行を削除）
-    responseText = responseText.replace(/\n/g, '').replace(/\r/g, '');
+    // 2. HTML タグやその他の装飾を削除（万一に備えて）
+    responseText = responseText.replace(/<[^>]*>/g, '');
+    
+    // 3. 改行・タブを完全に削除（複数行JSON に対応）
+    responseText = responseText.replace(/\r?\n/g, '').replace(/\t/g, '');
+    
+    // 4. 余分なスペースをトリム
+    responseText = responseText.trim();
+    
+    // 5. JSON の前後にあるテキストを削除（"{"と"}"の間だけ抽出）
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      responseText = jsonMatch[0];
+    }
+    
+    console.log(`🔍 Cleaned JSON: ${responseText}`);
     
     // JSON パース
-    const parsed = JSON.parse(responseText);
+    let parsed;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`❌ JSON パースエラー: ${parseError.message}`);
+      console.error(`   入力文字列: ${responseText}`);
+      throw new Error(`JSON パースに失敗: ${parseError.message}`);
+    }
     
     // バリデーション：必須キーの確認
-    if (!parsed.type || !parsed.finalValue || !parsed.effectTarget || !parsed.specialEffectName || !parsed.specialEffectDescription) {
-      throw new Error(`❌ 必須キーが不足しています: ${JSON.stringify(parsed)}`);
+    if (!parsed.type || !parsed.finalValue === undefined || !parsed.effectTarget || !parsed.specialEffectName || !parsed.specialEffectDescription) {
+      const missing = [];
+      if (!parsed.type) missing.push('type');
+      if (parsed.finalValue === undefined) missing.push('finalValue');
+      if (!parsed.effectTarget) missing.push('effectTarget');
+      if (!parsed.specialEffectName) missing.push('specialEffectName');
+      if (!parsed.specialEffectDescription) missing.push('specialEffectDescription');
+      
+      const errorMsg = `❌ 必須キーが不足: ${missing.join(', ')} | パース済み: ${JSON.stringify(parsed)}`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
     }
     
     // type のバリデーション
     const validTypes = ['attack', 'defense', 'support'];
     if (!validTypes.includes(parsed.type)) {
-      throw new Error(`無効な type: ${parsed.type}`);
+      const errorMsg = `❌ 無効な type: "${parsed.type}" (有効値: ${validTypes.join(', ')})`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
     }
     
     const finalValue = Math.max(0, Math.min(100, parseInt(parsed.finalValue, 10) || 50));
@@ -1490,13 +1536,14 @@ async function judgeCardByAI(cardName) {
     let effectTarget = parsed.effectTarget;
     
     if (!allowedTargets.includes(effectTarget)) {
-      console.warn(`⚠️ 無効な effectTarget: ${effectTarget} (type: ${parsed.type}), デフォルト値を使用`);
+      const errorMsg = `⚠️ 無効な effectTarget: "${effectTarget}" (type: "${parsed.type}", 有効値: ${allowedTargets.join(', ')}) → デフォルト値を使用`;
+      console.warn(errorMsg);
       effectTarget = parsed.type === 'attack' ? 'enemy_hp' 
                    : parsed.type === 'defense' ? 'player_defense' 
                    : 'player_hp';
     }
     
-    console.log(`✅ judgeCardByAI 成功: type=${parsed.type}, finalValue=${finalValue}, target=${effectTarget}`);
+    console.log(`✅ judgeCardByAI 成功: type="${parsed.type}", finalValue=${finalValue}, effectTarget="${effectTarget}", name="${parsed.specialEffectName.substring(0, 10)}"`);
     
     return {
       type: parsed.type,
@@ -1507,8 +1554,9 @@ async function judgeCardByAI(cardName) {
     };
     
   } catch (error) {
-    console.error('❌ judgeCardByAI エラー:', error.message);
-    return { error: true };
+    console.error(`❌ judgeCardByAI エラー [${cardName}]: ${error.message}`);
+    console.error(`   スタックトレース: ${error.stack}`);
+    return { error: true, message: error.message };
   }
 }
 
