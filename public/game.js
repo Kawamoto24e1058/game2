@@ -1110,7 +1110,11 @@ function initSocket() {
   socket = io(SOCKET_URL, {
     transports: ['websocket'],
   });
-
+     // nextTurn が存在する場合は確実に currentTurn を更新
+     if (nextTurn) {
+       currentTurn = nextTurn;
+     }
+     setStatus(currentTurn === playerId ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   socket.on('connect', () => {
     console.log('connected', socket.id);
   });
@@ -1394,8 +1398,12 @@ function initSocket() {
     const emoji = supportTypeEmoji[card.supportType] || '📌';
     const effectLabel = supportTypeEffectMap[card.supportType] || card.supportType || 'サポート';
     
-    // メインログ：誰が何を使ったか
-    appendLog(`${emoji} ${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+     // メインログ：誰が何を使ったか
+     if (card && card.word) {
+       appendLog(`${emoji} ${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+     } else {
+       appendLog(`${emoji} ${isMe ? 'あなた' : '相手'}がサポートを使用 (${effectLabel})`, 'info');
+     }
     
     // 効果詳細ログ
     const effectMessage = buildSupportEffectMessage(card, isMe);
@@ -1405,6 +1413,13 @@ function initSocket() {
     if (card.supportMessage) {
       appendLog(`  詳細: ${card.supportMessage}`, 'buff');
     }
+      // サポートメッセージが無い場合は環境変化通知を表示
+      if (!card.supportMessage && card.supportType === 'fieldChange') {
+        appendLog(`  環境が変化した！`, 'buff');
+      }
+      if (!card.supportMessage && card.supportType !== 'fieldChange') {
+        appendLog(`  詳細: ${card.word || 'サポート'}が効果を発動した`, 'buff');
+      }
 
     if (appliedStatus && appliedStatus.length > 0) {
       appliedStatus.forEach(s => {
@@ -1422,6 +1437,9 @@ function initSocket() {
     // フィールド効果の表示（背景グラデーション更新）
     if (fieldEffect && fieldEffect.name) {
       showFieldEffect(fieldEffect);
+      } else if (card && card.supportType === 'fieldChange') {
+        // supportType が fieldChange だが fieldEffect オブジェクトが無い場合、通知を表示
+        appendLog(`🌍 環境が変化した！`, 'buff');
     }
 
     if (isMe && typeof newRemaining === 'number') {
@@ -1466,7 +1484,11 @@ function initSocket() {
 
     // 演出後でも必ずターン同期
     syncTurnState({ nextTurn, hp, players });
-    setStatus(currentTurn === playerId ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
+     // nextTurn が存在する場合は確実に currentTurn を更新
+     if (nextTurn) {
+       currentTurn = nextTurn;
+     }
+     setStatus(currentTurn === playerId ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
   socket.on('opponentLeft', ({ message }) => {

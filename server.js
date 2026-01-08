@@ -18,6 +18,8 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const STARTING_HP = 120;
+// Gemini 応答待ちの最大時間（ms）
+const GEMINI_TIMEOUT_MS = 7000;
 
 // Gemini API初期化
 const apiKey = process.env.GEMINI_API_KEY;
@@ -90,6 +92,42 @@ function getAffinityByElement(attackerElem, defenderElem) {
     return { multiplier: 0.75, relation: 'disadvantage', isEffective: false };
   }
   return { multiplier: 1.0, relation: 'neutral', isEffective: false };
+}
+
+// =====================================
+// フォールバックカードとタイムアウト保護
+// =====================================
+function createDefaultAttackCard(word = '通常攻撃') {
+  const baseWord = word && word.trim() ? word.trim() : '通常攻撃';
+  return {
+    role: 'Attack',
+    word: baseWord,
+    name: baseWord,
+    attribute: 'earth',
+    element: '土',
+    attack: 52,
+    defense: 0,
+    specialEffect: '【基本攻撃】AI遅延時の代替攻撃',
+    judgeComment: 'Gemini応答遅延/エラー時のデフォルト攻撃カード',
+    description: `EARTH [ATTACK] ATK:52 DEF:0 / 【基本攻撃】AI遅延時の代替攻撃`
+  };
+}
+
+async function generateCardWithTimeout(word, intent = 'attack', fallbackCard) {
+  const fallback = fallbackCard || (intent === 'attack' ? createDefaultAttackCard(word) : generateCardFallback(word));
+  try {
+    const card = await Promise.race([
+      generateCard(word, intent),
+      new Promise(resolve => setTimeout(() => {
+        console.warn(`⏱️ Gemini応答タイムアウト: intent=${intent}, word=${word}`);
+        resolve(fallback);
+      }, GEMINI_TIMEOUT_MS))
+    ]);
+    return card || fallback;
+  } catch (error) {
+    console.error(`❌ generateCardWithTimeout エラー intent=${intent}`, error);
+    return fallback;
+  }
 }
 
 // =====================================
@@ -384,6 +422,7 @@ function generateCardFallback(word) {
   if (role === 'attack') {
     return {
       role: 'Attack',
+      word: word,
       name: word,
       attack: 71,
       attribute,
@@ -394,6 +433,7 @@ function generateCardFallback(word) {
   } else if (role === 'defense') {
     return {
       role: 'Defense',
+      word: word,
       name: word,
       defense: 67,
       attribute,
@@ -499,6 +539,7 @@ function generateCardFallback(word) {
     
     return {
       role: 'Support',
+      word: word,
       name: word,
       supportType,
       attribute,
@@ -788,12 +829,8 @@ function handlePlayWord(roomId, socket, word) {
   const defender = getOpponent(room, socket.id);
   if (!attacker || !defender) return;
 
-  // 非同期でカード生成（エラー時はフォールバック使用）
-  generateCard(cleanWord, 'attack')
-    .catch(error => {
-      console.error('❌ 攻撃カード生成エラー:', error);
-      return generateCardFallback(cleanWord);
-    })
+  // 非同期でカード生成（エラー/タイムアウト時はフォールバック使用）
+  generateCardWithTimeout(cleanWord, 'attack', createDefaultAttackCard(cleanWord))
     .then(card => {
       room.usedWordsGlobal.add(lower);
       attacker.usedWords.add(lower);
@@ -904,11 +941,7 @@ function handleDefend(roomId, socket, word) {
   };
   
   // 非同期で防御カードを生成（エラー時はフォールバック使用）
-  generateCard(cleanWord, 'defense')
-    .catch(error => {
-      console.error('❌ 防御カード生成エラー:', error);
-      return generateCardFallback(cleanWord);
-    })
+  generateCardWithTimeout(cleanWord, 'defense', generateCardFallback(cleanWord))
     .then(defenseCard => {
       console.log('🛡️ 防御カード生成完了:', defenseCard);
       room.usedWordsGlobal.add(lower);
@@ -1396,7 +1429,7 @@ io.on('connection', (socket) => {
     }
 
     try {
-      const card = await generateCard(cleanWord, 'support');
+      const card = await generateCardWithTimeout(cleanWord, 'support', generateCardFallback(cleanWord));
       room.usedWordsGlobal.add(lower);
       player.usedWords.add(lower);
       player.supportUsed++;
