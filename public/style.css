@@ -46,31 +46,139 @@ body {
   font-size: 34px;
 }
 .center-card .role-icon {
-  font-size: 42px;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-.center-card .role-value {
   font-size: 56px;
-  font-weight: 800;
-  line-height: 1.05;
+  line-height: 1;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
+  animation: iconBounce 0.6s ease-out;
 }
-.center-card .role-value.attack { color: #ffcc66; text-shadow: 0 0 10px rgba(255, 204, 102, 0.6); }
-.center-card .role-value.defense { color: #7fd1ff; text-shadow: 0 0 10px rgba(127, 209, 255, 0.6); }
+
+@keyframes iconBounce {
+  0% { transform: scale(0) rotate(-180deg); }
+  60% { transform: scale(1.2) rotate(10deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* Attack: 巨大な攻撃力数字 */
+.center-card .role-value {
+  font-size: 80px;
+  font-weight: 900;
+  line-height: 1;
+  margin: 12px 0;
+  animation: numberPulse 0.7s ease-out;
+}
+
+@keyframes numberPulse {
+  0% { transform: scale(0.3); opacity: 0; filter: blur(10px); }
+  50% { transform: scale(1.15); opacity: 1; filter: blur(0); }
+  100% { transform: scale(1); opacity: 1; filter: blur(0); }
+}
+
+.center-card .role-value.attack {
+  color: #ff6b35;
+  text-shadow: 
+    0 0 20px rgba(255, 107, 53, 0.8),
+    0 0 40px rgba(255, 107, 53, 0.4),
+    0 4px 8px rgba(0,0,0,0.3);
+}
+
+.center-card .role-value.defense {
+  color: #4ea0f2;
+  font-size: 64px;
+  text-shadow: 
+    0 0 20px rgba(78, 160, 242, 0.8),
+    0 0 40px rgba(78, 160, 242, 0.4),
+    0 4px 8px rgba(0,0,0,0.3);
+}
+
+/* Defense: 特殊効果表示 */
 .center-card .role-extra {
-  margin-top: 6px;
-  font-size: 14px;
-  opacity: 0.95;
-}
-.center-card .role-effect {
-  font-size: 22px;
+  margin-top: 12px;
+  font-size: 18px;
   font-weight: 700;
-  letter-spacing: 0.5px;
+  line-height: 1.5;
+  color: #2b4b6f;
+  padding: 10px 16px;
+  background: rgba(78, 160, 242, 0.1);
+  border-radius: 12px;
+  border: 2px solid rgba(78, 160, 242, 0.3);
+  animation: slideIn 0.5s ease-out 0.3s both;
 }
+
+@keyframes slideIn {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Support: ネオン発光エフェクト */
+.center-card .role-effect {
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  margin: 16px 0;
+  color: #fff;
+  text-shadow: 
+    0 0 10px #00ffff,
+    0 0 20px #00ffff,
+    0 0 30px #00ffff,
+    0 0 40px #00d4ff,
+    0 0 70px #00d4ff,
+    0 0 80px #00d4ff,
+    0 0 100px #00d4ff,
+    0 0 150px #00d4ff;
+  animation: neonPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes neonPulse {
+  0%, 100% {
+    text-shadow: 
+      0 0 10px #00ffff,
+      0 0 20px #00ffff,
+      0 0 30px #00ffff,
+      0 0 40px #00d4ff,
+      0 0 70px #00d4ff,
+      0 0 80px #00d4ff,
+      0 0 100px #00d4ff,
+      0 0 150px #00d4ff;
+  }
+  50% {
+    text-shadow: 
+      0 0 5px #00ffff,
+      0 0 10px #00ffff,
+      0 0 15px #00ffff,
+      0 0 20px #00d4ff,
+      0 0 35px #00d4ff,
+      0 0 40px #00d4ff,
+      0 0 50px #00d4ff,
+      0 0 75px #00d4ff;
+  }
+}
+
 .center-card .role-message {
-  margin-top: 6px;
-  font-size: 14px;
-  opacity: 0.95;
+  margin-top: 14px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.6;
+  color: #e0f7ff;
+  text-shadow: 
+    0 0 8px rgba(0, 255, 255, 0.6),
+    0 2px 4px rgba(0,0,0,0.4);
+  padding: 12px 20px;
+  background: rgba(0, 212, 255, 0.15);
+  border-radius: 14px;
+  border: 2px solid rgba(0, 255, 255, 0.4);
+  animation: messageGlow 2s ease-in-out infinite;
+}
+
+@keyframes messageGlow {
+  0%, 100% {
+    border-color: rgba(0, 255, 255, 0.4);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+  }
+  50% {
+    border-color: rgba(0, 255, 255, 0.8);
+    box-shadow: 0 0 25px rgba(0, 255, 255, 0.6);
+  }
 }
 }
 
@@ -609,37 +717,46 @@ h2 {
   display: none;
 }
 
-/* Central play area */
+/* 【センター・バトルエリア】 */
 #playArea {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 38vh;
-  margin: 10px 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.35), rgba(230,246,255,0.6));
-  border: 2px dashed #d8edff;
-  border-radius: 18px;
-  box-shadow: inset 0 8px 16px rgba(0,0,0,0.05);
+  height: 48vh;
+  min-height: 400px;
+  margin: 14px 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.45), rgba(230,246,255,0.75));
+  border: 3px solid #cbe6ff;
+  border-radius: 24px;
+  box-shadow: 
+    inset 0 8px 20px rgba(0,0,0,0.08),
+    0 12px 32px rgba(0, 54, 121, 0.15);
+  overflow: hidden;
 }
 
 .center-card {
-  min-width: 280px;
-  max-width: 70vw;
-  padding: 18px 22px;
-  border-radius: 18px;
-  background: #fff;
-  border: 3px solid #cbe6ff;
-  box-shadow: 0 18px 36px rgba(0,0,0,0.2);
-  /* デフォルトのポップは上書き可能 */
-  animation: centerPop 0.5s cubic-bezier(0.68,-0.55,0.265,1.55);
+  min-width: 320px;
+  max-width: 75vw;
+  padding: 28px 32px;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #ffffff, #f8fcff);
+  border: 4px solid #cbe6ff;
+  box-shadow: 
+    0 20px 50px rgba(0,0,0,0.25),
+    0 0 80px rgba(124, 240, 197, 0.2),
+    inset 0 2px 0 rgba(255,255,255,0.8);
+  animation: centerPop 0.6s cubic-bezier(0.68,-0.55,0.265,1.55);
   text-align: center;
+  position: relative;
 }
 
 .center-card .word {
-  font-size: 40px;
+  font-size: 48px;
   font-weight: 900;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  letter-spacing: 2px;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .center-card .stats {

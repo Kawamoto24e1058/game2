@@ -378,6 +378,7 @@ function showCenterCard(card) {
   const supportLabel = supportLabelMap[supportType] || 'サポート';
   const cardEl = document.createElement('div');
   cardEl.className = 'center-card card-enter';
+  
   if (role === 'attack') {
     const atk = Number(card.attack) || 0;
     cardEl.innerHTML = `
@@ -392,13 +393,16 @@ function showCenterCard(card) {
       <div class="role-icon">${shield}</div>
       <div class="word">${card.word || card.name || ''}</div>
       <div class="role-value defense">${def}</div>
-      <div class="role-extra">${effect}</div>
+      ${effect ? `<div class="role-extra">${effect}</div>` : ''}
     `;
   } else if (role === 'support') {
     const msg = card.supportMessage || '効果を発動！';
+    // Supportの場合は背景を暗くしてネオン効果を強調
+    cardEl.style.background = 'linear-gradient(145deg, #0a1628, #1a2b3f)';
+    cardEl.style.borderColor = '#00d4ff';
     cardEl.innerHTML = `
       <div class="role-icon">${supportEmoji}</div>
-      <div class="word">${card.word || card.name || ''}</div>
+      <div class="word" style="color: #e0f7ff; text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);">${card.word || card.name || ''}</div>
       <div class="role-effect">${supportLabel}</div>
       <div class="role-message">${msg}</div>
     `;
@@ -408,6 +412,7 @@ function showCenterCard(card) {
       <div class="word">${card.word || card.name || ''}</div>
     `;
   }
+  
   playArea.appendChild(cardEl);
   // Element Glow: 属性色でボヤッと光らせる
   const elemColorMap = {
