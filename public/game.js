@@ -295,7 +295,178 @@ function showFieldEffect(fieldEffect) {
   }
 }
 
-// supportType に基づいた詳細メッセージを生成
+// サポート効果専用の演出表示
+function showSupportOverlay(supportCard, duration = 3000) {
+  return new Promise((resolve) => {
+    // 既存のオーバーレイがあれば削除
+    const existingOverlay = document.getElementById('supportOverlay');
+    if (existingOverlay) {
+      existingOverlay.remove();
+    }
+
+    // サポート演出用のコンテナを動的に作成
+    const overlay = document.createElement('div');
+    overlay.id = 'supportOverlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, rgba(100, 150, 255, 0.4), rgba(200, 100, 255, 0.4));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      animation: supportFade 0.5s ease-in-out;
+      font-family: 'Arial', sans-serif;
+    `;
+
+    // サポート名（単語）を表示するエレメント
+    const supportNameEl = document.createElement('div');
+    supportNameEl.style.cssText = `
+      font-size: 3.5em;
+      font-weight: bold;
+      color: #fff;
+      text-shadow: 3px 3px 8px rgba(0, 0, 0, 0.8);
+      margin-bottom: 20px;
+      letter-spacing: 2px;
+      animation: supportWordPop 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    `;
+    supportNameEl.textContent = supportCard.word;
+
+    // サポートメッセージを表示するエレメント
+    const supportMessageEl = document.createElement('div');
+    supportMessageEl.style.cssText = `
+      font-size: 1.5em;
+      color: #fff;
+      text-shadow: 2px 2px 6px rgba(0, 0, 0, 0.8);
+      text-align: center;
+      max-width: 600px;
+      line-height: 1.6;
+      animation: supportMessageSlide 0.8s ease-out 0.3s both;
+    `;
+    supportMessageEl.textContent = supportCard.supportMessage || '効果を発動！';
+
+    // 特殊効果を表示するエレメント
+    const specialEl = document.createElement('div');
+    specialEl.style.cssText = `
+      font-size: 1.2em;
+      color: #ffeb3b;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+      margin-top: 20px;
+      animation: supportSpecialGlow 1s ease-in-out 0.5s infinite;
+    `;
+    specialEl.textContent = supportCard.specialEffect || '';
+
+    // supportType に対応したアイコンを表示
+    const supportTypeIcons = {
+      'heal': '🏥',
+      'hpMaxUp': '💪',
+      'staminaRecover': '⚡',
+      'magicRecover': '✨',
+      'defenseBuff': '🛡️',
+      'allStatBuff': '👑',
+      'poison': '☠️',
+      'burn': '🔥',
+      'debuff': '📉',
+      'cleanse': '💧',
+      'counter': '⚔️',
+      'fieldChange': '🌍'
+    };
+    const icon = supportTypeIcons[supportCard.supportType] || '📌';
+
+    const iconEl = document.createElement('div');
+    iconEl.style.cssText = `
+      font-size: 4em;
+      margin-bottom: 15px;
+      animation: supportIconBounce 0.6s ease-in-out;
+    `;
+    iconEl.textContent = icon;
+
+    overlay.appendChild(iconEl);
+    overlay.appendChild(supportNameEl);
+    overlay.appendChild(supportMessageEl);
+    if (specialEl.textContent) {
+      overlay.appendChild(specialEl);
+    }
+
+    document.body.appendChild(overlay);
+
+    // CSS アニメーションを動的に追加
+    if (!document.getElementById('supportAnimationStyle')) {
+      const style = document.createElement('style');
+      style.id = 'supportAnimationStyle';
+      style.textContent = `
+        @keyframes supportFade {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes supportWordPop {
+          0% {
+            transform: scale(0) rotateZ(-10deg);
+            opacity: 0;
+          }
+          50% {
+            transform: scale(1.1) rotateZ(5deg);
+          }
+          100% {
+            transform: scale(1) rotateZ(0deg);
+            opacity: 1;
+          }
+        }
+        @keyframes supportMessageSlide {
+          from {
+            transform: translateY(20px);
+            opacity: 0;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+        @keyframes supportSpecialGlow {
+          0%, 100% {
+            opacity: 0.7;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+          }
+          50% {
+            opacity: 1;
+            text-shadow: 0px 0px 20px rgba(255, 235, 59, 0.8);
+          }
+        }
+        @keyframes supportIconBounce {
+          0% {
+            transform: scale(0) translateY(-50px);
+            opacity: 0;
+          }
+          50% {
+            transform: scale(1.15);
+          }
+          100% {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // 指定時間後にオーバーレイを削除
+    setTimeout(() => {
+      overlay.style.animation = 'supportFade 0.5s ease-in-out reverse';
+      setTimeout(() => {
+        overlay.remove();
+        resolve();
+      }, 500);
+    }, duration);
+  });
+}
 function buildSupportEffectMessage(card, isMe) {
   const supportType = card.supportType || '';
   const targetName = isMe ? 'あなた' : '相手';
@@ -557,7 +728,16 @@ function initSocket() {
       }
     }
     
-    await showCutin(card, 2000);
+    // サポートカード判定：role が 'support' の場合は専用演出を使用
+    const isSupport = (card.role || '').toLowerCase() === 'support';
+    
+    if (isSupport) {
+      // サポート専用演出：カットインなし、オーバーレイのみ表示
+      await showSupportOverlay(card, 3000);
+    } else {
+      // 通常カード：カットイン演出を表示
+      await showCutin(card, 2000);
+    }
 
     const isMe = supportPlayerId === playerId;
     
