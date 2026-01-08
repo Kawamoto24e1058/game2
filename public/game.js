@@ -131,20 +131,21 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const cutinSpecial = document.getElementById('cutinSpecial');
     const cutinComment = document.getElementById('cutinComment');
 
-    cutinWord.textContent = card.word;
+    // カードネーム表示（cardName または word をフォールバック）
+    cutinWord.textContent = card.name || card.word || '不明なカード';
     
-    // role ベースの表示制御：不規則な数値をそのまま表示
-    const role = (card.role || card.effect || 'neutral').toLowerCase();
+    // 役割別パラメータ隔離に対応：存在するフィールドのみ表示
+    const role = (card.role || 'Unknown').toLowerCase();
     let statsDisplay = '';
     
-    if (role === 'defense') {
-      // Defense ロール：防御力のみ表示、攻撃力は非表示
-      statsDisplay = `防御力: ${card.defense}`;
-    } else if (role === 'attack') {
-      // Attack ロール：攻撃力のみ表示、防御力は非表示
-      statsDisplay = `攻撃力: ${card.attack}`;
+    if (role === 'attack') {
+      // Attack ロール：攻撃力のみ表示（attack フィールドが必ず存在）
+      statsDisplay = card.attack !== undefined ? `攻撃力: ${card.attack}` : 'ATK 情報なし';
+    } else if (role === 'defense') {
+      // Defense ロール：防御力のみ表示（defense フィールドが必ず存在）
+      statsDisplay = card.defense !== undefined ? `防御力: ${card.defense}` : 'DEF 情報なし';
     } else if (role === 'support') {
-      // Support ロール：効果説明を優先
+      // Support ロール：supportType ラベルを表示（attack/defense は存在しない）
       const supportTypeLabel = {
         'heal': '🏥 HP回復',
         'hpMaxUp': '💪 最大HP増加',
@@ -162,25 +163,37 @@ function showCutin(card, duration = 2500, extraComment = '') {
       const typeLabel = supportTypeLabel[card.supportType] || card.supportType || 'サポート効果';
       statsDisplay = typeLabel;
     } else {
-      // デフォルト：両方表示
-      statsDisplay = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
+      // レガシー対応：攻撃力/防御力の両方が存在する場合のみ表示
+      const hasAttack = card.attack !== undefined && card.attack !== null;
+      const hasDefense = card.defense !== undefined && card.defense !== null;
+      
+      if (hasAttack && hasDefense) {
+        statsDisplay = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
+      } else if (hasAttack) {
+        statsDisplay = `攻撃力: ${card.attack}`;
+      } else if (hasDefense) {
+        statsDisplay = `防御力: ${card.defense}`;
+      } else {
+        statsDisplay = 'ステータス情報なし';
+      }
     }
     
     cutinStats.textContent = statsDisplay;
     
-    // role / tier の順で表示
-    const roleDisplay = (card.role || card.effect || 'neutral').toUpperCase();
-    const tier = (card.tier || 'common').toUpperCase();
-    cutinTier.textContent = `${card.attribute.toUpperCase()} [${tier}] ${roleDisplay}`;
+    // 属性と役割を表示（tier はレガシー対応）
+    const roleDisplay = (card.role || 'UNKNOWN').toUpperCase();
+    const attribute = (card.attribute || 'earth').toUpperCase();
+    const tierDisplay = card.tier ? ` [${card.tier.toUpperCase()}]` : '';
+    cutinTier.textContent = `${attribute}${tierDisplay} ${roleDisplay}`;
     
-    // 特殊効果と サポート情報を表示
+    // 特殊効果を表示（supportMessage が存在する場合は併記）
     let specialInfo = card.specialEffect || 'なし';
     if (card.supportMessage) {
-      specialInfo = `${card.specialEffect} → ${card.supportMessage}`;
+      specialInfo = `${card.specialEffect}\n→ ${card.supportMessage}`;
     }
     cutinSpecial.textContent = `特殊効果: ${specialInfo}`;
     
-    // コメント（審判コメント + 相性情報等）
+    // コメント（審判コメント + 追加コメント）
     const comments = [card.judgeComment || '判定コメントなし'];
     if (extraComment) comments.push(extraComment);
     cutinComment.textContent = comments.join(' / ');
