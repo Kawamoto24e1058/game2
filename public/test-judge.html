@@ -239,6 +239,17 @@
       background: #f0f4ff;
       border-radius: 12px;
       border: 2px solid #667eea;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    
+    .game-state-left {
+      grid-column: 1;
+    }
+    
+    .game-state-right {
+      grid-column: 2;
     }
     
     .game-state-title {
@@ -264,6 +275,55 @@
       font-weight: 700;
       color: #667eea;
       font-size: 18px;
+    }
+    
+    /* 発動中の効果リスト */
+    .active-effects {
+      border-left: 4px solid #4ecdc4;
+      padding-left: 12px;
+    }
+    
+    .effect-item {
+      background: white;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      border-left: 4px solid #4ecdc4;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .effect-item-name {
+      font-weight: 700;
+      color: #1a2b3f;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .effect-item-desc {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+    
+    .effect-status-badge {
+      display: inline-block;
+      background: #4ecdc4;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    
+    .no-effects {
+      color: #999;
+      font-style: italic;
+      padding: 12px;
+      text-align: center;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 8px;
     }
     
     /* ログエリア */
@@ -332,22 +392,33 @@
     
     <!-- ゲーム状態表示 -->
     <div class="game-state">
-      <div class="game-state-title">🎮 ゲーム状態</div>
-      <div class="stat-row">
-        <span class="stat-label">プレイヤーHP:</span>
-        <span class="stat-value" id="playerHp">100</span>
+      <!-- 左側：ステータス -->
+      <div class="game-state-left">
+        <div class="game-state-title">🎮 ゲーム状態</div>
+        <div class="stat-row">
+          <span class="stat-label">プレイヤーHP:</span>
+          <span class="stat-value" id="playerHp">100</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">プレイヤー攻撃力:</span>
+          <span class="stat-value" id="playerAttack">10</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">プレイヤー速度:</span>
+          <span class="stat-value" id="playerSpeed">5</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">敵攻撃力:</span>
+          <span class="stat-value" id="enemyAttack">8</span>
+        </div>
       </div>
-      <div class="stat-row">
-        <span class="stat-label">プレイヤー攻撃力:</span>
-        <span class="stat-value" id="playerAttack">10</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">プレイヤー速度:</span>
-        <span class="stat-value" id="playerSpeed">5</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">敵攻撃力:</span>
-        <span class="stat-value" id="enemyAttack">8</span>
+      
+      <!-- 右側：発動中の効果 -->
+      <div class="game-state-right">
+        <div class="game-state-title">✨ 発動中の効果</div>
+        <div id="activeEffectsList" class="active-effects">
+          <div class="no-effects">効果なし</div>
+        </div>
       </div>
     </div>
   </div>
@@ -361,7 +432,8 @@
       playerHp: 100,
       playerAttack: 10,
       playerSpeed: 5,
-      enemyAttack: 8
+      enemyAttack: 8,
+      activeEffects: [] // 発動中の効果を追跡
     };
     
     function updateGameStateDisplay() {
@@ -383,6 +455,45 @@
       while (logArea.children.length > 10) {
         logArea.removeChild(logArea.firstChild);
       }
+    }
+    
+    // 発動中の効果をリストに追加
+    function addActiveEffect(effectName, effectValue, effectTarget, description) {
+      const effectItem = {
+        id: Date.now(),
+        name: effectName,
+        value: effectValue,
+        target: effectTarget,
+        description: description
+      };
+      
+      gameState.activeEffects.push(effectItem);
+      updateActiveEffectsList();
+      addLog(`✨ ${effectName} が発動！`, 'buff');
+    }
+    
+    // 発動中の効果リストを更新
+    function updateActiveEffectsList() {
+      const effectsList = document.getElementById('activeEffectsList');
+      
+      if (gameState.activeEffects.length === 0) {
+        effectsList.innerHTML = '<div class="no-effects">効果なし</div>';
+        return;
+      }
+      
+      effectsList.innerHTML = '';
+      gameState.activeEffects.forEach((effect) => {
+        const effectDiv = document.createElement('div');
+        effectDiv.className = 'effect-item';
+        effectDiv.innerHTML = `
+          <div class="effect-item-name">
+            <span class="effect-status-badge">[発動中]</span>
+            ${effect.name}
+          </div>
+          <div class="effect-item-desc">${effect.description}</div>
+        `;
+        effectsList.appendChild(effectDiv);
+      });
     }
     
     const input = document.getElementById('cardNameInput');
@@ -460,6 +571,8 @@
                       : 'サポート';
       
       const defaultBadge = data.isDefault ? '<span style="background: #f39c12; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 8px;">デフォルト値</span>' : '';
+      const specialName = data.specialEffectName || 'カード効果';
+      const specialDesc = data.specialEffectDescription || '特殊効果なし';
       
       let resultHTML = `
         <div class="result-title">
@@ -475,59 +588,82 @@
         </div>
       `;
       
-      // サポートタイプの場合は effectName を大きく表示
-      if (data.type === 'support' && data.effectName) {
-        resultHTML += `
-          <div class="result-item" style="margin: 16px 0;">
-            <div style="background: linear-gradient(135deg, #95e1d3, #4ecdc4); padding: 16px; border-radius: 12px; text-align: center;">
-              <div style="font-size: 12px; color: rgba(0,0,0,0.6); margin-bottom: 4px;">✨ 効果名</div>
-              <div style="font-size: 24px; font-weight: 900; color: #1a2b3f; text-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                ${data.effectName}
-              </div>
+      // ========== 共通：特殊効果表示 ==========
+      resultHTML += `
+        <div class="result-item" style="margin: 16px 0;">
+          <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 16px; border-radius: 12px;">
+            <div style="font-size: 12px; color: rgba(255,255,255,0.9); margin-bottom: 6px; text-align: center;">⚡ 特殊効果名</div>
+            <div style="font-size: 22px; font-weight: 900; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.3); text-align: center; margin-bottom: 8px;">
+              ${specialName}
+            </div>
+            <div style="font-size: 14px; color: rgba(255,255,255,0.95); text-align: center; font-weight: 600;">
+              ${specialDesc}
             </div>
           </div>
-        `;
-      }
-      
-      // attack の場合はダメージ量を表示
-      if (data.type === 'attack') {
-        resultHTML += `
-          <div class="result-item">
-            <span class="result-label">ダメージ量：</span>
-            <span class="result-value" style="font-size: 20px; color: #ff6b6b; font-weight: 700;">${data.finalValue}</span>
-          </div>
-        `;
-      }
-      
-      // 共通項目
-      resultHTML += `
-        <div class="result-item">
-          <span class="result-label">効果対象：</span>
-          <span class="result-value">${formatEffectTarget(data.effectTarget)}</span>
         </div>
       `;
       
-      // サポートの場合は効果内容も表示
-      if (data.type === 'support') {
-        const effectDescription = getEffectDescription(data.effectTarget, data.finalValue);
+      // ========== 攻撃タイプの表示 ==========
+      if (data.type === 'attack') {
         resultHTML += `
           <div class="result-item">
-            <span class="result-label">効果内容：</span>
-            <span class="result-value" style="font-size: 18px; color: #4ecdc4; font-weight: 700;">${effectDescription}</span>
+            <span class="result-label">攻撃力：</span>
+            <span class="result-value" style="font-size: 20px; color: #ff6b6b; font-weight: 700;">${data.finalValue}</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">基本値：</span>
+            <span class="result-value">${data.baseValue}</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">最終値（ランダム補正後）：</span>
+            <span class="result-value" style="font-size: 18px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
+            <span style="font-size: 11px; color: #999;">（±20% 振幅）</span>
+          </div>
+        `;
+      } 
+      // ========== 防御タイプの表示 ==========
+      else if (data.type === 'defense') {
+        resultHTML += `
+          <div class="result-item">
+            <span class="result-label">防御力：</span>
+            <span class="result-value" style="font-size: 20px; color: #3498db; font-weight: 700;">${data.finalValue}</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">基本値：</span>
+            <span class="result-value">${data.baseValue}</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">最終値（ランダム補正後）：</span>
+            <span class="result-value" style="font-size: 18px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
+            <span style="font-size: 11px; color: #999;">（±20% 振幅）</span>
+          </div>
+        `;
+      }
+      // ========== サポートタイプの表示 ==========
+      else if (data.type === 'support') {
+        resultHTML += `
+          <div class="result-item">
+            <span class="result-label">効果対象：</span>
+            <span class="result-value">${formatEffectTarget(data.effectTarget)}</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">効果値：</span>
+            <span class="result-value" style="font-size: 18px; color: #4ecdc4; font-weight: 700;">${data.finalValue}</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">基本値：</span>
+            <span class="result-value">${data.baseValue}</span>
+          </div>
+          <div class="result-item">
+            <span class="result-label">最終値（ランダム補正後）：</span>
+            <span class="result-value" style="font-size: 18px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
+            <span style="font-size: 11px; color: #999;">（±20% 振幅）</span>
           </div>
         `;
       }
       
+      // ========== 詳細説明 ==========
       resultHTML += `
-        <div class="result-item">
-          <span class="result-label">基本値：</span>
-          <span class="result-value">${data.originalValue}</span>
-        </div>
-        <div class="result-item">
-          <span class="result-label">最終値：</span>
-          <span class="result-value" style="font-size: 20px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
-          <span style="font-size: 12px; color: #999;">(ランダム補正適用後)</span>
-        </div>
         <div class="description">
           💬 ${data.description}
         </div>
@@ -552,6 +688,7 @@
       const value = data.finalValue;
       const target = data.effectTarget;
       const effectName = data.effectName || 'サポート効果';
+      let description = '';
       let logMessage = '';
       let logType = 'buff';
       
@@ -559,12 +696,14 @@
         case 'player_hp':
           gameState.playerHp += value;
           gameState.playerHp = Math.min(gameState.playerHp, 999); // 最大999
+          description = `HPが${value}回復！`;
           logMessage = `💚 ${effectName}発動！ HP+${value}`;
           logType = 'heal';
           break;
           
         case 'player_attack':
           gameState.playerAttack += value;
+          description = `攻撃力が${value}アップ！`;
           logMessage = `⚔️ ${effectName}発動！ 攻撃力+${value}`;
           logType = 'buff';
           break;
@@ -572,23 +711,29 @@
         case 'enemy_attack':
           gameState.enemyAttack -= value;
           gameState.enemyAttack = Math.max(gameState.enemyAttack, 0); // 最小0
+          description = `敵の攻撃力が${value}ダウン！`;
           logMessage = `🛡️ ${effectName}発動！ 敵の攻撃力-${value}`;
           logType = 'debuff';
           break;
           
         case 'player_speed':
           gameState.playerSpeed += value;
+          description = `速度が${value}アップ！`;
           logMessage = `⚡ ${effectName}発動！ 速度+${value}`;
           logType = 'buff';
           break;
           
         default:
+          description = `効果値: ${value}`;
           logMessage = `✨ ${effectName}発動！`;
           break;
       }
       
       updateGameStateDisplay();
       addLog(logMessage, logType);
+      
+      // 発動中の効果リストに追加
+      addActiveEffect(effectName, value, target, description);
     }
     
     function formatEffectTarget(target) {

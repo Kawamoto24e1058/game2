@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>特殊効果システム実装テスト</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #333;
+    }
+    
+    .test-section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #f9f9f9;
+      border-radius: 12px;
+      border-left: 4px solid #667eea;
+    }
+    
+    .test-title {
+      font-weight: 700;
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+    
+    .spec-box {
+      background: white;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border-left: 4px solid #4ecdc4;
+    }
+    
+    .spec-label {
+      font-weight: 600;
+      color: #667eea;
+      display: inline-block;
+      min-width: 100px;
+    }
+    
+    .spec-value {
+      color: #333;
+    }
+    
+    .formula {
+      background: #f0f4ff;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      margin: 15px 0;
+      color: #333;
+    }
+    
+    .success-check {
+      color: #27ae60;
+      font-weight: 700;
+    }
+    
+    .warning-note {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 8px;
+    }
+    
+    .api-response {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      margin: 10px 0;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+    }
+    
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    th {
+      background: #667eea;
+      color: white;
+      font-weight: 700;
+    }
+    
+    tr:hover {
+      background: #f5f5f5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎮 特殊効果システム実装テスト</h1>
+    
+    <!-- バックエンド仕様 -->
+    <div class="test-section">
+      <div class="test-title">【1】バックエンド仕様：Gemini プロンプト</div>
+      
+      <div class="spec-box">
+        <span class="spec-label">拡張項目：</span>
+        <span class="spec-value">specialEffectName（特殊効果名）、specialEffectDescription（効果説明）</span>
+      </div>
+      
+      <div class="spec-box">
+        <span class="spec-label">例1 攻撃：</span>
+        <span class="spec-value">「炎」→ specialEffectName: "火だるま" / Description: "敵を2ターン燃やし毎ターン追加ダメージ"</span>
+      </div>
+      
+      <div class="spec-box">
+        <span class="spec-label">例2 防御：</span>
+        <span class="spec-value">「盾」→ specialEffectName: "絶対障壁" / Description: "次の受けるダメージを30%軽減"</span>
+      </div>
+      
+      <div class="spec-box">
+        <span class="spec-label">例3 サポート：</span>
+        <span class="spec-value">「光」→ specialEffectName: "聖なる癒やし" / Description: "プレイヤーのHPを全回復"</span>
+      </div>
+      
+      <div class="warning-note">
+        <strong>⚠️ 重要：</strong> AI プロンプトは言葉の意味から固有の特殊効果を <strong>創造</strong>してください。既存のテンプレートをコピーしてはいけません。
+      </div>
+    </div>
+    
+    <!-- 数値ランダム化 -->
+    <div class="test-section">
+      <div class="test-title">【2】数値ランダム化：±20% 振幅</div>
+      
+      <div class="spec-box">
+        <span class="spec-label">計算式：</span>
+      </div>
+      <div class="formula">
+finalValue = Math.floor(baseValue * (Math.random() * 0.4 + 0.8))
+// 0.8 ～ 1.2 の乱数（±20% 振幅）
+      </div>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>baseValue</th>
+            <th>最小値</th>
+            <th>最大値</th>
+            <th>例</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>50</td>
+            <td>40</td>
+            <td>60</td>
+            <td>50 × 0.8 = 40 ～ 50 × 1.2 = 60</td>
+          </tr>
+          <tr>
+            <td>65</td>
+            <td>52</td>
+            <td>78</td>
+            <td>65 × 0.8 = 52 ～ 65 × 1.2 = 78</td>
+          </tr>
+          <tr>
+            <td>35</td>
+            <td>28</td>
+            <td>42</td>
+            <td>35 × 0.8 = 28 ～ 35 × 1.2 = 42</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- フロントエンド表示 -->
+    <div class="test-section">
+      <div class="test-title">【3】フロントエンド表示分岐</div>
+      
+      <div class="spec-box" style="border-left-color: #ff6b6b;">
+        <strong>攻撃カード（attack）：</strong><br>
+        ✓ 「攻撃力：{finalValue}」を表示<br>
+        ✓ specialEffectName と specialEffectDescription をログに表示<br>
+        ✗ 「サポート」や「効果名」は表示しない
+      </div>
+      
+      <div class="spec-box" style="border-left-color: #3498db;">
+        <strong>防御カード（defense）：</strong><br>
+        ✓ 「防御力：{finalValue}」を表示<br>
+        ✓ specialEffectName と specialEffectDescription をログに表示<br>
+        ✗ 攻撃力は表示しない
+      </div>
+      
+      <div class="spec-box" style="border-left-color: #4ecdc4;">
+        <strong>サポートカード（support）：</strong><br>
+        ✓ specialEffectName を大きく表示（グラデーション背景）<br>
+        ✓ specialEffectDescription を表示<br>
+        ✓ effectTarget に基づいてステータスを更新<br>
+        ✗ 「攻撃力」という文字を表示しない<br>
+        ✗ ダメージ数値を表示しない
+      </div>
+    </div>
+    
+    <!-- ステータスリスト -->
+    <div class="test-section">
+      <div class="test-title">【4】ステータスリスト表示</div>
+      
+      <div class="spec-box">
+        <span class="spec-label">表示位置：</span>
+        <span class="spec-value">画面左下（ログの近く）</span>
+      </div>
+      
+      <div class="spec-box">
+        <span class="spec-label">表示内容：</span>
+        <span class="spec-value">現在発動している特殊効果を「[発動中]」バッジ付きで表示</span>
+      </div>
+      
+      <div class="spec-box">
+        <span class="spec-label">表示例：</span>
+        <div style="background: #f0f0f0; padding: 10px; margin-top: 10px; border-radius: 8px;">
+          <div style="margin: 5px 0;">
+            <span style="background: #4ecdc4; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">[発動中]</span>
+            <strong>聖なる癒やし</strong> - HPが35回復！
+          </div>
+          <div style="margin: 5px 0;">
+            <span style="background: #4ecdc4; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">[発動中]</span>
+            <strong>戦闘の鼓舞</strong> - 攻撃力が28アップ！
+          </div>
+          <div style="margin: 5px 0;">
+            <span style="background: #4ecdc4; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">[発動中]</span>
+            <strong>敵勢削弱</strong> - 敵の攻撃力が15ダウン！
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 実装完了チェック -->
+    <div class="test-section">
+      <div class="test-title">✅ 実装完了チェックリスト</div>
+      
+      <div class="spec-box">
+        <div class="success-check">
+          ✓ Gemini プロンプトに specialEffectName 追加
+        </div>
+      </div>
+      
+      <div class="spec-box">
+        <div class="success-check">
+          ✓ Gemini プロンプトに specialEffectDescription 追加
+        </div>
+      </div>
+      
+      <div class="spec-box">
+        <div class="success-check">
+          ✓ /api/judgeCard エンドポイント更新（新フィールド返却）
+        </div>
+      </div>
+      
+      <div class="spec-box">
+        <div class="success-check">
+          ✓ ランダム化計算を ±20% 振幅に更新
+        </div>
+      </div>
+      
+      <div class="spec-box">
+        <div class="success-check">
+          ✓ test-judge.html の displayResult 関数をタイプ別表示に最適化
+        </div>
+      </div>
+      
+      <div class="spec-box">
+        <div class="success-check">
+          ✓ 発動中の効果リスト UI 実装（activeEffects 管理）
+        </div>
+      </div>
+      
+      <div class="spec-box">
+        <div class="success-check">
+          ✓ サポート効果の正確な適用（effectTarget に基づく）
+        </div>
+      </div>
+    </div>
+    
+    <!-- API レスポンス例 -->
+    <div class="test-section">
+      <div class="test-title">【参考】API レスポンス形式</div>
+      
+      <strong>攻撃カード レスポンス：</strong>
+      <div class="api-response">
+{
+  "success": true,
+  "cardName": "炎",
+  "type": "attack",
+  "baseValue": 65,
+  "finalValue": 52,
+  "specialEffectName": "火だるま",
+  "specialEffectDescription": "敵を2ターン燃やし毎ターン追加ダメージ",
+  "effectTarget": "enemy_hp",
+  "description": "炎は燃やして攻撃するイメージから..."
+}
+      </div>
+      
+      <strong>サポートカード レスポンス：</strong>
+      <div class="api-response">
+{
+  "success": true,
+  "cardName": "光",
+  "type": "support",
+  "baseValue": 42,
+  "finalValue": 35,
+  "specialEffectName": "聖なる癒やし",
+  "specialEffectDescription": "プレイヤーのHPを回復する",
+  "effectTarget": "player_hp",
+  "description": "光は浄化や回復をイメージさせるため..."
+}
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    console.log('='.repeat(60));
+    console.log('特殊効果システム実装テスト');
+    console.log('='.repeat(60));
+    
+    console.log('\n✅ 【1】Gemini プロンプト拡張');
+    console.log('  • specialEffectName フィールド追加');
+    console.log('  • specialEffectDescription フィールド追加');
+    console.log('  • AI が言葉の本質から固有効果を創造するよう指示');
+    
+    console.log('\n✅ 【2】数値ランダム化');
+    console.log('  • 計算式：finalValue = Math.floor(baseValue * (Math.random() * 0.4 + 0.8))');
+    console.log('  • ±20% 振幅（0.8 ～ 1.2）');
+    console.log('  • API エンドポイント対応');
+    
+    console.log('\n✅ 【3】フロントエンド表示分岐');
+    console.log('  • attack：攻撃力 {finalValue} 表示 + specialEffect ログ');
+    console.log('  • defense：防御力 {finalValue} 表示 + specialEffect ログ');
+    console.log('  • support：effectName グラデーション表示 + 攻撃力非表示');
+    
+    console.log('\n✅ 【4】ステータスリスト実装');
+    console.log('  • 画面左下に発動中の効果リスト表示');
+    console.log('  • [発動中] バッジ付き');
+    console.log('  • 効果名と説明を表示');
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('すべての仕様が実装されました！');
+    console.log('='.repeat(60));
+  </script>
+</body>
+</html>

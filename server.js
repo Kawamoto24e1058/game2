@@ -1388,19 +1388,19 @@ app.post('/api/judgeCard', async (req, res) => {
       return res.json(getDefaultCardJudgement(cleanName));
     }
 
-    // AIが返した value に (Math.random() * 0.2 + 0.9) を掛けて最終値を算出
-    const randomMultiplier = Math.random() * 0.2 + 0.9; // 0.9 ~ 1.1
-    const finalValue = Math.round(aiResponse.value * randomMultiplier);
+    // baseValue に (Math.random() * 0.4 + 0.8) を掛けて最終値を算出（±20%の振幅）
+    const randomMultiplier = Math.random() * 0.4 + 0.8; // 0.8 ~ 1.2（±20%）
+    const finalValue = Math.floor(aiResponse.baseValue * randomMultiplier);
 
     res.json({
       success: true,
       cardName: cleanName,
       type: aiResponse.type,
-      effectTarget: aiResponse.effectTarget,
-      effectName: aiResponse.effectName,
-      originalValue: aiResponse.value,
+      baseValue: aiResponse.baseValue,
       finalValue: finalValue,
-      baseValue: aiResponse.baseValue || aiResponse.value,
+      specialEffectName: aiResponse.specialEffectName,
+      specialEffectDescription: aiResponse.specialEffectDescription,
+      effectTarget: aiResponse.effectTarget,
       description: aiResponse.description
     });
 
@@ -1419,31 +1419,24 @@ async function judgeCardByAI(cardName) {
 
 【共通項目】
 - type: "attack", "defense", "support" のいずれか
-- value: 効果の基本値 (0〜100の整数)
-- description: その効果にした理由（例：『聖なる』という言葉から回復と判断しました）
+- baseValue: 効果の基本値 (0〜100の整数)
+- specialEffectName: そのカード独自の特殊効果の名前（例：「火だるま」「絶対障壁」「魔力吸収」）
+- specialEffectDescription: 効果の短い説明（例：「敵を2ターン燃やす」「次の攻撃を1度だけ無効化」）
+- effectTarget: 以下から最適なものを1つ選択
+  - type="attack" の場合: "enemy_hp" のみ
+  - type="defense" の場合: "player_defense" のみ
+  - type="support" の場合: "player_hp", "player_attack", "enemy_attack", "player_speed" から1つ
+- description: その判定にした理由（例：『聖なる』という言葉から回復と判断しました）
 
-【type別の必須項目】
-
-1. typeが"attack"の場合：
-   - effectTarget: "enemy_hp" のみ
-
-2. typeが"defense"の場合：
-   - effectTarget: "player_defense" のみ
-
-3. typeが"support"の場合：
-   - effectName: そのカードにふさわしい効果名（例：「聖なる癒やし」「瞬足の構え」「魔力の波動」）
-   - effectTarget: 【厳守】"player_hp", "player_attack", "enemy_attack", "player_speed" のいずれかのみを使用
-   - baseValueをvalueと同じ値に設定
-
-JSON以外のテキストは出力するな。
-
-JSON以外のテキストは出力するな。
+JSON以外のテキストは出力するな。JSON以外のテキストは出力するな。
 
 例1: 「炎」 (attack)
 \`\`\`json
 {
   "type": "attack",
-  "value": 65,
+  "baseValue": 65,
+  "specialEffectName": "火だるま",
+  "specialEffectDescription": "敵を2ターン燃やし、毎ターン追加ダメージを与える",
   "effectTarget": "enemy_hp",
   "description": "炎は燃やして攻撃するイメージから、敵HPにダメージを与える攻撃タイプと判定しました。"
 }
@@ -1453,7 +1446,9 @@ JSON以外のテキストは出力するな。
 \`\`\`json
 {
   "type": "defense",
-  "value": 58,
+  "baseValue": 58,
+  "specialEffectName": "絶対障壁",
+  "specialEffectDescription": "次の受けるダメージを30%軽減する",
   "effectTarget": "player_defense",
   "description": "盾は防御の象徴であり、自分の防御力を上げるdefenseタイプと判定しました。"
 }
@@ -1463,9 +1458,9 @@ JSON以外のテキストは出力するな。
 \`\`\`json
 {
   "type": "support",
-  "effectName": "聖なる癒やし",
-  "value": 42,
   "baseValue": 42,
+  "specialEffectName": "聖なる癒やし",
+  "specialEffectDescription": "プレイヤーのHPを全回復する",
   "effectTarget": "player_hp",
   "description": "光は浄化や回復をイメージさせるため、HPを回復するsupportタイプと判定しました。"
 }
@@ -1475,9 +1470,9 @@ JSON以外のテキストは出力するな。
 \`\`\`json
 {
   "type": "support",
-  "effectName": "瞬足の風",
-  "value": 35,
   "baseValue": 35,
+  "specialEffectName": "瞬足の風",
+  "specialEffectDescription": "プレイヤーの速度を3ターン間アップさせる",
   "effectTarget": "player_speed",
   "description": "風は速さを連想させるため、プレイヤーの速度を上げるsupportタイプと判定しました。"
 }
@@ -1503,7 +1498,7 @@ JSON以外のテキストは出力するな。
       throw new Error(`無効な type: ${parsed.type}`);
     }
     
-    const value = Math.max(0, Math.min(100, parseInt(parsed.value, 10) || 50));
+    const baseValue = Math.max(0, Math.min(100, parseInt(parsed.baseValue, 10) || 50));
     
     // effectTarget のバリデーション（厳格な制限）
     const validTargetsByType = {
@@ -1524,10 +1519,10 @@ JSON以外のテキストは出力するな。
     
     return {
       type: parsed.type,
-      value: value,
+      baseValue: baseValue,
+      specialEffectName: parsed.specialEffectName || 'カード効果',
+      specialEffectDescription: parsed.specialEffectDescription || '特殊効果',
       effectTarget: effectTarget,
-      effectName: parsed.effectName || null,
-      baseValue: parsed.baseValue || value,
       description: parsed.description || 'AI判定結果'
     };
     
@@ -1542,45 +1537,61 @@ function getDefaultCardJudgement(cardName) {
   const lower = (cardName || '').toLowerCase();
   let type = 'attack';
   let effectTarget = 'enemy_hp';
-  let value = 50;
+  let baseValue = 50;
+  let specialEffectName = 'デフォルト攻撃';
+  let specialEffectDescription = 'カード名から判断して必要なダメージ';
   
   // 簡易的なキーワードマッチング
-  let effectName = null;
-  
-  if (/盾|防|守|壁|鎧/.test(lower)) {
+  if (/盾|防|守|壁|鎧|ガード|防御/.test(lower)) {
     type = 'defense';
     effectTarget = 'player_defense';
-    value = 45;
-  } else if (/回復|癒|光|聖|治療/.test(lower)) {
+    baseValue = 45;
+    specialEffectName = '絶対障壁';
+    specialEffectDescription = '次の受けるダメージを軽減する';
+  } else if (/回復|癒|光|聖|治療|ヒール|HP/.test(lower)) {
     type = 'support';
     effectTarget = 'player_hp';
-    value = 40;
-    effectName = '聖なる癒やし';
-  } else if (/バフ|強化|鼓舞|応援/.test(lower)) {
+    baseValue = 40;
+    specialEffectName = '聖なる癒やし';
+    specialEffectDescription = 'プレイヤーのHPを回復する';
+  } else if (/バフ|強化|鼓舞|応援|パワー|アップ|攻撃力/.test(lower)) {
     type = 'support';
     effectTarget = 'player_attack';
-    value = 35;
-    effectName = '戦闘の鼓舞';
-  } else if (/晴|雨|雷|風|環境|天候/.test(lower)) {
+    baseValue = 35;
+    specialEffectName = '戦闘の鼓舞';
+    specialEffectDescription = 'プレイヤーの攻撃力を上昇させる';
+  } else if (/晴|雨|雷|風|環境|天候|スピード|速度|速/.test(lower)) {
     type = 'support';
     effectTarget = 'player_speed';
-    value = 55;
-    effectName = '瞬足の構え';
+    baseValue = 55;
+    specialEffectName = '瞬足の風';
+    specialEffectDescription = 'プレイヤーの速度を上昇させる';
+  } else if (/弱体|デバフ|敵|減/.test(lower)) {
+    type = 'support';
+    effectTarget = 'enemy_attack';
+    baseValue = 30;
+    specialEffectName = '敵勢削弱';
+    specialEffectDescription = '敵の攻撃力を減少させる';
+  } else {
+    // デフォルトは攻撃
+    specialEffectName = `${cardName}アタック`;
+    specialEffectDescription = `${cardName}の力で敵に攻撃を仕かける`;
   }
   
-  const randomMultiplier = Math.random() * 0.2 + 0.9;
-  const finalValue = Math.round(value * randomMultiplier);
+  // baseValue に (Math.random() * 0.4 + 0.8) を掛けて最終値を算出（±20%の振幅）
+  const randomMultiplier = Math.random() * 0.4 + 0.8;
+  const finalValue = Math.floor(baseValue * randomMultiplier);
   
   return {
     success: true,
     isDefault: true,
     cardName: cardName,
     type: type,
-    effectTarget: effectTarget,
-    effectName: effectName,
-    originalValue: value,
+    baseValue: baseValue,
     finalValue: finalValue,
-    baseValue: value,
+    specialEffectName: specialEffectName,
+    specialEffectDescription: specialEffectDescription,
+    effectTarget: effectTarget,
     description: 'AI判定に失敗したため、デフォルト値を使用しています。'
   };
 }
