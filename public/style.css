@@ -771,23 +771,23 @@ h2 {
 }
 
 .status-badge.dot {
-  background: linear-gradient(135deg, #8e44ad, #c0392b);
+  background: linear-gradient(to right, #800080, #ff0000);
   color: #fff;
 }
 
 .status-badge.debuff {
-  background: linear-gradient(135deg, #f39c12, #e67e22);
-  color: #2c3e50;
+  background: linear-gradient(to right, #ff8c00, #ffd700);
+  color: #000;
 }
 
 .status-badge.stun {
-  background: linear-gradient(135deg, #3498db, #2980b9);
+  background: linear-gradient(to right, #0000ff, #87ceeb);
   color: #fff;
 }
 
 .status-badge.buff {
-  background: linear-gradient(135deg, #2ecc71, #27ae60);
-  color: #fff;
+  background: linear-gradient(to right, #008000, #adff2f);
+  color: #000;
 }
 
 @keyframes badgePop {
