@@ -357,29 +357,55 @@ function getOpponent(room, socketId) {
 
 // 毎ターンの状態異常処理（ターン減少とDoT適用）
 function tickStatusEffects(room) {
-  if (!room || !room.players) return { ticks: [] };
+  if (!room || !room.players) return [];
   const ticks = [];
   room.players.forEach(p => {
     if (!p.statusAilments) p.statusAilments = [];
+    const results = [];
     let dot = 0;
+    
     p.statusAilments.forEach(a => {
       const effectType = (a.effectType || '').toLowerCase();
       const val = Number(a.value) || 0;
+      
+      // DoT ダメージを記録
       if (effectType === 'dot' && val > 0) {
-        dot += Math.max(0, Math.round(val));
+        const dmg = Math.max(0, Math.round(val));
+        dot += dmg;
+        results.push({
+          type: 'dot',
+          ailmentName: a.name,
+          value: dmg
+        });
       }
+      
+      // ターン数を減少
       a.turns = Math.max(0, (Number(a.turns) || 0) - 1);
     });
+    
+    // DoT ダメージを適用
     if (dot > 0) {
       p.hp = Math.max(0, p.hp - dot);
     }
-    const before = p.statusAilments.length;
+    
+    // 消滅した状態異常を記録
+    const before = [...p.statusAilments];
     p.statusAilments = p.statusAilments.filter(a => a.turns > 0);
-    if (dot > 0 || before !== p.statusAilments.length) {
-      ticks.push({ playerId: p.id, dot, remaining: p.statusAilments });
+    
+    before.forEach(a => {
+      if (a.turns <= 0 && p.statusAilments.find(x => x.name === a.name) === undefined) {
+        results.push({
+          type: 'expired',
+          ailmentName: a.name
+        });
+      }
+    });
+    
+    if (results.length > 0) {
+      ticks.push({ playerId: p.id, results });
     }
   });
-  return { ticks };
+  return ticks;
 }
 
 function findPlayer(room, socketId) {
@@ -481,7 +507,7 @@ function handleDefend(roomId, socket, word) {
       defenseCard: null,
       damage: 0,
       counterDamage: 0,
-      dotDamage: statusTick.ticks.reduce((s, t) => s + (t.dot || 0), 0),
+      dotDamage: 0,
       affinity: null,
       hp,
       defenseFailed: false,
@@ -589,6 +615,9 @@ function handleDefend(roomId, socket, word) {
       maxHp: p.maxHp || STARTING_HP,
       statusAilments: p.statusAilments || []
     }));
+
+    // ターン開始時の状態異常処理
+    const statusTick = tickStatusEffects(room);
 
     io.to(roomId).emit('turnResolved', {
       attackerId: attacker.id,
