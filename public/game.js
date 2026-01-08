@@ -15,13 +15,17 @@ let opStamina = 100;
 let opMp = 50;
 
 // 演出関数群
-function showFloatingText(x, y, text, type = 'damage') {
+function showFloatingText(x, y, text, type = 'damage', isAdvantage = false) {
   const container = document.getElementById('effectContainer');
   const floatingText = document.createElement('div');
   floatingText.className = `floating-text ${type}`;
   floatingText.textContent = text;
   floatingText.style.left = x + 'px';
   floatingText.style.top = y + 'px';
+  if (isAdvantage) {
+    floatingText.style.fontSize = '33px';
+    floatingText.style.textShadow = '0 0 12px rgba(255, 51, 51, 0.9), 0 0 24px rgba(255, 51, 51, 0.6)';
+  }
   container.appendChild(floatingText);
   setTimeout(() => floatingText.remove(), 1500);
 }
@@ -38,14 +42,15 @@ function bounceEffect(elementId) {
   setTimeout(() => el.classList.remove('bounce-effect'), 500);
 }
 
-function showDamageAnimation(targetHp, damage) {
+function showDamageAnimation(targetHp, damage, affinity = null) {
   const targetBar = targetHp === 'my' ? document.getElementById('myHealthFill') : document.getElementById('opHealthFill');
   const rect = targetBar.getBoundingClientRect();
   const x = rect.left + rect.width / 2 - 20;
   const y = rect.top + rect.height;
   
   flashAttackEffect();
-  showFloatingText(x, y, `-${damage}`, 'damage');
+  const isAdvantage = affinity && affinity.relation === 'advantage';
+  showFloatingText(x, y, `-${damage}`, 'damage', isAdvantage);
   bounceEffect(targetHp === 'my' ? 'myHealthFill' : 'opHealthFill');
 }
 
@@ -315,20 +320,75 @@ function showCenterCard(card) {
   // 既存カードを消去
   const old = playArea.querySelector('.center-card');
   if (old) old.remove();
-  const elemIconMap = { '火':'🔥','水':'🌊','草':'🌿','雷':'⚡','土':'🪨','風':'🍃','光':'✨','闇':'🌑' };
-  const elem = card.element || '';
-  const icon = elemIconMap[elem] || '📌';
-  const statsLabel = (card.role || '').toLowerCase() === 'attack' ? `ATK:${card.attack ?? 0}`
-                    : (card.role || '').toLowerCase() === 'defense' ? `DEF:${card.defense ?? 0}`
-                    : `${card.supportType || 'SUPPORT'}`;
+  const role = (card.role || '').toLowerCase();
+  const sword = '🗡️';
+  const shield = '🛡️';
+  const supportEmojiMap = { 'heal':'🏥','hpMaxUp':'💪','staminaRecover':'⚡','magicRecover':'✨','defenseBuff':'🛡️','poison':'☠️','burn':'🔥','allStatBuff':'👑','debuff':'📉','cleanse':'💧','counter':'⚔️','fieldChange':'🌍' };
+  const supportLabelMap = {
+    'heal': 'HP回復',
+    'hpMaxUp': '最大HP増加',
+    'staminaRecover': 'スタミナ回復',
+    'magicRecover': '魔力回復',
+    'defenseBuff': '防御力強化',
+    'poison': '毒付与',
+    'burn': '焼け付与',
+    'allStatBuff': '全能力強化',
+    'debuff': '能力低下',
+    'cleanse': '状態異常クリア',
+    'counter': 'カウンター準備',
+    'fieldChange': 'フィールド変化'
+  };
+  const supportType = (card.supportType || '').toString();
+  const supportEmoji = supportEmojiMap[supportType] || '🌟';
+  const supportLabel = supportLabelMap[supportType] || 'サポート';
   const cardEl = document.createElement('div');
-  cardEl.className = 'center-card';
-  cardEl.innerHTML = `
-    <div class="elem">${icon} ${elem || (card.attribute || '').toUpperCase()}</div>
-    <div class="word">${card.word || card.name || 'カード'}</div>
-    <div class="stats">${statsLabel}</div>
-  `;
+  cardEl.className = 'center-card card-enter';
+  if (role === 'attack') {
+    const atk = Number(card.attack) || 0;
+    cardEl.innerHTML = `
+      <div class="role-icon">${sword}</div>
+      <div class="word">${card.word || card.name || ''}</div>
+      <div class="role-value attack">${atk}</div>
+    `;
+  } else if (role === 'defense') {
+    const def = Number(card.defense) || 0;
+    const effect = card.specialEffect || '';
+    cardEl.innerHTML = `
+      <div class="role-icon">${shield}</div>
+      <div class="word">${card.word || card.name || ''}</div>
+      <div class="role-value defense">${def}</div>
+      <div class="role-extra">${effect}</div>
+    `;
+  } else if (role === 'support') {
+    const msg = card.supportMessage || '効果を発動！';
+    cardEl.innerHTML = `
+      <div class="role-icon">${supportEmoji}</div>
+      <div class="word">${card.word || card.name || ''}</div>
+      <div class="role-effect">${supportLabel}</div>
+      <div class="role-message">${msg}</div>
+    `;
+  } else {
+    // 未定義ロールのフォールバック
+    cardEl.innerHTML = `
+      <div class="word">${card.word || card.name || ''}</div>
+    `;
+  }
   playArea.appendChild(cardEl);
+  // Element Glow: 属性色でボヤッと光らせる
+  const elemColorMap = {
+    '火': 'rgba(255, 87, 34, 0.55)',
+    '水': 'rgba(33, 150, 243, 0.55)',
+    '草': 'rgba(76, 175, 80, 0.55)',
+    '雷': 'rgba(255, 235, 59, 0.55)',
+    '土': 'rgba(121, 85, 72, 0.55)',
+    '風': 'rgba(0, 188, 212, 0.55)',
+    '光': 'rgba(255, 215, 0, 0.6)',
+    '闇': 'rgba(103, 58, 183, 0.55)'
+  };
+  const glow = elemColorMap[card.element] || 'rgba(124, 240, 197, 0.5)';
+  cardEl.style.setProperty('--elem-glow', glow);
+  cardEl.classList.add('element-glow');
+  setTimeout(() => cardEl.classList.remove('element-glow'), 900);
   // 自動で少し後にフェードアウト
   setTimeout(() => {
     cardEl.style.transition = 'opacity 0.4s ease';
@@ -889,7 +949,7 @@ function initSocket() {
         for (const result of tick.results) {
           if (result.type === 'dot') {
             appendLog(`💀 ${targetName}は ${result.ailmentName} で ${result.value} ダメージ受けた！`, 'damage');
-            showDamageAnimation(tick.playerId === playerId ? 'my' : 'op', result.value);
+            showDamageAnimation(tick.playerId === playerId ? 'my' : 'op', result.value, null);
           } else if (result.type === 'expired') {
             appendLog(`✨ ${targetName}の ${result.ailmentName} が消滅した`, 'info');
           }
@@ -918,16 +978,15 @@ function initSocket() {
 
     // ダメージ表示
     if (damage > 0) {
-      showDamageAnimation(defenderId === playerId ? 'my' : 'op', damage);
-      if (defenderId === playerId && damage > 20) {
-        screenShake();
-      }
+      showDamageAnimation(defenderId === playerId ? 'my' : 'op', damage, affinity);
+      // ダメージ計算時のインパクト演出（常時）
+      screenShake();
     }
 
     // カウンターダメージ表示（トゲ系）
     if (counterDamage > 0) {
       setTimeout(() => {
-        showDamageAnimation(attackerId === playerId ? 'my' : 'op', counterDamage);
+        showDamageAnimation(attackerId === playerId ? 'my' : 'op', counterDamage, null);
         appendLog(`🌵 カウンター！ トゲで ${counterDamage} ダメージ`, 'damage');
         showFloatingText(attackerId === playerId ? 'my' : 'op', `カウンター -${counterDamage}`, 'counter');
       }, 800);
@@ -1011,7 +1070,7 @@ function initSocket() {
         for (const result of tick.results) {
           if (result.type === 'dot') {
             appendLog(`💀 ${targetName}は ${result.ailmentName} で ${result.value} ダメージ受けた！`, 'damage');
-            showDamageAnimation(tick.playerId === playerId ? 'my' : 'op', result.value);
+            showDamageAnimation(tick.playerId === playerId ? 'my' : 'op', result.value, null);
           } else if (result.type === 'expired') {
             appendLog(`✨ ${targetName}の ${result.ailmentName} が消滅した`, 'info');
           }
