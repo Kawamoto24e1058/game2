@@ -82,7 +82,6 @@
         <div id="turnIndicator" class="turn-indicator">あなたのターン</div>
         <div class="affinity-helper">
           <button id="affinityToggle" class="affinity-btn">？ 属性相性</button>
-          <button id="supportGuideBtn" class="guide-btn">Support Guide</button>
           <div id="affinityPanel" class="affinity-panel hidden">
             <div class="affinity-header">
               <span>属性相性チャート</span>
@@ -105,47 +104,19 @@
       <div id="effectContainer" class="effect-container"></div>
       <div class="battle-arena">
         <div class="player-area">
-          <div class="player-header">
-            <h3>あなた</h3>
-            <span id="myRoleBadge" class="role-chip">--</span>
-          </div>
+          <h3>あなた</h3>
           <div class="health-bar">
             <div id="myHealthFill" class="health-fill"><span id="myHealthText">100</span></div>
           </div>
-          <div class="resource-bars">
-            <div class="resource-bar stamina">
-              <div id="myStaminaFill" class="resource-fill">
-                <span id="myStaminaText">100</span>
-              </div>
-            </div>
-            <div class="resource-bar magic">
-              <div id="myMagicFill" class="resource-fill">
-                <span id="myMagicText">100</span>
-              </div>
-            </div>
-          </div>
+          <div id="myStatusBadges" class="status-badges"></div>
         </div>
         <div class="vs-divider">VS</div>
         <div class="player-area">
-          <div class="player-header">
-            <h3>相手</h3>
-            <span id="opRoleBadge" class="role-chip">--</span>
-          </div>
+          <h3>相手</h3>
           <div class="health-bar">
             <div id="opHealthFill" class="health-fill"><span id="opHealthText">100</span></div>
           </div>
-          <div class="resource-bars">
-            <div class="resource-bar stamina">
-              <div id="opStaminaFill" class="resource-fill">
-                <span id="opStaminaText">100</span>
-              </div>
-            </div>
-            <div class="resource-bar magic">
-              <div id="opMagicFill" class="resource-fill">
-                <span id="opMagicText">100</span>
-              </div>
-            </div>
-          </div>
+          <div id="opStatusBadges" class="status-badges"></div>
         </div>
       </div>
 
@@ -176,7 +147,6 @@
         <div class="cutin-judge-title">⚡ 審判結果 ⚡</div>
         <div class="cutin-word" id="cutinWord"></div>
         <div class="cutin-stats" id="cutinStats"></div>
-        <div class="cutin-role-badge" id="cutinRoleBadge"></div>
         <div class="cutin-tier" id="cutinTier"></div>
         <div class="cutin-special" id="cutinSpecial"></div>
         <div class="cutin-comment" id="cutinComment"></div>
@@ -197,27 +167,10 @@
       </div>
     </div>
 
-    <div id="supportGuideModal" class="modal-overlay hidden">
-      <div class="modal-content guide-modal">
-        <div class="modal-icon">🌟</div>
-        <h2>サポートガイド</h2>
-        <p class="modal-message">サポート単語でできること：HP回復、最大HP上昇、フィールド変更、属性付与、相手へのデバフ、ST/MP回復など、言葉の意味次第で無限の可能性があります！</p>
-        <p class="modal-message">ユニークな語を入力すると、例えば「銀行」なら利息で毎ターンHP回復、「温泉」なら継続回復フィールドなど、自由な効果が生まれます。</p>
-        <button id="supportGuideClose" class="btn btn-secondary">閉じる</button>
-      </div>
-    </div>
-
     <div id="resultSection" class="section card hidden">
       <h2>リザルト</h2>
       <p id="resultMessage" class="description"></p>
       <button id="returnHomeBtn" class="btn btn-primary">ホームに戻る</button>
-    </div>
-  </div>
-
-  <div id="supportOverlay" class="support-overlay hidden">
-    <div class="support-overlay-content">
-      <div class="support-overlay-title">SUPPORT ACTIVATED!</div>
-      <div id="supportOverlayDetail" class="support-overlay-detail"></div>
     </div>
   </div>
 
