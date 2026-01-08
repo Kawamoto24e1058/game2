@@ -131,21 +131,35 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const cutinSpecial = document.getElementById('cutinSpecial');
     const cutinComment = document.getElementById('cutinComment');
 
-    // カードネーム表示（cardName または word をフォールバック）
+    // カードネーム表示（card.name または word をフォールバック）
     cutinWord.textContent = card.name || card.word || '不明なカード';
-    
-    // 役割別パラメータ隔離に対応：存在するフィールドのみ表示
+
+    // ステータス要素の生成（存在するものだけを追加し、無いものはDOMに出さない）
     const role = (card.role || 'Unknown').toLowerCase();
-    let statsDisplay = '';
-    
-    if (role === 'attack') {
-      // Attack ロール：攻撃力のみ表示（attack フィールドが必ず存在）
-      statsDisplay = card.attack !== undefined ? `攻撃力: ${card.attack}` : 'ATK 情報なし';
-    } else if (role === 'defense') {
-      // Defense ロール：防御力のみ表示（defense フィールドが必ず存在）
-      statsDisplay = card.defense !== undefined ? `防御力: ${card.defense}` : 'DEF 情報なし';
-    } else if (role === 'support') {
-      // Support ロール：supportType ラベルを表示（attack/defense は存在しない）
+    cutinStats.innerHTML = '';
+
+    const statsFragment = document.createDocumentFragment();
+
+    // 攻撃力: card.attack が存在する時だけ生成
+    const hasAttack = card.attack !== undefined && card.attack !== null;
+    if (hasAttack) {
+      const atkEl = document.createElement('div');
+      atkEl.className = 'stat-pill attack-pill';
+      atkEl.textContent = `攻撃力: ${card.attack}`;
+      statsFragment.appendChild(atkEl);
+    }
+
+    // 防御力: card.defense が存在する時だけ生成
+    const hasDefense = card.defense !== undefined && card.defense !== null;
+    if (hasDefense) {
+      const defEl = document.createElement('div');
+      defEl.className = 'stat-pill defense-pill';
+      defEl.textContent = `防御力: ${card.defense}`;
+      statsFragment.appendChild(defEl);
+    }
+
+    // Support ロール時は supportType ラベルのみ（攻撃/防御は生成しない）
+    if (role === 'support') {
       const supportTypeLabel = {
         'heal': '🏥 HP回復',
         'hpMaxUp': '💪 最大HP増加',
@@ -160,39 +174,36 @@ function showCutin(card, duration = 2500, extraComment = '') {
         'counter': '⚔️ カウンター',
         'fieldChange': '🌍 フィールド変化'
       };
-      const typeLabel = supportTypeLabel[card.supportType] || card.supportType || 'サポート効果';
-      statsDisplay = typeLabel;
-    } else {
-      // レガシー対応：攻撃力/防御力の両方が存在する場合のみ表示
-      const hasAttack = card.attack !== undefined && card.attack !== null;
-      const hasDefense = card.defense !== undefined && card.defense !== null;
-      
-      if (hasAttack && hasDefense) {
-        statsDisplay = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
-      } else if (hasAttack) {
-        statsDisplay = `攻撃力: ${card.attack}`;
-      } else if (hasDefense) {
-        statsDisplay = `防御力: ${card.defense}`;
-      } else {
-        statsDisplay = 'ステータス情報なし';
+      const typeLabel = supportTypeLabel[card.supportType] || card.supportType || '';
+      if (typeLabel) {
+        const supEl = document.createElement('div');
+        supEl.className = 'stat-pill support-pill';
+        supEl.textContent = typeLabel;
+        statsFragment.appendChild(supEl);
       }
     }
-    
-    cutinStats.textContent = statsDisplay;
-    
+
+    // 生成結果をDOMに反映。何も表示するものがなければコンテナ自体を非表示。
+    if (statsFragment.childNodes.length > 0) {
+      cutinStats.style.display = 'block';
+      cutinStats.appendChild(statsFragment);
+    } else {
+      cutinStats.style.display = 'none';
+    }
+
     // 属性と役割を表示（tier はレガシー対応）
     const roleDisplay = (card.role || 'UNKNOWN').toUpperCase();
     const attribute = (card.attribute || 'earth').toUpperCase();
     const tierDisplay = card.tier ? ` [${card.tier.toUpperCase()}]` : '';
     cutinTier.textContent = `${attribute}${tierDisplay} ${roleDisplay}`;
-    
+
     // 特殊効果を表示（supportMessage が存在する場合は併記）
     let specialInfo = card.specialEffect || 'なし';
     if (card.supportMessage) {
       specialInfo = `${card.specialEffect}\n→ ${card.supportMessage}`;
     }
     cutinSpecial.textContent = `特殊効果: ${specialInfo}`;
-    
+
     // コメント（審判コメント + 追加コメント）
     const comments = [card.judgeComment || '判定コメントなし'];
     if (extraComment) comments.push(extraComment);
@@ -202,6 +213,8 @@ function showCutin(card, duration = 2500, extraComment = '') {
 
     setTimeout(() => {
       cutinModal.classList.add('hidden');
+      // 表示状態を戻す（次回のため）
+      cutinStats.style.display = '';
       resolve();
     }, duration);
   });
