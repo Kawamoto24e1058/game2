@@ -1144,7 +1144,7 @@ io.on('connection', (socket) => {
           const gain = effectValue && effectValue > 0 ? effectValue : 20;
           player.maxHp = Math.min(999, player.maxHp + gain);  // キャップ999
           player.hp = Math.min(player.maxHp, player.hp + gain);
-          console.log(`💪 ${player.name}: maxHp +${gain} (${player.maxHp}), HP +${gain} (${player.hp})`);
+          console.log(`💪 ${player.name}: ${card.supportMessage || '最大HP増加'} (最大HP+${gain}→${player.maxHp}, HP+${gain}→${player.hp})`);
           break;
         }
         case 'heal': {
@@ -1152,7 +1152,7 @@ io.on('connection', (socket) => {
           const heal = effectValue && effectValue > 0 ? effectValue : 25;
           const healAmount = Math.min(maxHp, player.hp + heal) - player.hp;
           player.hp = Math.min(maxHp, player.hp + heal);
-          console.log(`🏥 ${player.name}: HP +${healAmount} (${player.hp}/${maxHp})`);
+          console.log(`🏥 ${player.name}: ${card.supportMessage || 'HP回復'} (+${healAmount}, ${player.hp}/${maxHp})`);
           break;
         }
         case 'staminarecover': {
@@ -1160,7 +1160,7 @@ io.on('connection', (socket) => {
           const staminaGain = effectValue && effectValue > 0 ? effectValue : 37;
           const oldStamina = player.stamina;
           player.stamina = Math.min(player.maxStamina, player.stamina + staminaGain);
-          console.log(`⚡ ${player.name}: スタミナ +${player.stamina - oldStamina} (${player.stamina}/${player.maxStamina})`);
+          console.log(`⚡ ${player.name}: ${card.supportMessage || 'スタミナ回復'} (+${player.stamina - oldStamina}, ${player.stamina}/${player.maxStamina})`);
           break;
         }
         case 'magicrecover': {
@@ -1168,7 +1168,7 @@ io.on('connection', (socket) => {
           const mpGain = effectValue && effectValue > 0 ? effectValue : 29;
           const oldMp = player.mp;
           player.mp = Math.min(player.maxMp, player.mp + mpGain);
-          console.log(`✨ ${player.name}: 魔力 +${player.mp - oldMp} (${player.mp}/${player.maxMp})`);
+          console.log(`✨ ${player.name}: ${card.supportMessage || '魔力回復'} (+${player.mp - oldMp}, ${player.mp}/${player.maxMp})`);
           break;
         }
         case 'defensebuff': {
@@ -1176,7 +1176,7 @@ io.on('connection', (socket) => {
           const defIncrease = effectValue && effectValue > 0 ? effectValue : 34;
           player.defenseBoost = Math.max(player.defenseBoost, defIncrease);  // より高い値を採用
           player.buffs.defUp = 2;  // 2ターン有効
-          console.log(`🛡️ ${player.name}: 防御力強化 +${defIncrease}% (${player.defenseBoost}%), 2ターン有効`);
+          console.log(`🛡️ ${player.name}: ${card.supportMessage || '防御強化'} (軽減率+${defIncrease}%, 2ターン有効)`);
           break;
         }
         case 'allstatbuff': {
@@ -1187,7 +1187,7 @@ io.on('connection', (socket) => {
           const healBonus = Math.round(boost * 1.5);
           player.hp = Math.min(maxHp, player.hp + healBonus);
           player.buffs.allStatUp = 3;  // 3ターン有効
-          console.log(`👑 ${player.name}: 全能力強化 ${boost}%, HP +${healBonus}, 3ターン有効`);
+          console.log(`👑 ${player.name}: ${card.supportMessage || '全能力強化'} (攻撃/防御+${boost}%, HP+${healBonus}, 3ターン有効)`);
           break;
         }
         case 'buff':
@@ -1225,7 +1225,7 @@ io.on('connection', (socket) => {
                 effectType: 'dot',
                 value: dotValue
               });
-              console.log(`☠️ ${opponent.name}: 毒付与 (${dotValue}ダメージ×3ターン = 計${dotValue * 3})`);
+              console.log(`☠️ ${opponent.name}: ${card.supportMessage || '毒付与'} (3ターン継続, ${dotValue}ダメージ/ターン)`);
             }
           }
           break;
@@ -1248,7 +1248,7 @@ io.on('connection', (socket) => {
                 effectType: 'dot',
                 value: dotValue
               });
-              console.log(`🔥 ${opponent.name}: 焼け付与 (${dotValue}ダメージ×3ターン = 計${dotValue * 3})`);
+              console.log(`🔥 ${opponent.name}: ${card.supportMessage || '焼け付与'} (3ターン継続, ${dotValue}ダメージ/ターン)`);
             }
           }
           break;
@@ -1259,7 +1259,7 @@ io.on('connection', (socket) => {
             const debuffAmount = effectValue && effectValue > 0 ? effectValue : 25;
             opponent.atkMultiplier = Math.max(0.5, opponent.atkMultiplier - (debuffAmount / 100));
             opponent.defMultiplier = Math.max(0.5, opponent.defMultiplier - (debuffAmount / 100));
-            console.log(`📉 ${opponent.name}: 弱体化 ${debuffAmount}% (攻撃乗数: ${opponent.atkMultiplier.toFixed(2)}x, 防御乗数: ${opponent.defMultiplier.toFixed(2)}x)`);
+            console.log(`📉 ${opponent.name}: ${card.supportMessage || '弱体化'} (攻撃/防御 -${debuffAmount}%)`);
           }
           break;
         }
@@ -1276,7 +1276,7 @@ io.on('connection', (socket) => {
           // カウンター効果：次ターン攻撃を受けると自動で反撃
           player.counterActive = true;
           player.buffs.counterUp = 2;  // 2ターン有効
-          console.log(`⚔️ ${player.name}: カウンター能力発動 (2ターン有効)`);
+          console.log(`⚔️ ${player.name}: ${card.supportMessage || 'カウンター能力発動'} (2ターン有効)`);
           break;
         }
         case 'fieldchange': {
@@ -1285,7 +1285,7 @@ io.on('connection', (socket) => {
             name: card.supportMessage || '環境変化',
             visual: 'linear-gradient(135deg, rgba(255, 100, 100, 0.3), rgba(100, 100, 255, 0.3))'
           };
-          console.log(`🌍 フィールド効果: ${room.fieldEffect.name}`);
+          console.log(`🌍 フィールド効果: 【${card.word}】: ${room.fieldEffect.name}`);
           io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
           break;
         }
@@ -1293,7 +1293,7 @@ io.on('connection', (socket) => {
           // 自身の状態異常をすべてクリア
           const cleansedCount = player.statusAilments.length;
           player.statusAilments = [];
-          console.log(`💧 ${player.name}: 浄化 (${cleansedCount}個の状態異常をクリア)`);
+          console.log(`💧 ${player.name}: ${card.supportMessage || '浄化'} (${cleansedCount}個の状態異常をクリア)`);
           break;
         }
         case 'damage': {
@@ -1366,9 +1366,23 @@ io.on('connection', (socket) => {
         room.turnIndex = (room.turnIndex + 1) % room.players.length;
       }
 
+      // サポートカード情報を構造化（supportMessage の確実な伝送）
+      const cardData = {
+        ...card,
+        supportMessage: card.supportMessage || '', // 明示的に含める
+        word: card.word,
+        supportType: card.supportType || '',
+        specialEffect: card.specialEffect || '',
+        role: card.role || ''
+      };
+
+      // バトルログに サポート発動記録を追加
+      const supportLog = `✨ 【${card.word}】: ${card.supportMessage || '効果を発動'}`;
+      console.log(`📋 バトルログ: ${supportLog}`);
+
       io.to(roomId).emit('supportUsed', {
         playerId: player.id,
-        card,
+        card: cardData,
         hp,
         players,
         supportRemaining: 3 - player.supportUsed,
