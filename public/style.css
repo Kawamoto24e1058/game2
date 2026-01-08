@@ -434,6 +434,129 @@ h2 {
   gap: 14px;
   align-items: center;
 }
+.gfield-enabled #battleLog {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  width: min(360px, 35vw);
+  max-height: 40vh;
+  z-index: 1300;
+}
+
+/* God Field style: top/bottom stat bars */
+.gfield-top, .gfield-bottom {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.65);
+  border: 2px solid #e2efff;
+  box-shadow: 0 12px 24px var(--shadow);
+}
+
+.gfield-top {
+  margin-bottom: 12px;
+}
+
+.gfield-bottom {
+  margin-top: 12px;
+}
+
+.stat-label {
+  font-weight: 900;
+  color: #1f3a56;
+}
+
+.bar-wrap {
+  height: 18px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid #cbe6ff;
+  background: #eef7ff;
+}
+
+.bar-fill {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0f2b46;
+  font-weight: 900;
+  transition: width 0.35s ease;
+}
+
+.bar-fill.hp { background: linear-gradient(90deg, #7cf0c5, #5ed0ff); }
+.bar-fill.st { background: linear-gradient(90deg, #ffd166, #ff9f7f); }
+.bar-fill.mp { background: linear-gradient(90deg, #a48aff, #6a5acd); color: #fff; }
+
+/* Central play area */
+#playArea {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 38vh;
+  margin: 10px 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.35), rgba(230,246,255,0.6));
+  border: 2px dashed #d8edff;
+  border-radius: 18px;
+  box-shadow: inset 0 8px 16px rgba(0,0,0,0.05);
+}
+
+.center-card {
+  min-width: 280px;
+  max-width: 70vw;
+  padding: 18px 22px;
+  border-radius: 18px;
+  background: #fff;
+  border: 3px solid #cbe6ff;
+  box-shadow: 0 18px 36px rgba(0,0,0,0.2);
+  animation: centerPop 0.5s cubic-bezier(0.68,-0.55,0.265,1.55);
+  text-align: center;
+}
+
+.center-card .word {
+  font-size: 40px;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.center-card .stats {
+  font-weight: 800;
+  color: #1f3a56;
+}
+
+.center-card .elem {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+@keyframes centerPop {
+  0% { transform: scale(0.6) rotate(-6deg); opacity: 0; }
+  60% { transform: scale(1.1) rotate(3deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+/* Hide original arena when gfield layout is enabled */
+.gfield-enabled .battle-arena,
+.gfield-enabled .battle-inputs .phase-card:nth-child(2) {
+  display: none;
+}
+
+/* Log stream tweaks */
+.gfield-enabled .battle-log {
+  margin-top: 0;
+}
+
+/* Animated pulsing for bars when value changes */
+.bar-fill.pulse { animation: barPulse 0.6s ease-out; }
+@keyframes barPulse {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(1.3); }
+  100% { filter: brightness(1); }
+}
 
 .player-area h3 {
   text-align: center;

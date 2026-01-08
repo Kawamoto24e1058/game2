@@ -9,6 +9,10 @@ let currentTurn = null;
 let myHp = 0;
 let opponentHp = 0;
 let supportRemaining = 3;
+let myStamina = 100;
+let myMp = 50;
+let opStamina = 100;
+let opMp = 50;
 
 // 演出関数群
 function showFloatingText(x, y, text, type = 'damage') {
@@ -265,6 +269,111 @@ function showCutin(card, duration = 2500, extraComment = '') {
   });
 }
 
+// God Field風レイアウト初期化
+function initGodFieldLayout() {
+  const battleSection = document.getElementById('battleSection');
+  if (!battleSection) return;
+  battleSection.classList.add('gfield-enabled');
+  // 既存のプレイエリアがなければ追加
+  if (!document.getElementById('playArea')) {
+    const playArea = document.createElement('div');
+    playArea.id = 'playArea';
+    battleSection.insertBefore(playArea, document.getElementById('battleLog'));
+  }
+  // 上部（相手）バー
+  if (!document.getElementById('gfieldTop')) {
+    const top = document.createElement('div');
+    top.id = 'gfieldTop';
+    top.className = 'gfield-top';
+    top.innerHTML = `
+      <div class="stat-label">相手</div>
+      <div class="bar-wrap"><div id="opHpGF" class="bar-fill hp"><span id="opHpTextGF">100</span></div></div>
+      <div class="bar-wrap"><div id="opStGF" class="bar-fill st"><span id="opStTextGF">100</span></div></div>
+      <div class="bar-wrap"><div id="opMpGF" class="bar-fill mp"><span id="opMpTextGF">50</span></div></div>
+    `;
+    battleSection.insertBefore(top, battleSection.firstChild.nextSibling);
+  }
+  // 下部（自分）バー
+  if (!document.getElementById('gfieldBottom')) {
+    const bottom = document.createElement('div');
+    bottom.id = 'gfieldBottom';
+    bottom.className = 'gfield-bottom';
+    bottom.innerHTML = `
+      <div class="stat-label">あなた</div>
+      <div class="bar-wrap"><div id="myHpGF" class="bar-fill hp"><span id="myHpTextGF">100</span></div></div>
+      <div class="bar-wrap"><div id="myStGF" class="bar-fill st"><span id="myStTextGF">100</span></div></div>
+      <div class="bar-wrap"><div id="myMpGF" class="bar-fill mp"><span id="myMpTextGF">50</span></div></div>
+    `;
+    const battleLog = document.getElementById('battleLog');
+    battleSection.insertBefore(bottom, battleLog);
+  }
+}
+
+function showCenterCard(card) {
+  const playArea = document.getElementById('playArea');
+  if (!playArea) return;
+  // 既存カードを消去
+  const old = playArea.querySelector('.center-card');
+  if (old) old.remove();
+  const elemIconMap = { '火':'🔥','水':'🌊','草':'🌿','雷':'⚡','土':'🪨','風':'🍃','光':'✨','闇':'🌑' };
+  const elem = card.element || '';
+  const icon = elemIconMap[elem] || '📌';
+  const statsLabel = (card.role || '').toLowerCase() === 'attack' ? `ATK:${card.attack ?? 0}`
+                    : (card.role || '').toLowerCase() === 'defense' ? `DEF:${card.defense ?? 0}`
+                    : `${card.supportType || 'SUPPORT'}`;
+  const cardEl = document.createElement('div');
+  cardEl.className = 'center-card';
+  cardEl.innerHTML = `
+    <div class="elem">${icon} ${elem || (card.attribute || '').toUpperCase()}</div>
+    <div class="word">${card.word || card.name || 'カード'}</div>
+    <div class="stats">${statsLabel}</div>
+  `;
+  playArea.appendChild(cardEl);
+  // 自動で少し後にフェードアウト
+  setTimeout(() => {
+    cardEl.style.transition = 'opacity 0.4s ease';
+    cardEl.style.opacity = '0';
+    setTimeout(() => cardEl.remove(), 400);
+  }, 2200);
+}
+
+function updateGodFieldBars() {
+  // 自分
+  const myHpFillGF = document.getElementById('myHpGF');
+  const myStFillGF = document.getElementById('myStGF');
+  const myMpFillGF = document.getElementById('myMpGF');
+  if (myHpFillGF) {
+    myHpFillGF.style.width = `${Math.max(0, Math.min(100, myHp))}%`;
+    document.getElementById('myHpTextGF').textContent = Math.round(myHp);
+    myHpFillGF.classList.add('pulse'); setTimeout(() => myHpFillGF.classList.remove('pulse'), 600);
+  }
+  if (myStFillGF) {
+    myStFillGF.style.width = `${Math.max(0, Math.min(100, myStamina))}%`;
+    document.getElementById('myStTextGF').textContent = Math.round(myStamina);
+  }
+  if (myMpFillGF) {
+    myMpFillGF.style.width = `${Math.max(0, Math.min(100, myMp))}%`;
+    document.getElementById('myMpTextGF').textContent = Math.round(myMp);
+  }
+  // 相手
+  const opHpFillGF = document.getElementById('opHpGF');
+  const opStFillGF = document.getElementById('opStGF');
+  const opMpFillGF = document.getElementById('opMpGF');
+  if (opHpFillGF) {
+    opHpFillGF.style.width = `${Math.max(0, Math.min(100, opponentHp))}%`;
+    document.getElementById('opHpTextGF').textContent = Math.round(opponentHp);
+    opHpFillGF.classList.add('pulse'); setTimeout(() => opHpFillGF.classList.remove('pulse'), 600);
+  }
+  if (opStFillGF) {
+    opStFillGF.style.width = `${Math.max(0, Math.min(100, opStamina))}%`;
+    document.getElementById('opStTextGF').textContent = Math.round(opStamina);
+  }
+  if (opMpFillGF) {
+    opMpFillGF.style.width = `${Math.max(0, Math.min(100, opMp))}%`;
+    document.getElementById('opMpTextGF').textContent = Math.round(opMp);
+  }
+}
+
 function updateSupportCounter() {
   const supportRemainingEl = document.getElementById('supportRemaining');
   if (supportRemainingEl) {
@@ -325,6 +434,7 @@ function updateHealthBars(my, op) {
   document.getElementById('opHealthText').textContent = Math.round(opponentHp);
   myFill.style.width = `${Math.max(0, Math.min(100, myHp))}%`;
   opFill.style.width = `${Math.max(0, Math.min(100, opponentHp))}%`;
+  updateGodFieldBars();
 }
 
 function updateStatusBadges(playerId, statusAilments) {
@@ -723,9 +833,11 @@ function initSocket() {
 
   socket.on('battleStarted', ({ players, turn }) => {
     showSection('battleSection');
+    initGodFieldLayout();
     const me = players.find(p => p.id === playerId);
     const op = players.find(p => p.id !== playerId);
     updateHealthBars(me ? me.hp : 100, op ? op.hp : 100);
+    myStamina = 100; myMp = 50; opStamina = 100; opMp = 50; updateGodFieldBars();
     currentTurn = turn;
     supportRemaining = 3;
     updateSupportCounter();
@@ -746,6 +858,8 @@ function initSocket() {
     
     // カットイン演出
     await showCutin(card, 2000);
+    // 中央プレイエリア表示
+    showCenterCard(card);
     
     const statLabel = buildRoleStatLabel(card);
     const attr = (card.element || (card.attribute || '')?.toUpperCase());
@@ -794,6 +908,7 @@ function initSocket() {
     // 防御カードのカットイン（相性・反射の一言付き）
     if (defenseCard) {
       await showCutin(defenseCard, 2000, cutinFlavor);
+      showCenterCard(defenseCard);
     }
 
     // 防御失敗メッセージ
@@ -916,9 +1031,11 @@ function initSocket() {
     if (isSupport) {
       // サポート専用演出：カットインなし、オーバーレイのみ表示
       await showSupportOverlay(card, 3000);
+      showCenterCard(card);
     } else {
       // 通常カード：カットイン演出を表示
       await showCutin(card, 2000);
+      showCenterCard(card);
     }
 
     const isMe = supportPlayerId === playerId;
@@ -997,6 +1114,15 @@ function initSocket() {
     opponentHp = hp[opponentId];
 
     updateHealthBars(myHp, opponentHp);
+    // Supportの種類に応じてST/MPを簡易的に更新（UI演出）
+    const valueMatch = (card.supportMessage || '').match(/(\d+)/);
+    const amount = valueMatch ? parseInt(valueMatch[1], 10) : 0;
+    if ((card.supportType || '').toLowerCase() === 'staminaRecover') {
+      if (isMe) { myStamina = Math.min(100, myStamina + amount); } else { opStamina = Math.min(100, opStamina + amount); }
+    } else if ((card.supportType || '').toLowerCase() === 'magicRecover') {
+      if (isMe) { myMp = Math.min(100, myMp + amount); } else { opMp = Math.min(100, opMp + amount); }
+    }
+    updateGodFieldBars();
 
     if (winnerId) {
       const winMe = winnerId === playerId;
@@ -1239,6 +1365,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initSocket();
   showSection('homeSection');
   toggleInputs(false);
+  // レイアウト準備（バトル開始時に有効化）
+  // initGodFieldLayout();
   
   // 戦歴を表示
   const wins = getWinCount();
