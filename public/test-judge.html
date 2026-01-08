@@ -610,15 +610,6 @@
             <span class="result-label">攻撃力：</span>
             <span class="result-value" style="font-size: 20px; color: #ff6b6b; font-weight: 700;">${data.finalValue}</span>
           </div>
-          <div class="result-item">
-            <span class="result-label">基本値：</span>
-            <span class="result-value">${data.baseValue}</span>
-          </div>
-          <div class="result-item">
-            <span class="result-label">最終値（ランダム補正後）：</span>
-            <span class="result-value" style="font-size: 18px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
-            <span style="font-size: 11px; color: #999;">（±20% 振幅）</span>
-          </div>
         `;
       } 
       // ========== 防御タイプの表示 ==========
@@ -627,15 +618,6 @@
           <div class="result-item">
             <span class="result-label">防御力：</span>
             <span class="result-value" style="font-size: 20px; color: #3498db; font-weight: 700;">${data.finalValue}</span>
-          </div>
-          <div class="result-item">
-            <span class="result-label">基本値：</span>
-            <span class="result-value">${data.baseValue}</span>
-          </div>
-          <div class="result-item">
-            <span class="result-label">最終値（ランダム補正後）：</span>
-            <span class="result-value" style="font-size: 18px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
-            <span style="font-size: 11px; color: #999;">（±20% 振幅）</span>
           </div>
         `;
       }
@@ -650,22 +632,13 @@
             <span class="result-label">効果値：</span>
             <span class="result-value" style="font-size: 18px; color: #4ecdc4; font-weight: 700;">${data.finalValue}</span>
           </div>
-          <div class="result-item">
-            <span class="result-label">基本値：</span>
-            <span class="result-value">${data.baseValue}</span>
-          </div>
-          <div class="result-item">
-            <span class="result-label">最終値（ランダム補正後）：</span>
-            <span class="result-value" style="font-size: 18px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
-            <span style="font-size: 11px; color: #999;">（±20% 振幅）</span>
-          </div>
         `;
       }
       
       // ========== 詳細説明 ==========
       resultHTML += `
         <div class="description">
-          💬 ${data.description}
+          💬 JSON データ完全確認済み
         </div>
       `;
       
