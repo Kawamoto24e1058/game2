@@ -1190,107 +1190,73 @@ io.on('connection', (socket) => {
       player.usedWords.add(lower);
       player.supportUsed++;
 
-      const effectTypeRaw = (card.effectType || card.supportType || card.supportEffect || '').toLowerCase();
-      const effectValNum = Number(card.effectValue);
-      const effectValue = Number.isFinite(effectValNum) ? effectValNum : null;
+      // 【サポート効果の物理的反映】
+      // AIが生成した supportType に基づいて、プレイヤーのステータスを実際に変更
+      const supportTypeRaw = (card.supportType || '').toLowerCase();
+      const supportMessage = card.supportMessage || '';
       const maxHp = player.maxHp || STARTING_HP;
       const opponent = getOpponent(room, socket.id);
       const appliedStatus = [];
 
-      const applyStatus = (sourceCard, targetPlayer) => {
-        if (!sourceCard || !sourceCard.statusAilment || !targetPlayer) return { dot: 0 };
-        if (!targetPlayer.statusAilments) targetPlayer.statusAilments = [];
-        const list = Array.isArray(sourceCard.statusAilment) ? sourceCard.statusAilment : [sourceCard.statusAilment];
-        let dot = 0;
-        for (const sa of list) {
-          if (!sa || !sa.name) continue;
-          if (targetPlayer.statusAilments.length >= 3) break;
-          const turns = Number(sa.turns) || 1;
-          const value = Number(sa.value) || 0;
-          const effectType = (sa.effectType || '').toLowerCase();
-          targetPlayer.statusAilments.push({ name: sa.name, turns, effectType, value });
-          appliedStatus.push({ targetId: targetPlayer.id, name: sa.name, turns, effectType, value });
-          if (effectType === 'dot' && value > 0) {
-            dot += Math.max(0, Math.round(value));
-          }
-        }
-        return { dot };
+      // supportMessage から数値を抽出するヘルパー関数
+      const extractNumber = (text, defaultVal = 0) => {
+        const match = text.match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : defaultVal;
       };
 
-      switch (effectTypeRaw) {
-        case 'hpmaxup': {
-          // 最大HP永続増加
-          const gain = effectValue && effectValue > 0 ? effectValue : 20;
-          player.maxHp = Math.min(999, player.maxHp + gain);  // キャップ999
-          player.hp = Math.min(player.maxHp, player.hp + gain);
-          console.log(`💪 ${player.name}: ${card.supportMessage || '最大HP増加'} (最大HP+${gain}→${player.maxHp}, HP+${gain}→${player.hp})`);
+      // 【各サポートタイプの処理】
+      switch (supportTypeRaw) {
+        case 'heal': {
+          // heal: HP即座回復
+          const healAmount = extractNumber(supportMessage, 25);
+          const actualHeal = Math.min(maxHp - player.hp, healAmount);
+          player.hp = Math.min(maxHp, player.hp + healAmount);
+          console.log(`🏥 ${player.name}: heal 発動 → HP +${actualHeal} (${player.hp}/${maxHp})`);
           break;
         }
-        case 'heal': {
-          // HP即座回復
-          const heal = effectValue && effectValue > 0 ? effectValue : 25;
-          const healAmount = Math.min(maxHp, player.hp + heal) - player.hp;
-          player.hp = Math.min(maxHp, player.hp + heal);
-          console.log(`🏥 ${player.name}: ${card.supportMessage || 'HP回復'} (+${healAmount}, ${player.hp}/${maxHp})`);
+        case 'hpmaxup': {
+          // hpMaxUp: 最大HP永続増加
+          const gain = extractNumber(supportMessage, 20);
+          player.maxHp = Math.min(999, player.maxHp + gain);
+          player.hp = Math.min(player.maxHp, player.hp + gain); // 即座にHP回復も
+          console.log(`💪 ${player.name}: hpMaxUp 発動 → 最大HP +${gain} (${player.maxHp}), HP +${gain}`);
           break;
         }
         case 'staminarecover': {
-          // スタミナ即座回復
-          const staminaGain = effectValue && effectValue > 0 ? effectValue : 37;
+          // staminaRecover: スタミナ即座回復
+          if (!player.stamina) player.stamina = 0;
+          if (!player.maxStamina) player.maxStamina = 100;
+          const staminaGain = extractNumber(supportMessage, 37);
           const oldStamina = player.stamina;
           player.stamina = Math.min(player.maxStamina, player.stamina + staminaGain);
-          console.log(`⚡ ${player.name}: ${card.supportMessage || 'スタミナ回復'} (+${player.stamina - oldStamina}, ${player.stamina}/${player.maxStamina})`);
+          console.log(`⚡ ${player.name}: staminaRecover 発動 → ST +${player.stamina - oldStamina} (${player.stamina}/${player.maxStamina})`);
           break;
         }
         case 'magicrecover': {
-          // 魔力即座回復
-          const mpGain = effectValue && effectValue > 0 ? effectValue : 29;
+          // magicRecover: 魔力即座回復
+          if (!player.mp) player.mp = 0;
+          if (!player.maxMp) player.maxMp = 100;
+          const mpGain = extractNumber(supportMessage, 29);
           const oldMp = player.mp;
           player.mp = Math.min(player.maxMp, player.mp + mpGain);
-          console.log(`✨ ${player.name}: ${card.supportMessage || '魔力回復'} (+${player.mp - oldMp}, ${player.mp}/${player.maxMp})`);
+          console.log(`✨ ${player.name}: magicRecover 発動 → MP +${player.mp - oldMp} (${player.mp}/${player.maxMp})`);
           break;
         }
         case 'defensebuff': {
-          // 防御力強化（次ターン被ダメージ軽減）
-          const defIncrease = effectValue && effectValue > 0 ? effectValue : 34;
-          player.defenseBoost = Math.max(player.defenseBoost, defIncrease);  // より高い値を採用
-          player.buffs.defUp = 2;  // 2ターン有効
-          console.log(`🛡️ ${player.name}: ${card.supportMessage || '防御強化'} (軽減率+${defIncrease}%, 2ターン有効)`);
-          break;
-        }
-        case 'allstatbuff': {
-          // 全ステータス微増（英雄・偉人効果）
-          const boost = effectValue && effectValue > 0 ? effectValue : 19;
-          player.atkMultiplier = Math.min(2.0, player.atkMultiplier + (boost / 100));
-          player.defMultiplier = Math.min(2.0, player.defMultiplier + (boost / 100));
-          const healBonus = Math.round(boost * 1.5);
-          player.hp = Math.min(maxHp, player.hp + healBonus);
-          player.buffs.allStatUp = 3;  // 3ターン有効
-          console.log(`👑 ${player.name}: ${card.supportMessage || '全能力強化'} (攻撃/防御+${boost}%, HP+${healBonus}, 3ターン有効)`);
-          break;
-        }
-        case 'buff':
-        case 'attack_boost': {
-          // 攻撃力強化
-          const atkIncrease = effectValue && effectValue > 0 ? effectValue : 50;
-          player.atkMultiplier = Math.min(2.0, player.atkMultiplier + (atkIncrease / 100));
-          player.buffs.atkUp = 2;  // 2ターン有効
-          console.log(`⬆️ ${player.name}: 攻撃力強化 ${atkIncrease}% (乗数: ${player.atkMultiplier.toFixed(2)}x), 2ターン有効`);
-          break;
-        }
-        case 'defense_boost': {
-          // 防御力強化
-          const defIncrease = effectValue && effectValue > 0 ? effectValue : 40;
-          player.defenseBoost = Math.max(player.defenseBoost, defIncrease);
-          player.buffs.defUp = 2;
-          console.log(`🛡️ ${player.name}: 防御力強化 +${defIncrease}%, 2ターン有効`);
+          // defenseBuff: 防御力強化（次ターン被ダメージ軽減）
+          const defIncrease = extractNumber(supportMessage, 34);
+          player.defenseBoost = Math.max(player.defenseBoost || 0, defIncrease);
+          player.defMultiplier = Math.min(2.0, (player.defMultiplier || 1.0) + (defIncrease / 100));
+          if (!player.buffs) player.buffs = {};
+          player.buffs.defUp = 2; // 2ターン有効
+          console.log(`🛡️ ${player.name}: defenseBuff 発動 → 防御力 +${defIncrease}%, defMultiplier: ${player.defMultiplier.toFixed(2)}x, 2ターン有効`);
           break;
         }
         case 'poison': {
-          // 相手に毒付与（3ターン継続ダメージ）
+          // poison: 相手へ継続ダメージ毒付与
           if (opponent && opponent.statusAilments) {
             if (opponent.statusAilments.length < 3) {
-              const dotValue = effectValue && effectValue > 0 ? effectValue : 3;
+              const dotValue = extractNumber(supportMessage, 3);
               opponent.statusAilments.push({
                 name: '毒',
                 turns: 3,
@@ -1304,16 +1270,16 @@ io.on('connection', (socket) => {
                 effectType: 'dot',
                 value: dotValue
               });
-              console.log(`☠️ ${opponent.name}: ${card.supportMessage || '毒付与'} (3ターン継続, ${dotValue}ダメージ/ターン)`);
+              console.log(`☠️ ${opponent.name}: poison 適用 → 毒付与 (3ターン継続, ${dotValue}ダメージ/ターン)`);
             }
           }
           break;
         }
         case 'burn': {
-          // 相手に焼け付与（3ターン継続ダメージ）
+          // burn: 相手へ継続ダメージ焼け付与
           if (opponent && opponent.statusAilments) {
             if (opponent.statusAilments.length < 3) {
-              const dotValue = effectValue && effectValue > 0 ? effectValue : 3;
+              const dotValue = extractNumber(supportMessage, 3);
               opponent.statusAilments.push({
                 name: '焼け',
                 turns: 3,
@@ -1327,92 +1293,63 @@ io.on('connection', (socket) => {
                 effectType: 'dot',
                 value: dotValue
               });
-              console.log(`🔥 ${opponent.name}: ${card.supportMessage || '焼け付与'} (3ターン継続, ${dotValue}ダメージ/ターン)`);
+              console.log(`🔥 ${opponent.name}: burn 適用 → 焼け付与 (3ターン継続, ${dotValue}ダメージ/ターン)`);
             }
           }
+          break;
+        }
+        case 'allstatbuff': {
+          // allStatBuff: 全ステータス微増（英雄・偉人効果）
+          const boost = extractNumber(supportMessage, 19);
+          player.atkMultiplier = Math.min(2.0, (player.atkMultiplier || 1.0) + (boost / 100));
+          player.defMultiplier = Math.min(2.0, (player.defMultiplier || 1.0) + (boost / 100));
+          const healBonus = Math.round(boost * 1.5);
+          player.hp = Math.min(maxHp, player.hp + healBonus);
+          if (!player.buffs) player.buffs = {};
+          player.buffs.allStatUp = 3; // 3ターン有効
+          console.log(`👑 ${player.name}: allStatBuff 発動 → 攻撃/防御 +${boost}%, HP +${healBonus}, atkMultiplier: ${player.atkMultiplier.toFixed(2)}x, defMultiplier: ${player.defMultiplier.toFixed(2)}x, 3ターン有効`);
           break;
         }
         case 'debuff': {
-          // 相手の攻撃力または防御力を弱体化
+          // debuff: 相手の攻撃力/防御力を弱体化
           if (opponent) {
-            const debuffAmount = effectValue && effectValue > 0 ? effectValue : 25;
-            opponent.atkMultiplier = Math.max(0.5, opponent.atkMultiplier - (debuffAmount / 100));
-            opponent.defMultiplier = Math.max(0.5, opponent.defMultiplier - (debuffAmount / 100));
-            console.log(`📉 ${opponent.name}: ${card.supportMessage || '弱体化'} (攻撃/防御 -${debuffAmount}%)`);
+            const debuffAmount = extractNumber(supportMessage, 25);
+            opponent.atkMultiplier = Math.max(0.5, (opponent.atkMultiplier || 1.0) - (debuffAmount / 100));
+            opponent.defMultiplier = Math.max(0.5, (opponent.defMultiplier || 1.0) - (debuffAmount / 100));
+            console.log(`📉 ${opponent.name}: debuff 適用 → 攻撃/防御 -${debuffAmount}% (atkMultiplier: ${opponent.atkMultiplier.toFixed(2)}x, defMultiplier: ${opponent.defMultiplier.toFixed(2)}x)`);
           }
-          break;
-        }
-        case 'enemy_debuff': {
-          // 相手へ直接ダメージ
-          if (opponent) {
-            const dmg = effectValue && effectValue > 0 ? effectValue : 15;
-            opponent.hp = Math.max(0, opponent.hp - dmg);
-            console.log(`💢 ${opponent.name}: ダメージ ${dmg} (HP: ${opponent.hp})`);
-          }
-          break;
-        }
-        case 'counter': {
-          // カウンター効果：次ターン攻撃を受けると自動で反撃
-          player.counterActive = true;
-          player.buffs.counterUp = 2;  // 2ターン有効
-          console.log(`⚔️ ${player.name}: ${card.supportMessage || 'カウンター能力発動'} (2ターン有効)`);
-          break;
-        }
-        case 'fieldchange': {
-          // フィールド効果発動
-          room.fieldEffect = {
-            name: card.supportMessage || '環境変化',
-            visual: 'linear-gradient(135deg, rgba(255, 100, 100, 0.3), rgba(100, 100, 255, 0.3))'
-          };
-          console.log(`🌍 フィールド効果: 【${card.word}】: ${room.fieldEffect.name}`);
-          io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
           break;
         }
         case 'cleanse': {
-          // 自身の状態異常をすべてクリア
+          // cleanse: 自身の状態異常をすべてクリア
+          if (!player.statusAilments) player.statusAilments = [];
           const cleansedCount = player.statusAilments.length;
           player.statusAilments = [];
-          console.log(`💧 ${player.name}: ${card.supportMessage || '浄化'} (${cleansedCount}個の状態異常をクリア)`);
+          console.log(`💧 ${player.name}: cleanse 発動 → 状態異常クリア (${cleansedCount}個削除)`);
           break;
         }
-        case 'damage': {
-          // 相手へ直接ダメージ
-          if (opponent) {
-            const dmg = effectValue && effectValue > 0 ? effectValue : 20;
-            opponent.hp = Math.max(0, opponent.hp - dmg);
-            console.log(`💥 ${opponent.name}: ダメージ ${dmg} (HP: ${opponent.hp})`);
-          }
+        case 'counter': {
+          // counter: 反撃・カウンター効果
+          player.counterActive = true;
+          if (!player.buffs) player.buffs = {};
+          player.buffs.counterUp = 2; // 2ターン有効
+          console.log(`⚔️ ${player.name}: counter 発動 → カウンター効果有効 (2ターン)`);
+          break;
+        }
+        case 'fieldchange': {
+          // fieldChange: 天候や地形の変化
+          room.fieldEffect = {
+            name: supportMessage || 'フィールド変化',
+            visual: 'linear-gradient(135deg, rgba(255, 100, 100, 0.3), rgba(100, 100, 255, 0.3))'
+          };
+          console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${room.fieldEffect.name}`);
+          io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
           break;
         }
         default: {
-          // 旧サポート種別との後方互換
-          if (card.supportType === 'heal_boost') {
-            const heal = 30;
-            player.hp = Math.min(maxHp, player.hp + heal);
-            console.log(`🏥 ${player.name}: 回復ブースト +${heal} (HP: ${player.hp})`);
-          } else if (card.supportType === 'attack_boost') {
-            player.attackBoost = 50;
-            console.log(`⬆️ ${player.name}: 攻撃力ブースト 50%`);
-          } else if (card.supportType === 'defense_boost') {
-            player.defenseBoost = 40;
-            console.log(`🛡️ ${player.name}: 防御力ブースト 40%`);
-          } else if (card.supportType === 'enemy_debuff') {
-            if (opponent) {
-              opponent.hp = Math.max(0, opponent.hp - 15);
-              console.log(`💢 ${opponent.name}: 敵弱体化ダメージ 15`);
-            }
-          } else {
-            const heal = 20;
-            player.hp = Math.min(maxHp, player.hp + heal);
-            console.log(`🏥 ${player.name}: デフォルト回復 +${heal}`);
-          }
+          // 未知の supportType → ロギングのみ
+          console.log(`⚠️ ${player.name}: 未知のサポートタイプ [${supportTypeRaw}] → ${supportMessage}`);
         }
-      }
-
-      // サポート由来の状態異常付与（例えば毒フィールドなど）
-      if (opponent) {
-        const res = applyStatus(card, opponent);
-        if (res.dot > 0) opponent.hp = Math.max(0, opponent.hp - res.dot);
       }
 
       // フィールド効果更新
