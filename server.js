@@ -151,6 +151,7 @@ async function generateCard(word, intent = 'neutral') {
 {
   "role": "Attack",
   "name": "...",
+  "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
   "attack": （17, 34, 52, 81 等の不規則な数値）,
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
   "specialEffect": "【固有効果名】具体的な効果文",
@@ -165,6 +166,7 @@ async function generateCard(word, intent = 'neutral') {
 {
   "role": "Defense",
   "name": "...",
+  "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
   "defense": （14, 46, 63, 78 等の不規則な数値）,
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
   "supportMessage": "防御効果の説明（〇〇%軽減、〇ターン有効など）",
@@ -180,6 +182,7 @@ async function generateCard(word, intent = 'neutral') {
 {
   "role": "Support",
   "name": "...",
+  "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
   "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange",
   "supportMessage": "効果説明・数値（heal=回復量、防御buff=軽減率、毒/焼け=継続ターン数など）",
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
@@ -209,7 +212,8 @@ async function generateCard(word, intent = 'neutral') {
 5. 数値は 1-99 範囲内（10, 20, 30 等のテンプレ値禁止）
 6. specialEffect は【】で囲むこと
 7. attribute は小文字統一（fire, water など）
-8. 各role で指定されたキーだけを含める（余分なキーは含めるな）
+8. element は日本語の属性名（火/水/草/雷/土/風/光/闇）で、入力語から連想して必ず1つ選べ（AIが自動判別）。
+9. 各role で指定されたキーだけを含める（余分なキーは含めるな）
 
 【数値に関する追加指示（Support）】
 ・supportMessage には必ず具体的な数値を含め、上記の「数値多様化の厳命」「意味付け」「連続禁止」を厳守せよ。
@@ -247,13 +251,33 @@ ${intentNote}`;
     
     const supportType = cardData.supportType || null;
     const supportMessage = cardData.supportMessage || '';
-    const attribute = (cardData.attribute || 'earth').toLowerCase();
+    // 日本語 element → エンジン属性へマッピング（後方互換で attribute を優先）
+    const elementJP = (cardData.element || '').trim();
+    const mapElementToAttribute = (el) => {
+      switch (el) {
+        case '火': return 'fire';
+        case '水': return 'water';
+        case '風': return 'wind';
+        case '土': return 'earth';
+        case '雷': return 'thunder';
+        case '光': return 'light';
+        case '闇': return 'dark';
+        case '草': return 'earth'; // 暫定: 草は土にマップ（後で拡張可能）
+        default: return null;
+      }
+    };
+    let attribute = (cardData.attribute || '').toLowerCase();
+    if (!attribute) {
+      const mapped = mapElementToAttribute(elementJP);
+      attribute = (mapped || 'earth').toLowerCase();
+    }
     const specialEffect = cardData.specialEffect || '【基本効果】標準的な効果';
     const judgeComment = cardData.judgeComment || '判定コメントなし';
 
     return {
       word: original,
       attribute,
+      element: elementJP || undefined,
       attack,
       defense,
       effect: role,
@@ -297,6 +321,7 @@ function generateCardFallback(word) {
       name: word,
       attack: 56,
       attribute,
+      element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
       specialEffect: '【基本攻撃】入力単語からの標準攻撃',
       judgeComment: 'フォールバック時の汎用攻撃カード。入力単語の特性から独立した基本値として機能。'
     };
@@ -306,6 +331,7 @@ function generateCardFallback(word) {
       name: word,
       defense: 73,
       attribute,
+      element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
       supportMessage: '被ダメージ34%軽減（2ターン有効）',
       specialEffect: '【基本防御】入力単語からの標準防御',
       judgeComment: 'フォールバック時の汎用防御カード。防護性能を重視した基本値として機能。'
@@ -358,6 +384,7 @@ function generateCardFallback(word) {
       name: word,
       supportType,
       attribute,
+      element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
       supportMessage,
       specialEffect: `【${supportType}】フォールバック効果`,
       judgeComment: 'フォールバック時のサポートカード。supportType自動判定から生成。'

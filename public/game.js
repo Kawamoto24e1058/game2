@@ -191,11 +191,13 @@ function showCutin(card, duration = 2500, extraComment = '') {
       cutinStats.style.display = 'none';
     }
 
-    // 属性と役割を表示（tier はレガシー対応）
+    // 属性（element優先）と役割を表示（tier はレガシー対応）
     const roleDisplay = (card.role || 'UNKNOWN').toUpperCase();
+    const elementJP = card.element || null;
     const attribute = (card.attribute || 'earth').toUpperCase();
     const tierDisplay = card.tier ? ` [${card.tier.toUpperCase()}]` : '';
-    cutinTier.textContent = `${attribute}${tierDisplay} ${roleDisplay}`;
+    const elementDisplay = elementJP ? `${elementJP}` : attribute;
+    cutinTier.textContent = `${elementDisplay}${tierDisplay} ${roleDisplay}`;
 
     // 特殊効果を表示（supportMessage が存在する場合は併記）
     let specialInfo = card.specialEffect || 'なし';
@@ -703,7 +705,7 @@ function initSocket() {
     await showCutin(card, 2000);
     
     const statLabel = buildRoleStatLabel(card);
-    const attr = (card.attribute || '').toUpperCase();
+    const attr = (card.element || (card.attribute || '')?.toUpperCase());
     const labelText = statLabel ? ` ${statLabel}` : '';
     appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${attr})${labelText}`, 'damage');
     flashAttackEffect();
@@ -806,7 +808,9 @@ function initSocket() {
 
     if (affinity) {
       const relation = affinity.relation || 'neutral';
-      appendLog(`属性相性: ${attackCard.attribute} vs ${defenseCard.attribute} → x${affinity.multiplier ?? 1} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
+      const atkElem = attackCard.element || (attackCard.attribute || '').toUpperCase();
+      const defElem = defenseCard.element || (defenseCard.attribute || '').toUpperCase();
+      appendLog(`属性相性: ${atkElem} vs ${defElem} → x${affinity.multiplier ?? 1} (${relation})`, relation === 'advantage' ? 'buff' : relation === 'disadvantage' ? 'debuff' : 'info');
       showAffinityMessage(relation);
     }
 
