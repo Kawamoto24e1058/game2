@@ -452,20 +452,26 @@ function showCenterCard(card) {
   } else {
     cardEl.className = 'center-card card-enter';
   }
+
+  // AIが返した属性名をそのまま表示（カスタム属性も可）
+  const elementName = (card.element || card.attribute || '無属性').toString();
+
+  const elementBadge = `<div class="element-badge">${elementName}</div>`;
   
   if (role === 'attack') {
     const atk = Number(card.attack) || 0;
+    // 攻撃時は攻撃力のみを中央表示
     cardEl.innerHTML = `
+      ${elementBadge}
       <div class="role-icon">${sword}</div>
-      <div class="word">${card.word || card.name || ''}</div>
       <div class="role-value attack">${atk}</div>
     `;
   } else if (role === 'defense') {
     const def = Number(card.defense) || 0;
-    const effect = card.specialEffect || '';
+    const effect = card.specialEffect || card.supportMessage || '防御行動！';
     cardEl.innerHTML = `
+      ${elementBadge}
       <div class="role-icon">${shield}</div>
-      <div class="word">${card.word || card.name || ''}</div>
       <div class="role-value defense">${def}</div>
       ${effect ? `<div class="role-extra">${effect}</div>` : ''}
     `;
@@ -475,10 +481,9 @@ function showCenterCard(card) {
     cardEl.style.background = 'linear-gradient(145deg, #0a1628, #1a2b3f)';
     cardEl.style.borderColor = '#00d4ff';
     cardEl.innerHTML = `
+      ${elementBadge}
       <div class="role-icon">${supportEmoji}</div>
-      <div class="word" style="color: #e0f7ff; text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);">${card.word || card.name || ''}</div>
-      <div class="role-effect">${supportLabel}</div>
-      <div class="role-message">${msg}</div>
+      <div class="role-message role-message-large">${msg}</div>
     `;
   } else {
     // 未定義ロールのフォールバック
@@ -502,6 +507,48 @@ function showCenterCard(card) {
   const glow = elemColorMap[card.element] || 'rgba(124, 240, 197, 0.5)';
   cardEl.style.setProperty('--elem-glow', glow);
   cardEl.classList.add('element-glow');
+
+  // バッジのスタイルを直接指定（カスタム属性名を強調）
+  const badgeEl = cardEl.querySelector('.element-badge');
+  if (badgeEl) {
+    badgeEl.style.cssText = `
+      position: absolute;
+      top: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      border: 1px solid rgba(255,255,255,0.35);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+      white-space: nowrap;
+    `;
+  }
+
+  // サポートメッセージを大きく中央表示
+  const msgEl = cardEl.querySelector('.role-message-large');
+  if (msgEl) {
+    msgEl.style.cssText = `
+      font-size: 28px;
+      font-weight: 800;
+      text-align: center;
+      line-height: 1.4;
+      color: #e8f7ff;
+      text-shadow:
+        0 2px 6px rgba(0, 212, 255, 0.5),
+        0 0 18px rgba(0, 212, 255, 0.35),
+        0 0 28px rgba(0, 212, 255, 0.25);
+      padding: 10px 12px;
+      word-break: break-word;
+      max-width: 80vw;
+      margin: 0 auto;
+    `;
+  }
+
   setTimeout(() => cardEl.classList.remove('element-glow'), 900);
   // 自動で少し後にフェードアウト
   setTimeout(() => {
@@ -1515,6 +1562,18 @@ function initSocket() {
     const myTurn = activePlayer === socket.id;
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : `${activePlayerName} のターン進行中`);
     console.log(`✅ ターン同期完了: ${myTurn ? 'あなたが' : activePlayerName + 'が'}プレイ中`);
+  });
+
+  // 追加の同期イベント（nextTurn）を受信した場合も確実にターンを更新
+  socket.on('nextTurn', ({ nextTurn, activePlayer, players, hp }) => {
+    const active = activePlayer || nextTurn;
+    if (active) {
+      currentTurn = active;
+    }
+    syncTurnState({ activePlayer: active, nextTurn, players, hp });
+    const myTurn = active === socket.id;
+    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
+    console.log('🔄 nextTurn 同期', { active, nextTurn });
   });
 
   socket.on('fieldEffectUpdate', ({ fieldEffect }) => {

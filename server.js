@@ -77,7 +77,15 @@ function getAffinityByElement(attackerElem, defenderElem) {
   const beats = { '火': '草', '草': '土', '土': '雷', '雷': '水', '水': '火' };
   const atk = attackerElem || null;
   const def = defenderElem || null;
+  
+  // カスタム属性（金/魂/夢/虚無 等）や未定義の属性は等倍（1.0）として処理
   if (!atk || !def) return { multiplier: 1.0, relation: 'neutral', isEffective: false };
+
+  // 既存の属性相性計算に該当しない場合も等倍（1.0）
+  const knownAttributes = ['火', '水', '風', '土', '雷', '光', '闇', '草'];
+  if (!knownAttributes.includes(atk) || !knownAttributes.includes(def)) {
+    return { multiplier: 1.0, relation: 'neutral', isEffective: false };
+  }
 
   // 光⇄闇 は互いに弱点
   if ((atk === '光' && def === '闇') || (atk === '闇' && def === '光')) {
@@ -161,12 +169,12 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
 
   // フィールド効果補正（新しい計算式）
   // 環境（fieldEffect）と攻撃の属性（element）が一致する場合、1.5倍のボーナス
-  let fieldMultiplier = 1.0;
-  if (fieldEffect && fieldEffect.name && fieldEffect.multiplier) {
-    const fieldElem = fieldEffect.name; // 火、水、雷 等の日本語属性
+  // 環境バフ: 現在のフィールド属性と攻撃属性が一致したら1.5倍
+  if (fieldEffect && fieldEffect.name) {
+    const fieldElem = fieldEffect.name;
     if (atkElem === fieldElem) {
-      fieldMultiplier = fieldEffect.multiplier || 1.5; // デフォルト1.5倍
-      finalAttack = Math.round(finalAttack * fieldMultiplier);
+      const envMultiplier = 1.5;
+      finalAttack = Math.round(finalAttack * envMultiplier);
     }
   }
 
@@ -219,99 +227,105 @@ async function generateCard(word, intent = 'neutral') {
         ? '現在はサポート用途。回復・強化・弱体化・環境変化を優先ロールとせよ。'
         : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは厳格なゲームシステム設計者です。入力単語から以下のいずれか1つの形式でJSONを生成せよ。
+  const prompt = `あなたは博学なゲームマスターです。入力された言葉を深く分析し、歴史・科学・文化的背景から本質を抽出し、固定観念にとらわれない独創的なカードデータをJSON形式で生成してください。
 
-【役割別パラメータ完全隔離仕様】
+【概念深層分析ロジック】
 
-【1. Attack の場合】
-出力形式：
+1. **固定観念の破壊：属性を言葉の本質から決定**
+   - 「火/水/風/土/雷/光/闇/草」の8属性に縛られず、言葉の本質的性質から最も近い属性を選ぶ
+   - 例：「インフレ」→ 経済膨張 → 風（拡散）または火（熱）
+   - 例：「AI」→ 思考の抽象化 → 光（知）または闇（不可視性）
+   - 例：「原爆」→ 核分裂エネルギー → 火（破壊熱）
+   - カスタム属性も許可：「金」「魂」「夢」「虚無」などを element に設定可能（attribute は既存8種から選択）
+
+2. **動的エフェクト生成：既存リストから選ばず、言葉の特徴から創造**
+   - specialEffect は既存の効果名をコピーせず、言葉固有の現象を表現
+   - 例：「GPS」→【測地座標拘束】相手の次行動を89%予測し、回避率を向上させる
+   - 例：「ペニシリン」→【抗菌連鎖】HP を61回復し、状態異常を無効化（3ターン）
+   - 例：「ストライキ」→【労働停止】相手の次ターン攻撃力を-47、防御力を-39
+
+3. **数値のセマンティック生成：意味のある不規則な数値**
+   - 歴史的年代、科学的定数、文化的数値から導出
+   - 例：「原爆」→ 1945年 → attack: 54（45の逆数＋9）、防御無視率19%（1945末尾）
+   - 例：「フランス革命」→ 1789年 → attack: 89、defense: 17（年代分解）
+   - 例：「絶対零度」→ -273.15℃ → defense: 73、冷凍持続ターン: 3
+   - 例：「π」→ 3.14159... → attack: 31, 特殊効果で41%の追加ダメージ
+   - **禁止数値**：10, 20, 30, 40, 50, 60, 70, 80, 90（キリの良い数字は意味が薄い）
+   - **推奨数値**：13, 27, 34, 46, 58, 61, 73, 82, 89, 91, 97
+
+4. **役割判定の柔軟性**
+   - Attack：破壊・加害・侵略・爆発・斬撃・撃破
+   - Defense：防御・保護・耐久・遮蔽・反射・吸収
+   - Support：治療・強化・弱体化・環境変化・状態操作
+   - 天候・環境ワード（晴れ/雨/嵐/砂漠/雷雲/月光 等）は必ず role: "Support", supportType: "fieldChange"
+
+5. **視覚的表現：visual フィールド追加**
+   - 各カードに視覚的な CSS gradient や色コードを付与
+   - 例：「原爆」→ visual: "linear-gradient(135deg, #ff4500, #ffd700, #8b0000)"
+   - 例：「深海」→ visual: "radial-gradient(circle, #001f3f, #003366)"
+   - 例：「虹」→ visual: "linear-gradient(90deg, red, orange, yellow, green, blue, indigo, violet)"
+
+---
+
+【出力形式】
+
+**Attack の場合：**
+\`\`\`json
 {
   "role": "Attack",
-  "name": "...",
-  "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
-  "attack": （17, 34, 52, 81 等の不規則な数値）,
+  "name": "カード名（30字以内）",
+  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム（例："金", "魂", "虚無"）,
+  "attack": （意味のある不規則な数値、1-99、10の倍数禁止）,
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "specialEffect": "【固有効果名】具体的な効果文",
-  "judgeComment": "単語の意味分析（150字程度）"
+  "specialEffect": "【独自効果名】具体的な効果文（既存テンプレート禁止）",
+  "judgeComment": "言葉の歴史的・科学的・文化的背景分析（150字程度、数値の根拠を自然に含めてもよい）",
+  "visual": "CSS gradient または色コード"
 }
-※ "defense" は絶対に含めるな
-※ 攻撃力は言葉の『鋭さ・殺傷力・破壊力・スピード・希少価値』から独自に分析し、バラバラな値を設定する
-例：剣=71, 矢=29, 炎=44, 隕石=87, 毒=36, 槍=63, 爆弾=82, 雷撃=51, 氷刃=41, 毒ガス=58
+\`\`\`
 
-【2. Defense の場合】
-出力形式：
+**Defense の場合：**
+\`\`\`json
 {
   "role": "Defense",
-  "name": "...",
-  "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
-  "defense": （14, 46, 63, 78 等の不規則な数値）,
+  "name": "カード名（30字以内）",
+  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム,
+  "defense": （意味のある不規則な数値、1-99、10の倍数禁止）,
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "supportMessage": "防御効果の説明（〇〇%軽減、〇ターン有効など）",
-  "specialEffect": "【固有効果名】具体的な効果文",
-  "judgeComment": "単語の意味分析（150字程度）"
+  "supportMessage": "防御効果の説明（軽減率、持続ターン等、具体的数値を含む）",
+  "specialEffect": "【独自効果名】具体的な効果文",
+  "judgeComment": "言葉の背景分析（150字程度）",
+  "visual": "CSS gradient または色コード"
 }
-※ "attack" は絶対に含めるな
-※ 防御力は言葉の『硬さ・耐久性・物理的強度・歴史的防御価値』から独自に分析し、バラバラな値を設定する
-例：盾=65, 鎧=78, 氷壁=42, バリア=55, 城壁=82, 盾牌=61, 石壁=73, 魔盾=47, 反射膜=59, 城塁=84
+\`\`\`
 
-【3. Support の場合】
-出力形式：
+**Support の場合：**
+\`\`\`json
 {
   "role": "Support",
-  "name": "...",
-  "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
-  "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange",
-  "supportMessage": "効果説明・数値（heal例：HP回復43/37/51、防御buff例：被ダメージ-39%/-47%/-33%、毒/焼け例：毎ターンHP-7/-9/-5、stat例：+23/+31/+18、fieldChange例：火属性1.5倍（4ターン）、雷属性1.3倍（3ターン））",
+  "name": "カード名（30字以内）",
+  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム,
+  "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange" | カスタム,
+  "supportMessage": "効果説明（具体的数値必須、意味のある不規則な値）",
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "fieldEffect": "火" | "水" | "雨" | "雷" | "土" | "風" | "光" | "闇" | null（fieldChangeの場合のみ必須、他はnull または省略可）,
-  "fieldMultiplier": 1.3-1.5（fieldEffectが有る場合のみ必須、その属性への倍率）,
-  "fieldTurns": 3-5（fieldEffectが有る場合のみ必須、持続ターン数、3 や 4 などの不規則な値）,
-  "specialEffect": "【固有効果名】具体的な効果文",
-  "judgeComment": "単語の意味分析（150字程度）"
+  "fieldEffect": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | null（fieldChange時のみ必須）,
+  "fieldMultiplier": 1.3-1.5（fieldEffect時のみ必須）,
+  "fieldTurns": 3-5（fieldEffect時のみ必須）,
+  "specialEffect": "【独自効果名】具体的な効果文",
+  "judgeComment": "言葉の背景分析（150字程度）",
+  "visual": "CSS gradient または色コード"
 }
-※ "attack" と "defense" は絶対に含めるな
-※ supportType は以下の12種類から1つだけ選択：
-  - heal: HP即座回復（医療・薬学・治癒関連）例: 薬草→「HP を43回復」、ポーション→「HP を51回復」、聖水→「HP を37回復」
-  - hpMaxUp: 最大HP永続増加（強化・進化・成長）例: 修行→「最大HP +29」、進化→「最大HP +47」、強鍛錬→「最大HP +31」
-  - staminaRecover: スタミナ即座回復（休息・回復）例: 睡眠→「スタミナを39回復」、瞑想→「スタミナを53回復」、休息→「スタミナを41回復」
-  - magicRecover: 魔力即座回復（魔法・祈り・集中）例: 祈祷→「魔力を27回復」、秘儀→「魔力を38回復」、魔法陣→「魔力を31回復」
-  - defenseBuff: 次ターン被ダメージ軽減（防御強化・堅牢）例: 堅牢化→「次ターン被ダメージ-39%」、鉄壁→「次ターン被ダメージ-47%」、要塞→「次ターン被ダメージ-33%」
-  - poison: 相手へ継続ダメージ毒付与（毒性・汚染）例: 毒→「毒を付与。3ターン継続、毎ターンHP-7」、劇毒→「毒を付与。3ターン継続、毎ターンHP-9」、ヴェノム→「毒を付与。3ターン継続、毎ターンHP-5」
-  - burn: 相手へ継続ダメージ焼け付与（火傷・高温）例: 炎→「焼けを付与。3ターン継続、毎ターンHP-8」、灼熱→「焼けを付与。3ターン継続、毎ターンHP-10」、焦熱→「焼けを付与。3ターン継続、毎ターンHP-6」
-  - allStatBuff: 全ステータス微増（英雄・偉人・伝説）例: アーサー王→「全ステータス +23」、孫子→「全ステータス +31」、天才→「全ステータス +19」
-  - debuff: 相手攻撃力/防御力を弱体化（弱化・呪い）例: 呪い→「相手の攻撃力 -29」、制限→「相手の防御力 -22」、衰弱→「相手の攻撃力 -17」
-  - cleanse: 自身の状態異常をクリア（浄化・除去）例: 浄化→「状態異常をすべてクリア」、祓い→「状態異常を3つまでクリア」、清水→「毒と焼けをクリア」
-  - counter: 反撃・カウンター効果（反撃・返し・予測）例: 反撃→「次ターン受けたダメージの53%を反射」、カウンター→「次ターン受けたダメージを反射」、先読み→「敵の次ターン攻撃を67%軽減」
-  - fieldChange: 天候や地形の変化（環境・地形・気象）例: 
-    * 晴天→「日差しが強まった！火属性の威力が1.5倍になる！（4ターン）」【fieldEffect: "火", fieldMultiplier: 1.5, fieldTurns: 4】
-    * ゲリラ豪雨→「大雨が降った！水属性の威力が1.4倍になる！（3ターン）」【fieldEffect: "水", fieldMultiplier: 1.4, fieldTurns: 3】
-    * 砂嵐→「砂嵐が吹き荒れる！土属性の威力が1.35倍になる！（5ターン）」【fieldEffect: "土", fieldMultiplier: 1.35, fieldTurns: 5】
-    * 雷雲→「雷が激しくなった！雷属性の威力が1.5倍になる！（4ターン）」【fieldEffect: "雷", fieldMultiplier: 1.5, fieldTurns: 4】
-    * 月光→「月光が射し込む！光属性の威力が1.3倍になる！（3ターン）」【fieldEffect: "光", fieldMultiplier: 1.3, fieldTurns: 3】
+\`\`\`
 
-【役割判定の優先度】
-1. 入力単語が「天候・環境・地形」に関連する場合（晴れ、雨、砂嵐、月光、嵐、雷雲、極寒など）→ role: "Support"、supportType: "fieldChange" に設定し、適切な fieldEffect/fieldMultiplier/fieldTurns を返す。
-2. 入力単語が「治療・回復・補強」に関連する場合（薬、祈り、修行など）→ role: "Support"、対応する supportType を返す。
-3. 入力単語が「盾・壁・鎧・バリア」に関連する場合（防御的）→ role: "Defense" に設定する。
-4. 入力単語が「刃・爆発・撃つ」に関連する場合（破壊的）→ role: "Attack" に設定する。
-1. 数値は言葉の意味から独自に分析してバラバラな値を設定すること。テンプレート使用厳禁。
-2. 【数値多様化の厳命】13, 27, 46, 72, 81, 59, 34, 68, 83, 41, 77, 92 など、「5」や「0」で終わらない不規則な値のみを使え。10, 15, 20, 25, 30, 35, 40, 45, 50 などの丸め値は絶対に使うな。
-3. 【意味付け】数値には根拠を持たせよ（例：単語の歴史年代/文字数/物質の密度や硬度/神話的階級など）。根拠は supportMessage や judgeComment に自然に滲ませてもよい（露骨な根拠説明は不要）。
-4. 【連続禁止】同一出力内で同じ数値を続けて使うな（例：同じ文中や箇条で 33, 33 と連続させない）。直前に出した数値とは異なる値を選べ。
-5. 数値は 1-99 範囲内（キリの良い数字10, 20, 30 等のテンプレ値は絶対に禁止）
-6. specialEffect は【】で囲むこと
-7. attribute は小文字統一（fire, water など）
-8. element は日本語の属性名（火/水/草/雷/土/風/光/闇）で、入力語から連想して必ず1つ選べ（AIが自動判別）。
-9. 各role で指定されたキーだけを含める（余分なキーは含めるな）
-10. 【最重要】AIプロンプトが返すJSON内のすべての数値は以下ルールに従え：
-    - Attack: attack は必ず13, 29, 41, 58, 67, 71, 83 など「5」「0」で終わらない数値（1-99範囲）
-    - Defense: defense は必ず14, 31, 46, 59, 67, 73, 82 など「5」「0」で終わらない数値（1-99範囲）
-    - Support: supportMessage内の数値（回復量、軽減率、ダメージ値）は毎回異なるユニークな値で、連続した数字は禁止。例：HP +37, 次ターン-43%, 毎ターンHP-6
-    - 同じJSON出力内で attack と defense が異なる値である必須（どちらも51なら禁止）
+---
 
-【数値に関する追加指示（Support）】
-・supportMessage には必ず具体的な数値を含め、上記の「数値多様化の厳命」「意味付け」「連続禁止」を厳守せよ。
-・Support型では attack/defense フィールドは返さず、supportMessage の数値を必ず異なる値にしよ。
+【厳守事項】
+1. 数値は言葉の意味から導出し、10の倍数や5の倍数は原則禁止
+2. specialEffect は既存のテンプレートをコピーせず、言葉の本質から創造
+3. element はカスタム属性も許可（「金」「魂」「夢」「虚無」等）
+4. judgeComment には歴史・科学・文化的背景を含める
+5. visual フィールドは必須（CSS gradient または色コード）
+6. 天候・環境ワードは必ず supportType: "fieldChange" に設定
+7. fieldChange 時は fieldEffect, fieldMultiplier（1.5推奨）, fieldTurns を必須設定
 
 ${intentNote}`;
 
@@ -478,24 +492,24 @@ function generateCardFallback(word) {
       supportType = 'fieldChange';
       // 環境判定に基づいて fieldEffect を決定
       let fieldEffect = '火';
-      let fieldMultiplier = 1.3;
+      let fieldMultiplier = 1.5;
       let fieldTurns = 3;
       
       if (/晴|太陽|日中|昼間|光|明る|ひ/.test(lower)) {
         fieldEffect = '火';
         fieldMultiplier = 1.5;
         fieldTurns = 4;
-        supportMessage = '日差しが強まった！火属性の威力が1.5倍になる！（4ターン）';
+        supportMessage = '日差しが強まった！火属性が1.5倍になる！（4ターン）';
       } else if (/雨|水|洪水|豪雨|濡れ|水浸し|雫|潮/.test(lower)) {
         fieldEffect = '水';
-        fieldMultiplier = 1.4;
+        fieldMultiplier = 1.5;
         fieldTurns = 3;
-        supportMessage = '大雨が降った！水属性の威力が1.4倍になる！（3ターン）';
+        supportMessage = '大雨が降った！水属性が1.5倍になる！（3ターン）';
       } else if (/砂|砂嵐|砂漠|埃|黄砂|土|地面|大地/.test(lower)) {
         fieldEffect = '土';
-        fieldMultiplier = 1.35;
+        fieldMultiplier = 1.5;
         fieldTurns = 5;
-        supportMessage = '砂嵐が吹き荒れる！土属性の威力が1.35倍になる！（5ターン）';
+        supportMessage = '砂嵐が吹き荒れる！土属性が1.5倍になる！（5ターン）';
       } else if (/雷|電|雷鳴|雷雲|稲光|ピカッ/.test(lower)) {
         fieldEffect = '雷';
         fieldMultiplier = 1.5;
@@ -503,19 +517,19 @@ function generateCardFallback(word) {
         supportMessage = '雷が激しくなった！雷属性の威力が1.5倍になる！（4ターン）';
       } else if (/月|夜|暗い|闇|影|星|銀色/.test(lower)) {
         fieldEffect = '光';
-        fieldMultiplier = 1.3;
+        fieldMultiplier = 1.5;
         fieldTurns = 3;
-        supportMessage = '月光が射し込む！光属性の威力が1.3倍になる！（3ターン）';
+        supportMessage = '月光が射し込む！光属性が1.5倍になる！（3ターン）';
       } else if (/風|空気|大気|そよ風|台風|竜巻/.test(lower)) {
         fieldEffect = '風';
-        fieldMultiplier = 1.32;
+        fieldMultiplier = 1.5;
         fieldTurns = 4;
-        supportMessage = '強風が吹き荒れる！風属性の威力が1.32倍になる！（4ターン）';
+        supportMessage = '強風が吹き荒れる！風属性が1.5倍になる！（4ターン）';
       } else {
         fieldEffect = '火';
-        fieldMultiplier = 1.3;
+        fieldMultiplier = 1.5;
         fieldTurns = 3;
-        supportMessage = 'フィールド効果を発動（3ターン）';
+        supportMessage = 'フィールド効果を発動：該当属性が1.5倍！（3ターン）';
       }
     } else if (/アーサー|ナポレオン|孫子|天才|英雄/.test(lower)) {
       supportType = 'allStatBuff';
