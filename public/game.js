@@ -620,6 +620,37 @@ function updateTurnIndicator(isMyTurn) {
   }
 }
 
+// ターン状態をサーバーと同期（演出中でも最終的に必ず呼ぶ）
+function syncTurnState({ activePlayer, nextTurn, hp, players }) {
+  // activePlayer優先、なければnextTurn
+  if (typeof activePlayer === 'string') {
+    currentTurn = activePlayer;
+  } else if (typeof nextTurn === 'string') {
+    currentTurn = nextTurn;
+  }
+
+  // HP更新（hpマップ優先、なければplayers配列で上書き）
+  let myVal = myHp;
+  let opVal = opponentHp;
+  if (hp && typeof hp === 'object') {
+    if (hp[playerId] !== undefined) myVal = hp[playerId];
+    const opEntry = Object.entries(hp).find(([id]) => id !== playerId);
+    if (opEntry) opVal = opEntry[1];
+  }
+  if (players && Array.isArray(players) && players.length > 0) {
+    players.forEach(p => {
+      if (p.id === playerId) myVal = p.hp;
+      else opVal = p.hp;
+    });
+  }
+
+  updateHealthBars(myVal, opVal);
+
+  const myTurn = currentTurn === playerId;
+  updateTurnIndicator(myTurn);
+  toggleInputs(myTurn);
+}
+
 function showSection(id) {
   ['homeSection', 'matchingSection', 'waitingSection', 'battleSection', 'resultSection'].forEach(sec => {
     document.getElementById(sec).classList.add('hidden');
@@ -1196,11 +1227,9 @@ function initSocket() {
       return;
     }
 
-    currentTurn = nextTurn;
-    const myTurn = currentTurn === playerId;
-    updateTurnIndicator(myTurn);
-    toggleInputs(myTurn);
-    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
+    // 演出後でも必ずターン同期
+    syncTurnState({ nextTurn, hp, players });
+    setStatus(currentTurn === playerId ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
   socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, statusTick, appliedStatus, fieldEffect, players }) => {
@@ -1341,12 +1370,9 @@ function initSocket() {
       return;
     }
 
-    if (nextTurn) {
-      currentTurn = nextTurn;
-    }
-    const myTurn = currentTurn === playerId;
-    updateTurnIndicator(myTurn);
-    toggleInputs(myTurn);
+    // 演出後でも必ずターン同期
+    syncTurnState({ nextTurn, hp, players });
+    setStatus(currentTurn === playerId ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
   socket.on('opponentLeft', ({ message }) => {
@@ -1363,24 +1389,12 @@ function initSocket() {
     
     currentTurn = activePlayer;
     currentTurnIndex = turnIndex;
-    
-    // プレイヤー情報を更新
-    if (players && Array.isArray(players)) {
-      players.forEach(p => {
-        const player = gameState.players.find(gp => gp.id === p.id);
-        if (player) {
-          player.hp = p.hp;
-          player.maxHp = p.maxHp;
-        }
-      });
-    }
-    
-    // UI 更新
+
+    // サーバー状態で必ず同期
+    syncTurnState({ activePlayer, players });
+
     const myTurn = activePlayer === socket.id;
-    updateTurnBanner(myTurn ? 'あなたのターン' : `${activePlayerName} のターン`);
-    updateHealthBars();
-    toggleInputs(myTurn);
-    
+    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : `${activePlayerName} のターン進行中`);
     console.log(`✅ ターン同期完了: ${myTurn ? 'あなたが' : activePlayerName + 'が'}プレイ中`);
   });
 
