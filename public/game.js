@@ -304,6 +304,25 @@ function showSupportOverlay(supportCard, duration = 3000) {
       existingOverlay.remove();
     }
 
+    // supportType に基づいた背景グラデーションマップ
+    const supportTypeGradients = {
+      'heal': 'linear-gradient(135deg, rgba(76, 175, 80, 0.5), rgba(139, 195, 74, 0.5))',
+      'hpMaxUp': 'linear-gradient(135deg, rgba(255, 152, 0, 0.5), rgba(255, 193, 7, 0.5))',
+      'staminaRecover': 'linear-gradient(135deg, rgba(255, 87, 34, 0.5), rgba(255, 152, 0, 0.5))',
+      'magicRecover': 'linear-gradient(135deg, rgba(156, 39, 176, 0.5), rgba(103, 58, 183, 0.5))',
+      'defenseBuff': 'linear-gradient(135deg, rgba(63, 81, 181, 0.5), rgba(33, 150, 243, 0.5))',
+      'allStatBuff': 'linear-gradient(135deg, rgba(255, 215, 0, 0.5), rgba(255, 165, 0, 0.5))',
+      'poison': 'linear-gradient(135deg, rgba(76, 175, 80, 0.5), rgba(0, 128, 0, 0.5))',
+      'burn': 'linear-gradient(135deg, rgba(255, 87, 34, 0.5), rgba(244, 67, 54, 0.5))',
+      'debuff': 'linear-gradient(135deg, rgba(156, 39, 176, 0.5), rgba(233, 30, 99, 0.5))',
+      'cleanse': 'linear-gradient(135deg, rgba(0, 188, 212, 0.5), rgba(0, 150, 136, 0.5))',
+      'counter': 'linear-gradient(135deg, rgba(255, 152, 0, 0.5), rgba(244, 67, 54, 0.5))',
+      'fieldChange': 'linear-gradient(135deg, rgba(33, 150, 243, 0.5), rgba(0, 188, 212, 0.5))'
+    };
+    
+    const backgroundGradient = supportTypeGradients[supportCard.supportType] || 
+                               'linear-gradient(135deg, rgba(100, 150, 255, 0.5), rgba(200, 100, 255, 0.5))';
+
     // サポート演出用のコンテナを動的に作成
     const overlay = document.createElement('div');
     overlay.id = 'supportOverlay';
@@ -313,52 +332,17 @@ function showSupportOverlay(supportCard, duration = 3000) {
       left: 0;
       width: 100%;
       height: 100%;
-      background: linear-gradient(135deg, rgba(100, 150, 255, 0.4), rgba(200, 100, 255, 0.4));
+      background: ${backgroundGradient};
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       z-index: 10000;
       animation: supportFade 0.5s ease-in-out;
-      font-family: 'Arial', sans-serif;
+      font-family: 'Segoe UI', 'Trebuchet MS', 'Georgia', sans-serif;
+      backdrop-filter: blur(2px);
+      padding: 20px;
     `;
-
-    // サポート名（単語）を表示するエレメント
-    const supportNameEl = document.createElement('div');
-    supportNameEl.style.cssText = `
-      font-size: 3.5em;
-      font-weight: bold;
-      color: #fff;
-      text-shadow: 3px 3px 8px rgba(0, 0, 0, 0.8);
-      margin-bottom: 20px;
-      letter-spacing: 2px;
-      animation: supportWordPop 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-    `;
-    supportNameEl.textContent = supportCard.word;
-
-    // サポートメッセージを表示するエレメント
-    const supportMessageEl = document.createElement('div');
-    supportMessageEl.style.cssText = `
-      font-size: 1.5em;
-      color: #fff;
-      text-shadow: 2px 2px 6px rgba(0, 0, 0, 0.8);
-      text-align: center;
-      max-width: 600px;
-      line-height: 1.6;
-      animation: supportMessageSlide 0.8s ease-out 0.3s both;
-    `;
-    supportMessageEl.textContent = supportCard.supportMessage || '効果を発動！';
-
-    // 特殊効果を表示するエレメント
-    const specialEl = document.createElement('div');
-    specialEl.style.cssText = `
-      font-size: 1.2em;
-      color: #ffeb3b;
-      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
-      margin-top: 20px;
-      animation: supportSpecialGlow 1s ease-in-out 0.5s infinite;
-    `;
-    specialEl.textContent = supportCard.specialEffect || '';
 
     // supportType に対応したアイコンを表示
     const supportTypeIcons = {
@@ -380,10 +364,67 @@ function showSupportOverlay(supportCard, duration = 3000) {
     const iconEl = document.createElement('div');
     iconEl.style.cssText = `
       font-size: 4em;
-      margin-bottom: 15px;
+      margin-bottom: 10px;
       animation: supportIconBounce 0.6s ease-in-out;
+      filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
     `;
     iconEl.textContent = icon;
+
+    // サポート名（単語）を表示するエレメント
+    const supportNameEl = document.createElement('div');
+    supportNameEl.style.cssText = `
+      font-size: 3.8em;
+      font-weight: 900;
+      color: #ffffff;
+      text-shadow: 
+        0 2px 4px rgba(0, 0, 0, 0.3),
+        0 4px 8px rgba(0, 0, 0, 0.4),
+        2px 2px 0px rgba(0, 0, 0, 0.5),
+        -2px -2px 0px rgba(255, 255, 255, 0.2);
+      margin-bottom: 15px;
+      letter-spacing: 3px;
+      animation: supportWordPop 0.7s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      text-align: center;
+      max-width: 90vw;
+      word-wrap: break-word;
+    `;
+    supportNameEl.textContent = supportCard.word;
+
+    // サポートメッセージを表示するエレメント
+    const supportMessageEl = document.createElement('div');
+    supportMessageEl.style.cssText = `
+      font-size: 1.8em;
+      font-weight: 500;
+      color: #ffffff;
+      text-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        1px 1px 0px rgba(0, 0, 0, 0.6);
+      text-align: center;
+      max-width: 80vw;
+      line-height: 1.8;
+      letter-spacing: 1px;
+      animation: supportMessageSlide 0.9s ease-out 0.2s both;
+      padding: 0 20px;
+    `;
+    supportMessageEl.textContent = supportCard.supportMessage || '効果を発動！';
+
+    // 特殊効果を表示するエレメント
+    const specialEl = document.createElement('div');
+    specialEl.style.cssText = `
+      font-size: 1.3em;
+      font-weight: 600;
+      color: #ffeb3b;
+      text-shadow: 
+        0 2px 4px rgba(0, 0, 0, 0.5),
+        0 0 10px rgba(255, 235, 59, 0.3),
+        0 0 20px rgba(255, 235, 59, 0.2);
+      margin-top: 15px;
+      animation: supportSpecialGlow 1.2s ease-in-out 0.4s infinite;
+      text-align: center;
+      max-width: 70vw;
+    `;
+    specialEl.textContent = supportCard.specialEffect || '';
 
     overlay.appendChild(iconEl);
     overlay.appendChild(supportNameEl);
@@ -402,55 +443,98 @@ function showSupportOverlay(supportCard, duration = 3000) {
         @keyframes supportFade {
           from {
             opacity: 0;
+            backdrop-filter: blur(0px);
           }
           to {
             opacity: 1;
+            backdrop-filter: blur(2px);
           }
         }
+
         @keyframes supportWordPop {
           0% {
-            transform: scale(0) rotateZ(-10deg);
+            transform: scale(0) rotateZ(-15deg);
             opacity: 0;
+            filter: blur(10px);
           }
           50% {
-            transform: scale(1.1) rotateZ(5deg);
+            transform: scale(1.15) rotateZ(5deg);
+            filter: blur(0px);
           }
           100% {
             transform: scale(1) rotateZ(0deg);
             opacity: 1;
+            filter: blur(0px);
           }
         }
+
         @keyframes supportMessageSlide {
           from {
-            transform: translateY(20px);
+            transform: translateY(30px);
             opacity: 0;
+            filter: blur(5px);
           }
           to {
             transform: translateY(0);
             opacity: 1;
+            filter: blur(0px);
           }
         }
+
         @keyframes supportSpecialGlow {
-          0%, 100% {
-            opacity: 0.7;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+          0% {
+            opacity: 0.6;
+            text-shadow: 
+              0 2px 4px rgba(0, 0, 0, 0.5),
+              0 0 10px rgba(255, 235, 59, 0.2),
+              0 0 20px rgba(255, 235, 59, 0.1);
+            transform: scale(1);
           }
           50% {
             opacity: 1;
-            text-shadow: 0px 0px 20px rgba(255, 235, 59, 0.8);
+            text-shadow: 
+              0 2px 4px rgba(0, 0, 0, 0.5),
+              0 0 15px rgba(255, 235, 59, 0.6),
+              0 0 30px rgba(255, 235, 59, 0.4);
+            transform: scale(1.05);
+          }
+          100% {
+            opacity: 0.6;
+            text-shadow: 
+              0 2px 4px rgba(0, 0, 0, 0.5),
+              0 0 10px rgba(255, 235, 59, 0.2),
+              0 0 20px rgba(255, 235, 59, 0.1);
+            transform: scale(1);
           }
         }
+
         @keyframes supportIconBounce {
           0% {
-            transform: scale(0) translateY(-50px);
+            transform: scale(0) translateY(-80px);
             opacity: 0;
           }
           50% {
-            transform: scale(1.15);
+            transform: scale(1.25);
+            opacity: 1;
+          }
+          75% {
+            transform: scale(0.95);
           }
           100% {
             transform: scale(1) translateY(0);
             opacity: 1;
+          }
+        }
+
+        @media (max-width: 768px) {
+          #supportOverlay > div:nth-child(2) {
+            font-size: 2.5em !important;
+          }
+          #supportOverlay > div:nth-child(3) {
+            font-size: 1.3em !important;
+          }
+          #supportOverlay > div:nth-child(1) {
+            font-size: 3em !important;
           }
         }
       `;
