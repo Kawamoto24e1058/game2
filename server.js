@@ -115,22 +115,25 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
   }
 
   // 属性相性補正
-  // 属性相性（element優先）
   const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
   const defElem = (defenseCard && defenseCard.element) || attributeToElementJP(defenseCard?.attribute);
   const affinity = getAffinityByElement(atkElem, defElem);
-  finalAttack = Math.round(finalAttack * affinity.multiplier);
+  let affinityMultiplier = affinity.multiplier || 1.0;
+  finalAttack = Math.round(finalAttack * affinityMultiplier);
 
-  // フィールド効果補正（攻撃属性がフィールド効果と一致したら追加倍率）
-  if (fieldEffect && fieldEffect.name) {
+  // フィールド効果補正（新しい計算式）
+  // 環境（fieldEffect）と攻撃の属性（element）が一致する場合、1.5倍のボーナス
+  let fieldMultiplier = 1.0;
+  if (fieldEffect && fieldEffect.name && fieldEffect.multiplier) {
     const fieldElem = fieldEffect.name; // 火、水、雷 等の日本語属性
     if (atkElem === fieldElem) {
-      const fieldMult = fieldEffect.multiplier || 1.3;
-      finalAttack = Math.round(finalAttack * fieldMult);
+      fieldMultiplier = fieldEffect.multiplier || 1.5; // デフォルト1.5倍
+      finalAttack = Math.round(finalAttack * fieldMultiplier);
     }
   }
 
-  // ダメージ計算
+  // ダメージ計算式: Damage = max(0, (Attack × Affinity × FieldMultiplier) - Defense)
+  // ※ Affinity と FieldMultiplier は既に finalAttack に乗算済み
   let damage = 0;
   // 防御値（未定義は0）
   let finalDefense = Number(defenseCard?.defense) || 0;
@@ -151,7 +154,8 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
     // 防御失敗でも予約防御は確実に差し引く
     damage = Math.max(0, finalAttack - reservedDefense);
   } else {
-    damage = Math.max(0, finalAttack * 1 - totalDefense);
+    // 新式: (Attack × Affinity × FieldMultiplier) - Defense
+    damage = Math.max(0, finalAttack - totalDefense);
   }
   // 予約防御は消費
   if (reservedDefense > 0) defender.reservedDefense = 0;
@@ -544,7 +548,14 @@ function createRoom(players, mode, password) {
     phase: 'waiting',
     pendingAttack: null,
     usedWordsGlobal: new Set(),
-    fieldEffect: null
+    fieldEffect: null,
+    // 新しい環境管理オブジェクト
+    currentField: {
+      name: null,         // 属性名（火、水、雷等）
+      multiplier: 1.0,    // 属性威力倍率
+      turns: 0,          // 残り持続ターン数
+      originalTurns: 0   // 元のターン数（表示用）
+    }
   };
 
   rooms.set(roomId, room);
@@ -600,6 +611,12 @@ function startBattle(roomId) {
   });
   
   room.fieldEffect = null;
+  room.currentField = {
+    name: null,
+    multiplier: 1.0,
+    turns: 0,
+    originalTurns: 0
+  };
 
   io.to(roomId).emit('battleStarted', {
     roomId,
@@ -622,7 +639,7 @@ function tickStatusEffects(room) {
   if (!room || !room.players) return [];
   const ticks = [];
   
-  // フィールド効果のターン数を減少
+  // フィールド効果のターン数を減少（旧フィールド効果）
   if (room.fieldEffect && room.fieldEffect.turns && room.fieldEffect.turns > 0) {
     room.fieldEffect.turns--;
     if (room.fieldEffect.turns <= 0) {
@@ -630,6 +647,22 @@ function tickStatusEffects(room) {
       room.fieldEffect = null;
     } else {
       console.log(`🌍 フィールド効果継続: ${room.fieldEffect.name}属性 x${room.fieldEffect.multiplier} (残り ${room.fieldEffect.turns}ターン)`);
+    }
+  }
+  
+  // 新しい環境管理オブジェクトも同時に管理
+  if (room.currentField && room.currentField.turns && room.currentField.turns > 0) {
+    room.currentField.turns--;
+    if (room.currentField.turns <= 0) {
+      console.log(`🌐 環境効果が消滅: ${room.currentField.name}属性バフ終了`);
+      room.currentField = {
+        name: null,
+        multiplier: 1.0,
+        turns: 0,
+        originalTurns: 0
+      };
+    } else {
+      console.log(`🌐 環境効果継続: ${room.currentField.name}属性 x${room.currentField.multiplier} (残り ${room.currentField.turns}ターン)`);
     }
   }
   
@@ -893,9 +926,15 @@ function handleDefend(roomId, socket, word) {
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
     
-    // フィールド効果をダメージ計算用に整形（fieldEffect が null でない場合）
+    // フィールド効果をダメージ計算用に整形（currentField が有効な場合）
+    // 優先順位: currentField > fieldEffect（互換性のため）
     let fieldEffectForDamage = null;
-    if (room.fieldEffect && room.fieldEffect.name) {
+    if (room.currentField && room.currentField.name && room.currentField.turns > 0) {
+      fieldEffectForDamage = {
+        name: room.currentField.name,
+        multiplier: room.currentField.multiplier || 1.5
+      };
+    } else if (room.fieldEffect && room.fieldEffect.name) {
       fieldEffectForDamage = {
         name: room.fieldEffect.name,
         multiplier: room.fieldEffect.multiplier || 1.3
@@ -1514,13 +1553,23 @@ io.on('connection', (socket) => {
           const fieldMult = card.fieldMultiplier || 1.5; // 倍率（デフォルト1.5）
           const fieldTurns = card.fieldTurns || 3; // ターン数（デフォルト3）
           
+          // 旧フィールド効果（互換性）
           room.fieldEffect = {
-            name: fieldElem, // 属性名（火、水、雷等）
-            multiplier: fieldMult, // 属性威力倍率
-            turns: fieldTurns, // 残り持続ターン数
-            originalTurns: fieldTurns, // 元のターン数（表示用）
-            visual: `linear-gradient(135deg, rgba(200, 100, 100, 0.4), rgba(100, 100, 200, 0.4))` // グラデーション背景
+            name: fieldElem,
+            multiplier: fieldMult,
+            turns: fieldTurns,
+            originalTurns: fieldTurns,
+            visual: `linear-gradient(135deg, rgba(200, 100, 100, 0.4), rgba(100, 100, 200, 0.4))`
           };
+          
+          // 新しい環境管理オブジェクト
+          room.currentField = {
+            name: fieldElem,
+            multiplier: fieldMult,
+            turns: fieldTurns,
+            originalTurns: fieldTurns
+          };
+          
           console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${fieldElem}属性 x${fieldMult} (${fieldTurns}ターン継続)`);
           io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
           break;

@@ -1214,7 +1214,8 @@ function initSocket() {
     if (fieldEffect && fieldEffect.name && fieldEffect.multiplier) {
       const atkElem = attackCard.element || (attackCard.attribute || '').toUpperCase();
       if (atkElem === fieldEffect.name) {
-        appendLog(`🌍 フィールド効果: ${fieldEffect.name}属性が${fieldEffect.multiplier}倍に強化！`, 'buff');
+        const turnInfo = fieldEffect.turns > 0 ? `（残り${fieldEffect.turns}ターン）` : '';
+        appendLog(`🌍 環境効果: ${fieldEffect.name}属性が${fieldEffect.multiplier}倍に強化！${turnInfo}`, 'buff');
       }
     }
 
