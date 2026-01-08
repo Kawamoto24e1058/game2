@@ -14,6 +14,9 @@ let myMp = 50;
 let opStamina = 100;
 let opMp = 50;
 
+// 現在有効な環境効果
+let currentFieldEffect = null; // { name, multiplier, turns, originalTurns }
+
 // 演出関数群
 function showFloatingText(x, y, text, type = 'damage', isAdvantage = false) {
   const container = document.getElementById('effectContainer');
@@ -687,30 +690,100 @@ function updateStatusBadges(playerId, statusAilments) {
 }
 
 function showFieldEffect(fieldEffect) {
-  if (fieldEffect && fieldEffect.visual) {
-    // 背景グラデーションを適用
-    document.body.style.background = fieldEffect.visual;
-    document.body.style.backgroundAttachment = 'fixed';
+  if (fieldEffect && (fieldEffect.visual || fieldEffect.name)) {
+    const { name, multiplier, turns, originalTurns, visual } = fieldEffect;
+    const announcementText = multiplier 
+      ? name + "属性威力が" + multiplier + "倍！（" + (turns || originalTurns) + "ターン）"
+      : "フィールド効果発動: " + name;
     
-    // 中央に大きく効果名を表示
+    // 背景グラデーションを永続適用
+    if (visual) {
+      document.body.style.background = visual;
+      document.body.style.backgroundAttachment = 'fixed';
+    }
+    
+    // 中央に大きく効果名を一時的に表示（3秒）
     const announcement = document.createElement('div');
     announcement.className = 'field-announcement';
-    announcement.textContent = fieldEffect.name || 'フィールド効果発動！';
+    announcement.textContent = announcementText;
+    announcement.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 2.5em;
+      font-weight: bold;
+      color: white;
+      text-shadow: 2px 2px 8px rgba(0,0,0,0.8);
+      z-index: 9999;
+      animation: pulse 1s ease-in-out;
+    `;
     document.body.appendChild(announcement);
     
-    // 3秒後に背景を戻す
+    // 3秒後にアナウンスのみ削除、背景は維持
     setTimeout(() => {
       announcement.remove();
-      // 背景をデフォルトに戻す（戦闘画面のスタイルに依存）
-      document.body.style.background = '';
     }, 3000);
-    const { name, multiplier, turns, originalTurns } = fieldEffect;
-    const announcementText = multiplier ? name + "属性威力が" + multiplier + "倍！（" + (turns || originalTurns) + "ターン）" : "フィールド効果発動: " + name;
+    
+    // グローバル環境効果を更新（背景永続化のため）
+    currentFieldEffect = fieldEffect;
     appendLog("🌍 フィールド効果: " + announcementText, "buff");
   }
 }
 
-// サポート効果専用の演出表示
+// 環境効果バッジの更新・表示
+function updateFieldEffectBadge(fieldEffect) {
+  let badgeContainer = document.getElementById('fieldEffectBadge');
+  
+  if (!fieldEffect || !fieldEffect.name || fieldEffect.turns <= 0) {
+    // 環境効果が消えたらバッジを削除
+    if (badgeContainer) {
+      badgeContainer.remove();
+    }
+    return;
+  }
+  
+  // バッジコンテナが存在しなければ作成
+  if (!badgeContainer) {
+    badgeContainer = document.createElement('div');
+    badgeContainer.id = 'fieldEffectBadge';
+    badgeContainer.style.cssText = `
+      position: fixed;
+      top: 120px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 2px solid #00ffff;
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: #fff;
+      font-weight: bold;
+      font-size: 14px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+    `;
+    document.body.appendChild(badgeContainer);
+  }
+  
+  // 属性ごとのアイコン
+  const elementIcons = {
+    '火': '☀️',
+    '水': '💧',
+    '雷': '⚡',
+    '土': '🌍',
+    '風': '💨',
+    '光': '✨',
+    '闇': '🌙',
+    '草': '🌿'
+  };
+  
+  const icon = elementIcons[fieldEffect.name] || '🌈';
+  const label = `${fieldEffect.name}属性強化中（残り${fieldEffect.turns}ターン）`;
+  
+  badgeContainer.innerHTML = `<span>${icon}</span><span>${label}</span>`;
+}
 function showSupportOverlay(supportCard, duration = 3000) {
   return new Promise((resolve) => {
     // 既存のオーバーレイがあれば削除
@@ -1217,6 +1290,9 @@ function initSocket() {
         const turnInfo = fieldEffect.turns > 0 ? `（残り${fieldEffect.turns}ターン）` : '';
         appendLog(`🌍 環境効果: ${fieldEffect.name}属性が${fieldEffect.multiplier}倍に強化！${turnInfo}`, 'buff');
       }
+      // グローバル環境効果を更新してバッジを表示
+      currentFieldEffect = fieldEffect;
+      updateFieldEffectBadge(fieldEffect);
     }
 
     appendLog(`ダメージ: ${damage}`, 'damage');
@@ -1233,6 +1309,10 @@ function initSocket() {
         appendLog('相手の勝利', 'win');
         document.getElementById('resultMessage').textContent = '敗北しました...😢';
       }
+      // 結果画面に遷移する前に背景をリセット
+      currentFieldEffect = null;
+      document.body.style.background = '';
+      updateFieldEffectBadge(null);
       showSection('resultSection');
       return;
     }
@@ -1376,6 +1456,10 @@ function initSocket() {
         appendLog('相手の勝利', 'win');
         document.getElementById('resultMessage').textContent = '敗北しました...😢';
       }
+      // 結果画面に遷移する前に背景をリセット
+      currentFieldEffect = null;
+      document.body.style.background = '';
+      updateFieldEffectBadge(null);
       showSection('resultSection');
       return;
     }
@@ -1387,6 +1471,10 @@ function initSocket() {
 
   socket.on('opponentLeft', ({ message }) => {
     appendLog(message || '相手が離脱しました', 'win');
+    // 背景をリセット
+    currentFieldEffect = null;
+    document.body.style.background = '';
+    updateFieldEffectBadge(null);
     showSection('resultSection');
     document.getElementById('resultMessage').textContent = message || '相手が離脱しました';
   });
@@ -1411,13 +1499,13 @@ function initSocket() {
   socket.on('fieldEffectUpdate', ({ fieldEffect }) => {
     if (fieldEffect && fieldEffect.name) {
       showFieldEffect(fieldEffect);
+      updateFieldEffectBadge(fieldEffect);
     } else {
       // フィールド効果が消えた場合
-      const overlay = document.getElementById('fieldEffectOverlay');
-      if (overlay) {
-        overlay.style.background = '';
-      }
-      appendLog('🌐 フィールド効果が消滅した', 'info');
+      currentFieldEffect = null;
+      document.body.style.background = '';
+      updateFieldEffectBadge(null);
+      appendLog('🌐 環境効果が消滅した', 'info');
     }
   });
 
@@ -1432,6 +1520,11 @@ function initSocket() {
     myHp = 0;
     opponentHp = 0;
     supportRemaining = 3;
+    
+    // 環境効果をリセット
+    currentFieldEffect = null;
+    document.body.style.background = '';
+    updateFieldEffectBadge(null);
     
     // ホーム画面に戻る
     showSection('homeSection');
