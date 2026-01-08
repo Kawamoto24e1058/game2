@@ -469,53 +469,145 @@ h2 {
   z-index: 1300;
 }
 
-/* God Field style: top/bottom stat bars */
-.gfield-top, .gfield-bottom {
-  position: relative;
+/* 【横並び対面型ヘッダー】 */
+.battle-header {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.65);
-  border: 2px solid #e2efff;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 16px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 18px;
+  border: 2px solid #d8edff;
   box-shadow: 0 12px 24px var(--shadow);
 }
 
-.gfield-top {
-  margin-bottom: 12px;
+.player-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.gfield-bottom {
-  margin-top: 12px;
+.player-status.me {
+  align-items: flex-start;
 }
 
-.stat-label {
+.player-status.opponent {
+  align-items: flex-end;
+}
+
+.player-name {
+  font-size: 20px;
   font-weight: 900;
   color: #1f3a56;
-}
-
-.bar-wrap {
-  height: 18px;
+  padding: 6px 12px;
   border-radius: 12px;
-  overflow: hidden;
-  border: 2px solid #cbe6ff;
-  background: #eef7ff;
+  background: rgba(124, 240, 197, 0.25);
 }
 
-.bar-fill {
+.player-status.opponent .player-name {
+  background: rgba(255, 159, 127, 0.25);
+}
+
+/* HPバーコンテナ */
+.hp-bar-container {
+  width: 100%;
+  position: relative;
+}
+
+.hp-bar-bg {
+  width: 100%;
+  height: 32px;
+  border-radius: 16px;
+  background: #eef7ff;
+  border: 2px solid #cbe6ff;
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.hp-bar-fill {
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #0f2b46;
   font-weight: 900;
+  font-size: 16px;
+  color: #0f2b46;
+  transition: width 0.4s ease, background 0.4s ease;
+  position: relative;
+}
+
+/* シンメトリーHPバー: 自分は右から左、相手は左から右 */
+.player-status.me .hp-bar-fill {
+  margin-left: auto;
+  justify-content: flex-end;
+  padding-right: 12px;
+}
+
+.player-status.opponent .hp-bar-fill {
+  margin-right: auto;
+  justify-content: flex-start;
+  padding-left: 12px;
+}
+
+/* HPバーの色は動的にJSで設定（緑→黄→赤） */
+
+/* リソースバー（ST/MP）*/
+.resource-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.resource-bar-wrap {
+  width: 100%;
+  height: 14px;
+  border-radius: 10px;
+  background: #eef7ff;
+  border: 1px solid #d8edff;
+  overflow: hidden;
+  position: relative;
+}
+
+.resource-bar-fill {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f2b46;
   transition: width 0.35s ease;
 }
 
-.bar-fill.hp { background: linear-gradient(90deg, #7cf0c5, #5ed0ff); }
-.bar-fill.st { background: linear-gradient(90deg, #ffd166, #ff9f7f); }
-.bar-fill.mp { background: linear-gradient(90deg, #a48aff, #6a5acd); color: #fff; }
+.resource-bar-fill.st {
+  background: linear-gradient(90deg, #ffd166, #ff9f7f);
+}
+
+.resource-bar-fill.mp {
+  background: linear-gradient(90deg, #a48aff, #6a5acd);
+  color: #fff;
+}
+
+/* リソースバーもシンメトリー */
+.player-status.me .resource-bar-fill {
+  margin-left: auto;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.player-status.opponent .resource-bar-fill {
+  margin-right: auto;
+  justify-content: flex-start;
+  padding-left: 8px;
+}
+
+/* 古いGod Fieldスタイルの互換性保持（非表示） */
+.gfield-top, .gfield-bottom {
+  display: none;
+}
 
 /* Central play area */
 #playArea {
@@ -621,7 +713,11 @@ h2 {
 }
 
 /* Animated pulsing for bars when value changes */
-.bar-fill.pulse { animation: barPulse 0.6s ease-out; }
+.hp-bar-fill.pulse,
+.resource-bar-fill.pulse {
+  animation: barPulse 0.6s ease-out;
+}
+
 @keyframes barPulse {
   0% { filter: brightness(1); }
   50% { filter: brightness(1.3); }

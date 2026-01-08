@@ -274,43 +274,78 @@ function showCutin(card, duration = 2500, extraComment = '') {
   });
 }
 
-// God Field風レイアウト初期化
+// 横並び対面型レイアウト初期化
 function initGodFieldLayout() {
   const battleSection = document.getElementById('battleSection');
   if (!battleSection) return;
   battleSection.classList.add('gfield-enabled');
+  
   // 既存のプレイエリアがなければ追加
   if (!document.getElementById('playArea')) {
     const playArea = document.createElement('div');
     playArea.id = 'playArea';
     battleSection.insertBefore(playArea, document.getElementById('battleLog'));
   }
-  // 上部（相手）バー
-  if (!document.getElementById('gfieldTop')) {
-    const top = document.createElement('div');
-    top.id = 'gfieldTop';
-    top.className = 'gfield-top';
-    top.innerHTML = `
-      <div class="stat-label">相手</div>
-      <div class="bar-wrap"><div id="opHpGF" class="bar-fill hp"><span id="opHpTextGF">100</span></div></div>
-      <div class="bar-wrap"><div id="opStGF" class="bar-fill st"><span id="opStTextGF">100</span></div></div>
-      <div class="bar-wrap"><div id="opMpGF" class="bar-fill mp"><span id="opMpTextGF">50</span></div></div>
+  
+  // 横並びヘッダーを作成
+  if (!document.getElementById('battleHeader')) {
+    const header = document.createElement('div');
+    header.id = 'battleHeader';
+    header.className = 'battle-header';
+    header.innerHTML = `
+      <div class="player-status me">
+        <div class="player-name" id="myPlayerName">あなた</div>
+        <div class="hp-bar-container">
+          <div class="hp-bar-bg">
+            <div class="hp-bar-fill" id="myHpBar">
+              <span id="myHpText">100</span>
+            </div>
+          </div>
+        </div>
+        <div class="resource-bars">
+          <div class="resource-bar-wrap">
+            <div class="resource-bar-fill st" id="myStBar">
+              <span id="myStText">100</span>
+            </div>
+          </div>
+          <div class="resource-bar-wrap">
+            <div class="resource-bar-fill mp" id="myMpBar">
+              <span id="myMpText">50</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="player-status opponent">
+        <div class="player-name" id="opPlayerName">相手</div>
+        <div class="hp-bar-container">
+          <div class="hp-bar-bg">
+            <div class="hp-bar-fill" id="opHpBar">
+              <span id="opHpText">100</span>
+            </div>
+          </div>
+        </div>
+        <div class="resource-bars">
+          <div class="resource-bar-wrap">
+            <div class="resource-bar-fill st" id="opStBar">
+              <span id="opStText">100</span>
+            </div>
+          </div>
+          <div class="resource-bar-wrap">
+            <div class="resource-bar-fill mp" id="opMpBar">
+              <span id="opMpText">50</span>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
-    battleSection.insertBefore(top, battleSection.firstChild.nextSibling);
-  }
-  // 下部（自分）バー
-  if (!document.getElementById('gfieldBottom')) {
-    const bottom = document.createElement('div');
-    bottom.id = 'gfieldBottom';
-    bottom.className = 'gfield-bottom';
-    bottom.innerHTML = `
-      <div class="stat-label">あなた</div>
-      <div class="bar-wrap"><div id="myHpGF" class="bar-fill hp"><span id="myHpTextGF">100</span></div></div>
-      <div class="bar-wrap"><div id="myStGF" class="bar-fill st"><span id="myStTextGF">100</span></div></div>
-      <div class="bar-wrap"><div id="myMpGF" class="bar-fill mp"><span id="myMpTextGF">50</span></div></div>
-    `;
-    const battleLog = document.getElementById('battleLog');
-    battleSection.insertBefore(bottom, battleLog);
+    
+    // ターンバナーの後に挿入
+    const turnBanner = document.getElementById('turnBanner');
+    if (turnBanner && turnBanner.parentNode) {
+      turnBanner.parentNode.insertBefore(header, turnBanner.nextSibling);
+    } else {
+      battleSection.insertBefore(header, battleSection.firstChild);
+    }
   }
 }
 
@@ -398,39 +433,70 @@ function showCenterCard(card) {
 }
 
 function updateGodFieldBars() {
-  // 自分
-  const myHpFillGF = document.getElementById('myHpGF');
-  const myStFillGF = document.getElementById('myStGF');
-  const myMpFillGF = document.getElementById('myMpGF');
-  if (myHpFillGF) {
-    myHpFillGF.style.width = `${Math.max(0, Math.min(100, myHp))}%`;
-    document.getElementById('myHpTextGF').textContent = Math.round(myHp);
-    myHpFillGF.classList.add('pulse'); setTimeout(() => myHpFillGF.classList.remove('pulse'), 600);
+  // HPバーの色を残量に応じて変化させるヘルパー
+  function getHpColor(hpPercent) {
+    if (hpPercent > 60) {
+      // 緑系
+      return 'linear-gradient(90deg, #7cf0c5, #5ed0ff)';
+    } else if (hpPercent > 30) {
+      // 黄系
+      return 'linear-gradient(90deg, #ffd166, #ffb347)';
+    } else {
+      // 赤系
+      return 'linear-gradient(90deg, #ff8a8a, #ff5f52)';
+    }
   }
-  if (myStFillGF) {
-    myStFillGF.style.width = `${Math.max(0, Math.min(100, myStamina))}%`;
-    document.getElementById('myStTextGF').textContent = Math.round(myStamina);
+  
+  // 自分のバー更新
+  const myHpBar = document.getElementById('myHpBar');
+  const myStBar = document.getElementById('myStBar');
+  const myMpBar = document.getElementById('myMpBar');
+  
+  if (myHpBar) {
+    const hpPercent = Math.max(0, Math.min(100, myHp));
+    myHpBar.style.width = `${hpPercent}%`;
+    myHpBar.style.background = getHpColor(hpPercent);
+    document.getElementById('myHpText').textContent = Math.round(myHp);
+    myHpBar.classList.add('pulse');
+    setTimeout(() => myHpBar.classList.remove('pulse'), 600);
   }
-  if (myMpFillGF) {
-    myMpFillGF.style.width = `${Math.max(0, Math.min(100, myMp))}%`;
-    document.getElementById('myMpTextGF').textContent = Math.round(myMp);
+  
+  if (myStBar) {
+    const stPercent = Math.max(0, Math.min(100, myStamina));
+    myStBar.style.width = `${stPercent}%`;
+    document.getElementById('myStText').textContent = Math.round(myStamina);
   }
-  // 相手
-  const opHpFillGF = document.getElementById('opHpGF');
-  const opStFillGF = document.getElementById('opStGF');
-  const opMpFillGF = document.getElementById('opMpGF');
-  if (opHpFillGF) {
-    opHpFillGF.style.width = `${Math.max(0, Math.min(100, opponentHp))}%`;
-    document.getElementById('opHpTextGF').textContent = Math.round(opponentHp);
-    opHpFillGF.classList.add('pulse'); setTimeout(() => opHpFillGF.classList.remove('pulse'), 600);
+  
+  if (myMpBar) {
+    const mpPercent = Math.max(0, Math.min(100, myMp));
+    myMpBar.style.width = `${mpPercent}%`;
+    document.getElementById('myMpText').textContent = Math.round(myMp);
   }
-  if (opStFillGF) {
-    opStFillGF.style.width = `${Math.max(0, Math.min(100, opStamina))}%`;
-    document.getElementById('opStTextGF').textContent = Math.round(opStamina);
+  
+  // 相手のバー更新
+  const opHpBar = document.getElementById('opHpBar');
+  const opStBar = document.getElementById('opStBar');
+  const opMpBar = document.getElementById('opMpBar');
+  
+  if (opHpBar) {
+    const hpPercent = Math.max(0, Math.min(100, opponentHp));
+    opHpBar.style.width = `${hpPercent}%`;
+    opHpBar.style.background = getHpColor(hpPercent);
+    document.getElementById('opHpText').textContent = Math.round(opponentHp);
+    opHpBar.classList.add('pulse');
+    setTimeout(() => opHpBar.classList.remove('pulse'), 600);
   }
-  if (opMpFillGF) {
-    opMpFillGF.style.width = `${Math.max(0, Math.min(100, opMp))}%`;
-    document.getElementById('opMpTextGF').textContent = Math.round(opMp);
+  
+  if (opStBar) {
+    const stPercent = Math.max(0, Math.min(100, opStamina));
+    opStBar.style.width = `${stPercent}%`;
+    document.getElementById('opStText').textContent = Math.round(opStamina);
+  }
+  
+  if (opMpBar) {
+    const mpPercent = Math.max(0, Math.min(100, opMp));
+    opMpBar.style.width = `${mpPercent}%`;
+    document.getElementById('opMpText').textContent = Math.round(opMp);
   }
 }
 
