@@ -203,10 +203,16 @@ async function generateCard(word, intent = 'neutral') {
 
 【共通ルール】
 1. 数値は言葉の意味から独自に分析してバラバラな値を設定すること。テンプレート使用厳禁。
-2. 数値は 1-99 範囲内（10, 20, 30 等のテンプレ値禁止）
-3. specialEffect は【】で囲むこと
-4. attribute は小文字統一（fire, water など）
-5. 各role で指定されたキーだけを含める（余分なキーは含めるな）
+2. 【数値多様化の厳命】13, 27, 46, 72 など、「5」や「0」で終わらない不規則な値のみを使え。10, 15, 20, 25, 30 などの丸め値は絶対に使うな。
+3. 【意味付け】数値には根拠を持たせよ（例：単語の歴史年代/文字数/物質の密度や硬度/神話的階級など）。根拠は supportMessage や judgeComment に自然に滲ませてもよい（露骨な根拠説明は不要）。
+4. 【連続禁止】同一出力内で同じ数値を続けて使うな（例：同じ文中や箇条で 33, 33 と連続させない）。直前に出した数値とは異なる値を選べ。
+5. 数値は 1-99 範囲内（10, 20, 30 等のテンプレ値禁止）
+6. specialEffect は【】で囲むこと
+7. attribute は小文字統一（fire, water など）
+8. 各role で指定されたキーだけを含める（余分なキーは含めるな）
+
+【数値に関する追加指示（Support）】
+・supportMessage には必ず具体的な数値を含め、上記の「数値多様化の厳命」「意味付け」「連続禁止」を厳守せよ。
 
 ${intentNote}`;
 
@@ -300,14 +306,14 @@ function generateCardFallback(word) {
       name: word,
       defense: 73,
       attribute,
-      supportMessage: '被ダメージ35%軽減（2ターン有効）',
+      supportMessage: '被ダメージ34%軽減（2ターン有効）',
       specialEffect: '【基本防御】入力単語からの標準防御',
       judgeComment: 'フォールバック時の汎用防御カード。防護性能を重視した基本値として機能。'
     };
   } else {
     // Support
     let supportType = 'heal';
-    let supportMessage = 'HP を40回復';
+    let supportMessage = 'HP を41回復';
     
     if (/毒|poison|ヘビ|蛇|沼/.test(lower)) {
       supportType = 'poison';
@@ -344,7 +350,7 @@ function generateCardFallback(word) {
       supportMessage = '全ステータス +26（1ターン）';
     } else {
       supportType = 'heal';
-      supportMessage = 'HP を40回復';
+      supportMessage = 'HP を41回復';
     }
     
     return {
