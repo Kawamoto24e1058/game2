@@ -95,7 +95,7 @@ function getAffinityByElement(attackerElem, defenderElem) {
 // =====================================
 // ダメージ計算関数（刷新相性ロジック対応）
 // =====================================
-function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false) {
+function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false, fieldEffect = null) {
 
   // 攻撃力（未定義は0）
   const baseAttack = Number(attackCard?.attack) || 0;
@@ -120,6 +120,15 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
   const defElem = (defenseCard && defenseCard.element) || attributeToElementJP(defenseCard?.attribute);
   const affinity = getAffinityByElement(atkElem, defElem);
   finalAttack = Math.round(finalAttack * affinity.multiplier);
+
+  // フィールド効果補正（攻撃属性がフィールド効果と一致したら追加倍率）
+  if (fieldEffect && fieldEffect.name) {
+    const fieldElem = fieldEffect.name; // 火、水、雷 等の日本語属性
+    if (atkElem === fieldElem) {
+      const fieldMult = fieldEffect.multiplier || 1.3;
+      finalAttack = Math.round(finalAttack * fieldMult);
+    }
+  }
 
   // ダメージ計算
   let damage = 0;
@@ -210,8 +219,11 @@ async function generateCard(word, intent = 'neutral') {
   "name": "...",
   "element": "火" | "水" | "草" | "雷" | "土" | "風" | "光" | "闇",
   "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange",
-  "supportMessage": "効果説明・数値（heal例：HP回復43/37/51、防御buff例：被ダメージ-39%/-47%/-33%、毒/焼け例：毎ターンHP-7/-9/-5、stat例：+23/+31/+18）",
+  "supportMessage": "効果説明・数値（heal例：HP回復43/37/51、防御buff例：被ダメージ-39%/-47%/-33%、毒/焼け例：毎ターンHP-7/-9/-5、stat例：+23/+31/+18、fieldChange例：火属性1.5倍（4ターン）、雷属性1.3倍（3ターン））",
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
+  "fieldEffect": "火" | "水" | "雨" | "雷" | "土" | "風" | "光" | "闇" | null（fieldChangeの場合のみ必須、他はnull または省略可）,
+  "fieldMultiplier": 1.3-1.5（fieldEffectが有る場合のみ必須、その属性への倍率）,
+  "fieldTurns": 3-5（fieldEffectが有る場合のみ必須、持続ターン数、3 や 4 などの不規則な値）,
   "specialEffect": "【固有効果名】具体的な効果文",
   "judgeComment": "単語の意味分析（150字程度）"
 }
@@ -228,9 +240,18 @@ async function generateCard(word, intent = 'neutral') {
   - debuff: 相手攻撃力/防御力を弱体化（弱化・呪い）例: 呪い→「相手の攻撃力 -29」、制限→「相手の防御力 -22」、衰弱→「相手の攻撃力 -17」
   - cleanse: 自身の状態異常をクリア（浄化・除去）例: 浄化→「状態異常をすべてクリア」、祓い→「状態異常を3つまでクリア」、清水→「毒と焼けをクリア」
   - counter: 反撃・カウンター効果（反撃・返し・予測）例: 反撃→「次ターン受けたダメージの53%を反射」、カウンター→「次ターン受けたダメージを反射」、先読み→「敵の次ターン攻撃を67%軽減」
-  - fieldChange: 天候や地形の変化（環境・地形・気象）例: 嵐→「嵐フィールドを発動（2ターン）」、地震→「大地フィールドを発動（2ターン）」、津波→「水フィールドを発動（2ターン）」
+  - fieldChange: 天候や地形の変化（環境・地形・気象）例: 
+    * 晴天→「日差しが強まった！火属性の威力が1.5倍になる！（4ターン）」【fieldEffect: "火", fieldMultiplier: 1.5, fieldTurns: 4】
+    * ゲリラ豪雨→「大雨が降った！水属性の威力が1.4倍になる！（3ターン）」【fieldEffect: "水", fieldMultiplier: 1.4, fieldTurns: 3】
+    * 砂嵐→「砂嵐が吹き荒れる！土属性の威力が1.35倍になる！（5ターン）」【fieldEffect: "土", fieldMultiplier: 1.35, fieldTurns: 5】
+    * 雷雲→「雷が激しくなった！雷属性の威力が1.5倍になる！（4ターン）」【fieldEffect: "雷", fieldMultiplier: 1.5, fieldTurns: 4】
+    * 月光→「月光が射し込む！光属性の威力が1.3倍になる！（3ターン）」【fieldEffect: "光", fieldMultiplier: 1.3, fieldTurns: 3】
 
-【共通ルール】
+【役割判定の優先度】
+1. 入力単語が「天候・環境・地形」に関連する場合（晴れ、雨、砂嵐、月光、嵐、雷雲、極寒など）→ role: "Support"、supportType: "fieldChange" に設定し、適切な fieldEffect/fieldMultiplier/fieldTurns を返す。
+2. 入力単語が「治療・回復・補強」に関連する場合（薬、祈り、修行など）→ role: "Support"、対応する supportType を返す。
+3. 入力単語が「盾・壁・鎧・バリア」に関連する場合（防御的）→ role: "Defense" に設定する。
+4. 入力単語が「刃・爆発・撃つ」に関連する場合（破壊的）→ role: "Attack" に設定する。
 1. 数値は言葉の意味から独自に分析してバラバラな値を設定すること。テンプレート使用厳禁。
 2. 【数値多様化の厳命】13, 27, 46, 72, 81, 59, 34, 68, 83, 41, 77, 92 など、「5」や「0」で終わらない不規則な値のみを使え。10, 15, 20, 25, 30, 35, 40, 45, 50 などの丸め値は絶対に使うな。
 3. 【意味付け】数値には根拠を持たせよ（例：単語の歴史年代/文字数/物質の密度や硬度/神話的階級など）。根拠は supportMessage や judgeComment に自然に滲ませてもよい（露骨な根拠説明は不要）。
@@ -322,6 +343,12 @@ ${intentNote}`;
       specialEffect,
       judgeComment,
       role,
+      // fieldChange の場合、fieldEffect を抽出
+      ...(role === 'support' && supportType === 'fieldchange' ? {
+        fieldEffect: cardData.fieldEffect || null,
+        fieldMultiplier: cardData.fieldMultiplier || 1.5,
+        fieldTurns: cardData.fieldTurns || 3
+      } : {}),
       description: `${attribute.toUpperCase()} [${role.toUpperCase()}] ATK:${attack} DEF:${defense} / ${specialEffect}`
     };
   } catch (error) {
@@ -403,15 +430,67 @@ function generateCardFallback(word) {
     } else if (/反撃|カウンター|先読|受け流|跳ね返/.test(lower)) {
       supportType = 'counter';
       supportMessage = '次ターン受けたダメージを反射';
-    } else if (/嵐|地震|津波|竜巻|雷鳴|台風/.test(lower)) {
+    } else if (/嵐|地震|津波|竜巻|雷鳴|台風|晴|曇|雨|風|雲|月|光|砂|炎|水|電|冷|冬|夏|春|秋|季節|天候|気候/.test(lower)) {
       supportType = 'fieldChange';
-      supportMessage = 'フィールド効果を発動（2ターン）';
+      // 環境判定に基づいて fieldEffect を決定
+      let fieldEffect = '火';
+      let fieldMultiplier = 1.3;
+      let fieldTurns = 3;
+      
+      if (/晴|太陽|日中|昼間|光|明る|ひ/.test(lower)) {
+        fieldEffect = '火';
+        fieldMultiplier = 1.5;
+        fieldTurns = 4;
+        supportMessage = '日差しが強まった！火属性の威力が1.5倍になる！（4ターン）';
+      } else if (/雨|水|洪水|豪雨|濡れ|水浸し|雫|潮/.test(lower)) {
+        fieldEffect = '水';
+        fieldMultiplier = 1.4;
+        fieldTurns = 3;
+        supportMessage = '大雨が降った！水属性の威力が1.4倍になる！（3ターン）';
+      } else if (/砂|砂嵐|砂漠|埃|黄砂|土|地面|大地/.test(lower)) {
+        fieldEffect = '土';
+        fieldMultiplier = 1.35;
+        fieldTurns = 5;
+        supportMessage = '砂嵐が吹き荒れる！土属性の威力が1.35倍になる！（5ターン）';
+      } else if (/雷|電|雷鳴|雷雲|稲光|ピカッ/.test(lower)) {
+        fieldEffect = '雷';
+        fieldMultiplier = 1.5;
+        fieldTurns = 4;
+        supportMessage = '雷が激しくなった！雷属性の威力が1.5倍になる！（4ターン）';
+      } else if (/月|夜|暗い|闇|影|星|銀色/.test(lower)) {
+        fieldEffect = '光';
+        fieldMultiplier = 1.3;
+        fieldTurns = 3;
+        supportMessage = '月光が射し込む！光属性の威力が1.3倍になる！（3ターン）';
+      } else if (/風|空気|大気|そよ風|台風|竜巻/.test(lower)) {
+        fieldEffect = '風';
+        fieldMultiplier = 1.32;
+        fieldTurns = 4;
+        supportMessage = '強風が吹き荒れる！風属性の威力が1.32倍になる！（4ターン）';
+      } else {
+        fieldEffect = '火';
+        fieldMultiplier = 1.3;
+        fieldTurns = 3;
+        supportMessage = 'フィールド効果を発動（3ターン）';
+      }
     } else if (/アーサー|ナポレオン|孫子|天才|英雄/.test(lower)) {
       supportType = 'allStatBuff';
       supportMessage = '全ステータス +23（1ターン）';
     } else {
       supportType = 'heal';
       supportMessage = 'HP を43回復';
+    }
+    
+    // Support フォールバック時の fieldChange は外部で fieldEffect を定義
+    let fieldEffectData = null;
+    let fieldMultiplierData = 1.0;
+    let fieldTurnsData = 0;
+    
+    if (supportType === 'fieldChange') {
+      // 既に上で fieldEffect/fieldMultiplier/fieldTurns が決まっている
+      fieldEffectData = fieldEffect;
+      fieldMultiplierData = fieldMultiplier;
+      fieldTurnsData = fieldTurns;
     }
     
     return {
@@ -422,7 +501,8 @@ function generateCardFallback(word) {
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
       supportMessage,
       specialEffect: `【${supportType}】フォールバック効果`,
-      judgeComment: 'フォールバック時のサポートカード。supportType自動判定から生成。'
+      judgeComment: 'フォールバック時のサポートカード。supportType自動判定から生成。',
+      ...(fieldEffectData ? { fieldEffect: fieldEffectData, fieldMultiplier: fieldMultiplierData, fieldTurns: fieldTurnsData } : {})
     };
   }
 }
@@ -541,6 +621,18 @@ function getOpponent(room, socketId) {
 function tickStatusEffects(room) {
   if (!room || !room.players) return [];
   const ticks = [];
+  
+  // フィールド効果のターン数を減少
+  if (room.fieldEffect && room.fieldEffect.turns && room.fieldEffect.turns > 0) {
+    room.fieldEffect.turns--;
+    if (room.fieldEffect.turns <= 0) {
+      console.log(`🌍 フィールド効果が消滅: ${room.fieldEffect.name}属性バフ終了`);
+      room.fieldEffect = null;
+    } else {
+      console.log(`🌍 フィールド効果継続: ${room.fieldEffect.name}属性 x${room.fieldEffect.multiplier} (残り ${room.fieldEffect.turns}ターン)`);
+    }
+  }
+  
   room.players.forEach(p => {
     if (!p.statusAilments) p.statusAilments = [];
     const results = [];
@@ -801,6 +893,15 @@ function handleDefend(roomId, socket, word) {
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
     
+    // フィールド効果をダメージ計算用に整形（fieldEffect が null でない場合）
+    let fieldEffectForDamage = null;
+    if (room.fieldEffect && room.fieldEffect.name) {
+      fieldEffectForDamage = {
+        name: room.fieldEffect.name,
+        multiplier: room.fieldEffect.multiplier || 1.3
+      };
+    }
+    
     // 属性相性計算（element優先）
     const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
     const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
@@ -809,7 +910,7 @@ function handleDefend(roomId, socket, word) {
     // === Attack vs Defense 標準バトル ===
     if (attackRole === 'attack' && defenseRole === 'defense') {
       console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
       // 次ターン用の防御予約（前ターンに確実適用）
       defender.reservedDefense = Number(defenseCard?.defense) || 0;
       defender.hp = Math.max(0, defender.hp - damage);
@@ -818,8 +919,8 @@ function handleDefend(roomId, socket, word) {
     // === Attack vs Attack 衝突 ===
     else if (attackRole === 'attack' && defenseRole === 'attack') {
       console.log('⚔️ 【衝突】Attack vs Attack: 双方ダメージ');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
-      counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
+      counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false, fieldEffectForDamage);
       defender.hp = Math.max(0, defender.hp - damage);
       attacker.hp = Math.max(0, attacker.hp - counterDamage);
     }
@@ -834,10 +935,10 @@ function handleDefend(roomId, socket, word) {
     // === Defense vs Attack: 防御態勢フェーズ ===
     else if (attackRole === 'defense' && defenseRole === 'attack') {
       console.log('🛡️ 【防御態勢】Defense が攻撃判定をスキップ: 防御力を適用');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
       // Defense ロール（攻撃側）のdifference フィールドは攻撃力がないため最小ダメージ
       defenseRole === 'attack' && 
-        ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false)));
+        ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage)));
       attacker.hp = Math.max(0, attacker.hp - counterDamage);
     }
     
@@ -861,7 +962,7 @@ function handleDefend(roomId, socket, word) {
     // === Support vs Attack: サポート対攻撃 ===
     else if (attackRole === 'support' && defenseRole === 'attack') {
       console.log('📦 【サポート対攻撃】Support vs Attack: 攻撃がサポートを押し通す');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
       defender.hp = Math.max(0, defender.hp - damage);
     }
     
@@ -1409,11 +1510,18 @@ io.on('connection', (socket) => {
         }
         case 'fieldchange': {
           // fieldChange: 天候や地形の変化
+          const fieldElem = card.fieldEffect || '火'; // 属性を抽出（デフォルト火）
+          const fieldMult = card.fieldMultiplier || 1.5; // 倍率（デフォルト1.5）
+          const fieldTurns = card.fieldTurns || 3; // ターン数（デフォルト3）
+          
           room.fieldEffect = {
-            name: supportMessage || 'フィールド変化',
-            visual: 'linear-gradient(135deg, rgba(255, 100, 100, 0.3), rgba(100, 100, 255, 0.3))'
+            name: fieldElem, // 属性名（火、水、雷等）
+            multiplier: fieldMult, // 属性威力倍率
+            turns: fieldTurns, // 残り持続ターン数
+            originalTurns: fieldTurns, // 元のターン数（表示用）
+            visual: `linear-gradient(135deg, rgba(200, 100, 100, 0.4), rgba(100, 100, 200, 0.4))` // グラデーション背景
           };
-          console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${room.fieldEffect.name}`);
+          console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${fieldElem}属性 x${fieldMult} (${fieldTurns}ターン継続)`);
           io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
           break;
         }

@@ -704,8 +704,9 @@ function showFieldEffect(fieldEffect) {
       // 背景をデフォルトに戻す（戦闘画面のスタイルに依存）
       document.body.style.background = '';
     }, 3000);
-    
-    appendLog(`� フィールド効果発動: ${fieldEffect.name}`, 'info');
+    const { name, multiplier, turns, originalTurns } = fieldEffect;
+    const announcementText = multiplier ? name + "属性威力が" + multiplier + "倍！（" + (turns || originalTurns) + "ターン）" : "フィールド効果発動: " + name;
+    appendLog("🌍 フィールド効果: " + announcementText, "buff");
   }
 }
 
@@ -1207,6 +1208,14 @@ function initSocket() {
         appendLog('属性不利…ダメージ減少', 'debuff');
       }
       showAffinityMessage(relation);
+    }
+
+    // フィールド効果の補正ログ
+    if (fieldEffect && fieldEffect.name && fieldEffect.multiplier) {
+      const atkElem = attackCard.element || (attackCard.attribute || '').toUpperCase();
+      if (atkElem === fieldEffect.name) {
+        appendLog(`🌍 フィールド効果: ${fieldEffect.name}属性が${fieldEffect.multiplier}倍に強化！`, 'buff');
+      }
     }
 
     appendLog(`ダメージ: ${damage}`, 'damage');
