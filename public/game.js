@@ -317,7 +317,9 @@ function showCutin(card, duration = 2500, extraComment = '') {
     // 特殊効果を表示（supportMessage が存在する場合は併記）
     let specialInfo = card.specialEffect || 'なし';
     if (card.supportMessage) {
-      specialInfo = `${card.specialEffect}\n→ ${card.supportMessage}`;
+      const safeSpecial = card.specialEffect || '効果';
+      const safeSupport = card.supportMessage || '効果発動';
+      specialInfo = `${safeSpecial}\n→ ${safeSupport}`;
     }
     cutinSpecial.textContent = `特殊効果: ${specialInfo}`;
 
@@ -469,11 +471,12 @@ function showCenterCard(card) {
   } else if (role === 'defense') {
     const def = Number(card.defense) || 0;
     const effect = card.specialEffect || card.supportMessage || '防御行動！';
+    const safeEffect = effect || '防御';
     cardEl.innerHTML = `
       ${elementBadge}
       <div class="role-icon">${shield}</div>
       <div class="role-value defense">${def}</div>
-      ${effect ? `<div class="role-extra">${effect}</div>` : ''}
+      ${safeEffect ? `<div class="role-extra">${safeEffect}</div>` : ''}
     `;
   } else if (role === 'support') {
     const msg = card.supportMessage || '効果を発動！';
@@ -739,13 +742,24 @@ function updateStatusBadges(playerId, statusAilments) {
 function showFieldEffect(fieldEffect) {
   if (fieldEffect && (fieldEffect.visual || fieldEffect.name)) {
     const { name, multiplier, turns, originalTurns, visual } = fieldEffect;
-    const announcementText = multiplier 
-      ? name + "属性威力が" + multiplier + "倍！（" + (turns || originalTurns) + "ターン）"
-      : "フィールド効果発動: " + name;
     
-    // 背景グラデーションを永続適用
+    // undefined対策：必ず文字列を表示
+    const safeName = name || '環境';
+    const safeTurns = turns || originalTurns || '?';
+    const safeMultiplier = multiplier || 1.5;
+    
+    const announcementText = multiplier 
+      ? `${safeName}属性威力が${safeMultiplier}倍！（${safeTurns}ターン）`
+      : `フィールド効果発動: ${safeName}`;
+    
+    // 背景グラデーションを永続適用（効果が切れるまで維持）
     if (visual) {
       document.body.style.background = visual;
+      document.body.style.backgroundAttachment = 'fixed';
+    } else {
+      // visualが無い場合もデフォルトの環境背景を適用
+      const defaultVisual = 'linear-gradient(135deg, rgba(100, 150, 255, 0.3), rgba(200, 100, 255, 0.3))';
+      document.body.style.background = defaultVisual;
       document.body.style.backgroundAttachment = 'fixed';
     }
     
@@ -774,7 +788,7 @@ function showFieldEffect(fieldEffect) {
     
     // グローバル環境効果を更新（背景永続化のため）
     currentFieldEffect = fieldEffect;
-    appendLog("🌍 フィールド効果: " + announcementText, "buff");
+    appendLog(`🌍 フィールド効果: ${announcementText}`, "buff");
   }
 }
 
@@ -783,10 +797,13 @@ function updateFieldEffectBadge(fieldEffect) {
   let badgeContainer = document.getElementById('fieldEffectBadge');
   
   if (!fieldEffect || !fieldEffect.name || fieldEffect.turns <= 0) {
-    // 環境効果が消えたらバッジを削除
+    // 環境効果が消えたらバッジを削除し、背景もリセット
     if (badgeContainer) {
       badgeContainer.remove();
     }
+    // 背景をデフォルトに戻す
+    document.body.style.background = '';
+    currentFieldEffect = null;
     return;
   }
   
@@ -814,7 +831,7 @@ function updateFieldEffectBadge(fieldEffect) {
     document.body.appendChild(badgeContainer);
   }
   
-  // 属性ごとのアイコン
+  // 属性ごとのアイコン（undefined対策）
   const elementIcons = {
     '火': '☀️',
     '水': '💧',
@@ -826,8 +843,10 @@ function updateFieldEffectBadge(fieldEffect) {
     '草': '🌿'
   };
   
-  const icon = elementIcons[fieldEffect.name] || '🌈';
-  const label = `${fieldEffect.name}属性強化中（残り${fieldEffect.turns}ターン）`;
+  const safeName = fieldEffect.name || '環境';
+  const safeTurns = fieldEffect.turns || '?';
+  const icon = elementIcons[safeName] || '🌈';
+  const label = `${safeName}属性強化中（残り${safeTurns}ターン）`;
   
   badgeContainer.innerHTML = `<span>${icon}</span><span>${label}</span>`;
 }
@@ -923,7 +942,8 @@ function showSupportOverlay(supportCard, duration = 3000) {
       max-width: 90vw;
       word-wrap: break-word;
     `;
-    supportNameEl.textContent = supportCard.word;
+    const safeWord = supportCard.word || 'サポート';
+    supportNameEl.textContent = safeWord;
 
     // サポートメッセージを表示するエレメント
     const supportMessageEl = document.createElement('div');
@@ -959,7 +979,8 @@ function showSupportOverlay(supportCard, duration = 3000) {
       text-align: center;
       max-width: 70vw;
     `;
-    specialEl.textContent = supportCard.specialEffect || '';
+    const safeSpecial = supportCard.specialEffect || '';
+    specialEl.textContent = safeSpecial;
 
     overlay.appendChild(iconEl);
     overlay.appendChild(supportNameEl);
@@ -1217,7 +1238,8 @@ function initSocket() {
     const statLabel = buildRoleStatLabel(card);
     const attr = (card.element || (card.attribute || '')?.toUpperCase());
     const labelText = statLabel ? ` ${statLabel}` : '';
-    appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${card.word} (${attr})${labelText}`, 'damage');
+    const safeWord = card.word || '攻撃カード';
+    appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${safeWord} (${attr})${labelText}`, 'damage');
     flashAttackEffect();
     toggleInputs(false);
     
@@ -1314,7 +1336,9 @@ function initSocket() {
     const defLabel = buildRoleStatLabel(defenseCard);
     const atkText = atkLabel ? ` [${atkLabel}]` : '';
     const defText = defLabel ? ` [${defLabel}]` : '';
-    appendLog(`攻撃: ${attackCard.word}${atkText} / 防御: ${defenseCard.word}${defText}`, 'info');
+    const safeAtkWord = attackCard.word || '攻撃';
+    const safeDefWord = defenseCard.word || '防御';
+    appendLog(`攻撃: ${safeAtkWord}${atkText} / 防御: ${safeDefWord}${defText}`, 'info');
 
     if (affinity) {
       const relation = affinity.relation || 'neutral';
@@ -1332,9 +1356,11 @@ function initSocket() {
     // フィールド効果の補正ログ
     if (fieldEffect && fieldEffect.name && fieldEffect.multiplier) {
       const atkElem = attackCard.element || (attackCard.attribute || '').toUpperCase();
-      if (atkElem === fieldEffect.name) {
+      const safeFieldName = fieldEffect.name || '環境';
+      const safeMultiplier = fieldEffect.multiplier || 1.5;
+      if (atkElem === safeFieldName) {
         const turnInfo = fieldEffect.turns > 0 ? `（残り${fieldEffect.turns}ターン）` : '';
-        appendLog(`🌍 環境効果: ${fieldEffect.name}属性が${fieldEffect.multiplier}倍に強化！${turnInfo}`, 'buff');
+        appendLog(`🌍 環境効果: ${safeFieldName}属性が${safeMultiplier}倍に強化！${turnInfo}`, 'buff');
       }
       // グローバル環境効果を更新してバッジを表示
       currentFieldEffect = fieldEffect;
@@ -1452,12 +1478,13 @@ function initSocket() {
      }
     
     // 効果詳細ログ
-    const effectMessage = buildSupportEffectMessage(card, isMe);
+    const effectMessage = buildSupportEffectMessage(card, isMe) || 'サポート効果を発動';
     appendLog(`→ ${effectMessage}`, 'buff');
     
-    // サポートメッセージがあれば追加
+    // サポートメッセージがあれば追加（undefined対策）
+    const safeMessage = card.supportMessage || '効果を発動！';
     if (card.supportMessage) {
-      appendLog(`  詳細: ${card.supportMessage}`, 'buff');
+      appendLog(`  詳細: ${safeMessage}`, 'buff');
     }
     // サポートメッセージが無い場合のフォールバック表示
     if (!card.supportMessage && card.supportType === 'fieldChange') {
@@ -1480,12 +1507,24 @@ function initSocket() {
       }
     }
 
-    // フィールド効果の表示（背景グラデーション更新）
+    // フィールド効果の表示（背景グラデーション更新）- undefined対策強化
     if (fieldEffect && fieldEffect.name) {
       showFieldEffect(fieldEffect);
+      updateFieldEffectBadge(fieldEffect);
     } else if (card && card.supportType === 'fieldChange') {
-      // supportType が fieldChange だが fieldEffect オブジェクトが無い場合、通知を表示
-      appendLog(`🌍 環境が変化した！`, 'buff');
+      // supportType が fieldChange だが fieldEffect オブジェクトが無い場合
+      // カード情報から擬似的に fieldEffect を構築
+      const pseudoFieldEffect = {
+        name: card.element || card.attribute || '環境',
+        multiplier: card.fieldMultiplier || 1.5,
+        turns: card.fieldTurns || 3,
+        originalTurns: card.fieldTurns || 3,
+        visual: card.visual || 'linear-gradient(135deg, rgba(100, 150, 255, 0.3), rgba(200, 100, 255, 0.3))'
+      };
+      showFieldEffect(pseudoFieldEffect);
+      updateFieldEffectBadge(pseudoFieldEffect);
+      const safeFieldName = pseudoFieldEffect.name || '環境';
+      appendLog(`🌍 環境が変化した！ ${safeFieldName}属性が強化される`, 'buff');
     }
 
     if (isMe && typeof newRemaining === 'number') {
@@ -1528,13 +1567,23 @@ function initSocket() {
       return;
     }
 
-    // 演出後でも必ずターン同期
-    syncTurnState({ nextTurn, hp, players });
+    // 【確実なターン交代】演出後でも必ずターン同期を実行
     // nextTurn が存在する場合は確実に currentTurn を更新
     if (nextTurn) {
       currentTurn = nextTurn;
+      console.log(`✅ supportUsed: ターン交代確定 → ${nextTurn}`);
     }
-    setStatus(currentTurn === playerId ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
+    
+    // syncTurnState でサーバー状態と完全同期
+    syncTurnState({ activePlayer: nextTurn, nextTurn, hp, players });
+    
+    // UIを更新してターン表示を確実に反映
+    const isMyTurn = currentTurn === playerId;
+    updateTurnIndicator(isMyTurn);
+    toggleInputs(isMyTurn);
+    
+    setStatus(isMyTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
+    console.log(`🔄 supportUsed完了: currentTurn=${currentTurn}, isMyTurn=${isMyTurn}`);
   });
 
   socket.on('opponentLeft', ({ message }) => {
@@ -1651,7 +1700,8 @@ function submitAttack() {
 function showDefenseModal(attackCard) {
   const modal = document.getElementById('defenseModal');
   const message = document.getElementById('defenseModalMessage');
-  message.textContent = `相手が「${attackCard.word}」で攻撃してきた！ 防御してください！`;
+  const safeAtkWord = attackCard.word || '攻撃カード';
+  message.textContent = `相手が「${safeAtkWord}」で攻撃してきた！ 防御してください！`;
   modal.classList.remove('hidden');
   document.getElementById('defenseModalInput').focus();
   setStatus('⚔️ 防御フェーズ - 言葉を入力してください ⚔️');

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>カード判定システム - テスト</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 600px;
+      width: 100%;
+    }
+    
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+      text-align: center;
+    }
+    
+    .subtitle {
+      color: #666;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    
+    .input-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #555;
+      font-weight: 600;
+    }
+    
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.3s;
+    }
+    
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    .btn:active {
+      transform: translateY(0);
+    }
+    
+    .btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .result {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border-left: 4px solid #667eea;
+      display: none;
+    }
+    
+    .result.show {
+      display: block;
+      animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .result-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .result-item {
+      margin-bottom: 12px;
+      line-height: 1.6;
+    }
+    
+    .result-label {
+      font-weight: 600;
+      color: #555;
+      display: inline-block;
+      min-width: 120px;
+    }
+    
+    .result-value {
+      color: #333;
+      font-weight: 500;
+    }
+    
+    .type-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    
+    .type-attack {
+      background: #ff6b6b;
+      color: white;
+    }
+    
+    .type-defense {
+      background: #4ecdc4;
+      color: white;
+    }
+    
+    .type-support {
+      background: #95e1d3;
+      color: #333;
+    }
+    
+    .description {
+      background: white;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 10px;
+      font-size: 14px;
+      color: #666;
+      line-height: 1.6;
+    }
+    
+    .error {
+      color: #e74c3c;
+      background: #fadbd8;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+    
+    .loading {
+      text-align: center;
+      color: #667eea;
+      margin-top: 20px;
+      font-weight: 600;
+    }
+    
+    .examples {
+      margin-top: 20px;
+      padding: 15px;
+      background: #e8f4f8;
+      border-radius: 8px;
+    }
+    
+    .examples-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    
+    .example-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    
+    .example-tag {
+      padding: 6px 12px;
+      background: white;
+      border: 2px solid #667eea;
+      border-radius: 20px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .example-tag:hover {
+      background: #667eea;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🃏 カード判定システム</h1>
+    <p class="subtitle">カード名を入力すると、AIがタイプと効果を判定します</p>
+    
+    <div class="input-group">
+      <label for="cardNameInput">カード名</label>
+      <input type="text" id="cardNameInput" placeholder="例: 炎、盾、光、雷..." maxlength="50">
+    </div>
+    
+    <button class="btn" id="judgeBtn">判定する</button>
+    
+    <div class="examples">
+      <div class="examples-title">例を試す：</div>
+      <div class="example-tags">
+        <span class="example-tag" data-name="炎">炎</span>
+        <span class="example-tag" data-name="盾">盾</span>
+        <span class="example-tag" data-name="聖なる光">聖なる光</span>
+        <span class="example-tag" data-name="雷">雷</span>
+        <span class="example-tag" data-name="織田信長">織田信長</span>
+        <span class="example-tag" data-name="ダイヤモンド">ダイヤモンド</span>
+        <span class="example-tag" data-name="晴れ">晴れ</span>
+      </div>
+    </div>
+    
+    <div id="loading" class="loading" style="display: none;">
+      判定中...
+    </div>
+    
+    <div id="result" class="result"></div>
+  </div>
+
+  <script>
+    const input = document.getElementById('cardNameInput');
+    const judgeBtn = document.getElementById('judgeBtn');
+    const loading = document.getElementById('loading');
+    const resultDiv = document.getElementById('result');
+    
+    // 例タグのクリックイベント
+    document.querySelectorAll('.example-tag').forEach(tag => {
+      tag.addEventListener('click', () => {
+        input.value = tag.dataset.name;
+        judgeCard();
+      });
+    });
+    
+    // Enterキーで判定
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        judgeCard();
+      }
+    });
+    
+    judgeBtn.addEventListener('click', judgeCard);
+    
+    async function judgeCard() {
+      const cardName = input.value.trim();
+      
+      if (!cardName) {
+        alert('カード名を入力してください');
+        return;
+      }
+      
+      // UI更新
+      judgeBtn.disabled = true;
+      loading.style.display = 'block';
+      resultDiv.classList.remove('show');
+      resultDiv.innerHTML = '';
+      
+      try {
+        const response = await fetch('/api/judgeCard', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ cardName })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        
+        displayResult(data);
+        
+      } catch (error) {
+        console.error('判定エラー:', error);
+        resultDiv.innerHTML = `<div class="error">エラーが発生しました: ${error.message}</div>`;
+        resultDiv.classList.add('show');
+      } finally {
+        judgeBtn.disabled = false;
+        loading.style.display = 'none';
+      }
+    }
+    
+    function displayResult(data) {
+      const typeClass = `type-${data.type}`;
+      const typeLabel = data.type === 'attack' ? '攻撃' 
+                      : data.type === 'defense' ? '防御' 
+                      : 'サポート';
+      
+      const defaultBadge = data.isDefault ? '<span style="background: #f39c12; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 8px;">デフォルト値</span>' : '';
+      
+      resultDiv.innerHTML = `
+        <div class="result-title">
+          📊 判定結果 ${defaultBadge}
+        </div>
+        <div class="result-item">
+          <span class="result-label">カード名：</span>
+          <span class="result-value">${data.cardName}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">タイプ：</span>
+          <span class="type-badge ${typeClass}">${typeLabel}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">効果対象：</span>
+          <span class="result-value">${formatEffectTarget(data.effectTarget)}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">基本値：</span>
+          <span class="result-value">${data.originalValue}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">最終値：</span>
+          <span class="result-value" style="font-size: 20px; color: #667eea; font-weight: 700;">${data.finalValue}</span>
+          <span style="font-size: 12px; color: #999;">(ランダム補正適用後)</span>
+        </div>
+        <div class="description">
+          💬 ${data.description}
+        </div>
+      `;
+      
+      resultDiv.classList.add('show');
+    }
+    
+    function formatEffectTarget(target) {
+      const map = {
+        'enemy_hp': '敵のHP',
+        'player_defense': '自分の防御力',
+        'player_hp': '自分のHP',
+        'player_attack': '自分の攻撃力',
+        'enemy_attack': '敵の攻撃力',
+        'player_speed': '自分の速度',
+        'field_change': 'フィールド変化',
+        'enemy_defense': '敵の防御力'
+      };
+      return map[target] || target;
+    }
+  </script>
+</body>
+</html>

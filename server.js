@@ -141,7 +141,7 @@ async function generateCardWithTimeout(word, intent = 'attack', fallbackCard) {
 // =====================================
 // ダメージ計算関数（刷新相性ロジック対応）
 // =====================================
-function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false, fieldEffect = null) {
+function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false, room = null) {
 
   // 攻撃力（未定義は0）
   const baseAttack = Number(attackCard?.attack) || 0;
@@ -167,16 +167,27 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
   let affinityMultiplier = affinity.multiplier || 1.0;
   finalAttack = Math.round(finalAttack * affinityMultiplier);
 
-  // フィールド効果補正（新しい計算式）
-  // 環境（fieldEffect）と攻撃の属性（element）が一致する場合、1.5倍のボーナス
-  // 環境バフ: 現在のフィールド属性と攻撃属性が一致したら1.5倍
-  if (fieldEffect && fieldEffect.name) {
-    const fieldElem = fieldEffect.name;
-    if (atkElem === fieldElem) {
-      const envMultiplier = 1.5;
-      finalAttack = Math.round(finalAttack * envMultiplier);
+  // フィールド効果補正（永続フィールドを最優先）
+  // Damage = Math.max(0, (Attack * Affinity * (FieldMatch ? 1.5 : 1.0)) - Defense)
+  let fieldMultiplier = 1.0;
+  if (room && room.field && room.field.element && room.field.remainingTurns > 0) {
+    // 永続フィールド: element が一致すれば 1.5 倍
+    if (atkElem === room.field.element) {
+      fieldMultiplier = 1.5;
+      console.log(`🌍 フィールドバフ適用: ${atkElem} === ${room.field.element} → x1.5 (残り${room.field.remainingTurns}ターン)`);
+    }
+  } else if (room && room.currentField && room.currentField.name && room.currentField.turns > 0) {
+    // 互換性: currentField が有効な場合
+    if (atkElem === room.currentField.name) {
+      fieldMultiplier = room.currentField.multiplier || 1.5;
+    }
+  } else if (room && room.fieldEffect && room.fieldEffect.name) {
+    // 互換性: 旧 fieldEffect が有効な場合
+    if (atkElem === room.fieldEffect.name) {
+      fieldMultiplier = room.fieldEffect.multiplier || 1.5;
     }
   }
+  finalAttack = Math.round(finalAttack * fieldMultiplier);
 
   // ダメージ計算式: Damage = max(0, (Attack × Affinity × FieldMultiplier) - Defense)
   // ※ Affinity と FieldMultiplier は既に finalAttack に乗算済み
@@ -250,14 +261,30 @@ async function generateCard(word, intent = 'neutral') {
    - 例：「フランス革命」→ 1789年 → attack: 89、defense: 17（年代分解）
    - 例：「絶対零度」→ -273.15℃ → defense: 73、冷凍持続ターン: 3
    - 例：「π」→ 3.14159... → attack: 31, 特殊効果で41%の追加ダメージ
-   - **禁止数値**：10, 20, 30, 40, 50, 60, 70, 80, 90（キリの良い数字は意味が薄い）
+   - **禁止数値**：10, 20, 30, 40, 50, 60, 70, 80, 90, 100（キリの良い数字は意味が薄い）
    - **推奨数値**：13, 27, 34, 46, 58, 61, 73, 82, 89, 91, 97
+   - **厳守**：数値は13, 27, 46, 82など、言葉の意味に基づく不規則な値にせよ。5の倍数や10の倍数は原則使用禁止
 
 4. **役割判定の柔軟性**
    - Attack：破壊・加害・侵略・爆発・斬撃・撃破
    - Defense：防御・保護・耐久・遮蔽・反射・吸収
    - Support：治療・強化・弱体化・環境変化・状態操作
    - 天候・環境ワード（晴れ/雨/嵐/砂漠/雷雲/月光 等）は必ず role: "Support", supportType: "fieldChange"
+   
+   **【重要：fieldChange の厳格ルール】**
+   - 環境・気象・地形・状態に関する言葉（例：「晴れ」「雨」「嵐」「砂嵐」「月光」「朝焼け」「極寒」「灼熱」「干ばつ」等）は必ず supportType: "fieldChange" とせよ
+   - fieldChange 生成時は以下を **絶対に省略するな**：
+     * supportMessage（必須）: 「日差しが強まり火属性が1.5倍になる！（4ターン）」のように、どの属性がどう強化されるかを明示
+     * fieldEffect（必須）: 強化される属性名（火/水/風/土/雷/光/闇/草 または カスタム属性）
+     * fieldMultiplier（必須）: 1.5 を推奨（1.3～1.5 の範囲で設定可）
+     * fieldTurns（必須）: 3, 4, 5 などの不規則な値（3～5ターンを推奨）
+   - 言葉の本質から属性を自由に判断せよ：
+     * 「朝焼け」→ 火属性（光と熱の融合）
+     * 「霧」→ 水属性（水蒸気）
+     * 「極寒」→ 水属性（凍結イメージ）
+     * 「砂嵐」→ 土属性または風属性（砂と風の複合）
+     * 「月光」→ 光属性（柔らかな光）
+     * 既存の枠に囚われず、その言葉が最も強く連想させる属性を選べ
 
 5. **視覚的表現：visual フィールド追加**
    - 各カードに視覚的な CSS gradient や色コードを付与
@@ -305,11 +332,11 @@ async function generateCard(word, intent = 'neutral') {
   "name": "カード名（30字以内）",
   "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム,
   "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange" | カスタム,
-  "supportMessage": "効果説明（具体的数値必須、意味のある不規則な値）",
+  "supportMessage": "効果説明（具体的数値必須、意味のある不規則な値）【fieldChange時は「○○属性が1.5倍になる！（Xターン）」形式を厳守】",
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "fieldEffect": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | null（fieldChange時のみ必須）,
-  "fieldMultiplier": 1.3-1.5（fieldEffect時のみ必須）,
-  "fieldTurns": 3-5（fieldEffect時のみ必須）,
+  "fieldEffect": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム属性名 | null（fieldChange時は必ず設定せよ、他はnull）,
+  "fieldMultiplier": 1.3-1.5（fieldChange時は必ず1.5を推奨、他は省略可）,
+  "fieldTurns": 3-5（fieldChange時は必ず3, 4, 5 などの不規則な値を設定、他は省略可）,
   "specialEffect": "【独自効果名】具体的な効果文",
   "judgeComment": "言葉の背景分析（150字程度）",
   "visual": "CSS gradient または色コード"
@@ -325,7 +352,14 @@ async function generateCard(word, intent = 'neutral') {
 4. judgeComment には歴史・科学・文化的背景を含める
 5. visual フィールドは必須（CSS gradient または色コード）
 6. 天候・環境ワードは必ず supportType: "fieldChange" に設定
-7. fieldChange 時は fieldEffect, fieldMultiplier（1.5推奨）, fieldTurns を必須設定
+7. **【最重要】fieldChange 時は以下を絶対に省略するな：**
+   - supportMessage: 「日差しが強まり火属性が1.5倍になる！（4ターン）」のように属性名・倍率・ターン数を明示
+   - fieldEffect: 強化される属性名（火/水/風/土/雷/光/闇/草 または カスタム属性名）を必ず設定
+   - fieldMultiplier: 1.5 を推奨（省略禁止）
+   - fieldTurns: 3, 4, 5 などの不規則な値を必ず設定（省略禁止）
+8. 属性判断は言葉の本質から自由に決定せよ（既存の枠に囚われるな）
+   - 「霧」→ 水属性、「朝焼け」→ 火属性、「極寒」→ 水属性、「砂嵐」→ 土または風属性
+   - その言葉が最も強く連想させる属性を選べ
 
 ${intentNote}`;
 
@@ -604,6 +638,11 @@ function createRoom(players, mode, password) {
     pendingAttack: null,
     usedWordsGlobal: new Set(),
     fieldEffect: null,
+    // 永続フィールド情報（属性と残ターンを記憶）
+    field: {
+      element: null,
+      remainingTurns: 0
+    },
     // 新しい環境管理オブジェクト
     currentField: {
       name: null,         // 属性名（火、水、雷等）
@@ -666,6 +705,7 @@ function startBattle(roomId) {
   });
   
   room.fieldEffect = null;
+  room.field = { element: null, remainingTurns: 0 };
   room.currentField = {
     name: null,
     multiplier: 1.0,
@@ -702,6 +742,17 @@ function tickStatusEffects(room) {
       room.fieldEffect = null;
     } else {
       console.log(`🌍 フィールド効果継続: ${room.fieldEffect.name}属性 x${room.fieldEffect.multiplier} (残り ${room.fieldEffect.turns}ターン)`);
+    }
+  }
+
+  // 永続フィールド情報のターン減少
+  if (room.field && room.field.remainingTurns && room.field.remainingTurns > 0) {
+    room.field.remainingTurns -= 1;
+    if (room.field.remainingTurns <= 0) {
+      room.field = { element: null, remainingTurns: 0 };
+      console.log('🌐 永続フィールドが終了');
+    } else {
+      console.log(`🌐 永続フィールド継続: ${room.field.element} (残り ${room.field.remainingTurns}ターン)`);
     }
   }
   
@@ -820,44 +871,65 @@ function findPlayer(room, socketId) {
 }
 
 function handlePlayWord(roomId, socket, word) {
-  const room = rooms.get(roomId);
-  if (!room || !room.started) return;
-  if (room.players[room.turnIndex].id !== socket.id) {
-    socket.emit('errorMessage', { message: 'あなたのターンではありません' });
-    return;
-  }
+  try {
+    const room = rooms.get(roomId);
+    if (!room || !room.started) return;
+    if (room.players[room.turnIndex].id !== socket.id) {
+      socket.emit('errorMessage', { message: 'あなたのターンではありません' });
+      return;
+    }
 
-  const cleanWord = (word || '').trim();
-  if (!cleanWord) {
-    socket.emit('errorMessage', { message: '言葉を入力してください' });
-    return;
-  }
+    const cleanWord = (word || '').trim();
+    if (!cleanWord) {
+      socket.emit('errorMessage', { message: '言葉を入力してください' });
+      return;
+    }
 
-  const lower = cleanWord.toLowerCase();
-  if (room.usedWordsGlobal.has(lower)) {
-    socket.emit('errorMessage', { message: 'その言葉は既に使用されています' });
-    return;
-  }
+    const lower = cleanWord.toLowerCase();
+    if (room.usedWordsGlobal.has(lower)) {
+      socket.emit('errorMessage', { message: 'その言葉は既に使用されています' });
+      return;
+    }
 
-  const attacker = findPlayer(room, socket.id);
-  const defender = getOpponent(room, socket.id);
-  if (!attacker || !defender) return;
+    const attacker = findPlayer(room, socket.id);
+    const defender = getOpponent(room, socket.id);
+    if (!attacker || !defender) return;
 
-  // 非同期でカード生成（エラー/タイムアウト時はフォールバック使用）
-  generateCardWithTimeout(cleanWord, 'attack', createDefaultAttackCard(cleanWord))
-    .then(card => {
-      room.usedWordsGlobal.add(lower);
-      attacker.usedWords.add(lower);
-      room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
-      room.phase = 'defense';
+    // 非同期でカード生成（エラー/タイムアウト時はフォールバック使用）
+    generateCardWithTimeout(cleanWord, 'attack', createDefaultAttackCard(cleanWord))
+      .then(card => {
+        room.usedWordsGlobal.add(lower);
+        attacker.usedWords.add(lower);
+        room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
+        room.phase = 'defense';
 
-      io.to(roomId).emit('attackDeclared', {
-        attackerId: attacker.id,
-        defenderId: defender.id,
-        card
+        io.to(roomId).emit('attackDeclared', {
+          attackerId: attacker.id,
+          defenderId: defender.id,
+          card
+        });
+        updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
+      })
+      .catch(error => {
+        console.error('❌ handlePlayWord 内部エラー:', error);
+        // エラー時もデフォルトカードで続行
+        const defaultCard = createDefaultAttackCard(cleanWord);
+        room.usedWordsGlobal.add(lower);
+        attacker.usedWords.add(lower);
+        room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card: defaultCard };
+        room.phase = 'defense';
+
+        io.to(roomId).emit('attackDeclared', {
+          attackerId: attacker.id,
+          defenderId: defender.id,
+          card: defaultCard
+        });
+        updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
       });
-      updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
-    });
+  } catch (error) {
+    console.error('❌ handlePlayWord エラー:', error);
+    socket.emit('errorMessage', { message: '攻撃処理中にエラーが発生しました' });
+  }
 }
 
 function handleDefend(roomId, socket, word) {
@@ -973,21 +1045,6 @@ function handleDefend(roomId, socket, word) {
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
     
-    // フィールド効果をダメージ計算用に整形（currentField が有効な場合）
-    // 優先順位: currentField > fieldEffect（互換性のため）
-    let fieldEffectForDamage = null;
-    if (room.currentField && room.currentField.name && room.currentField.turns > 0) {
-      fieldEffectForDamage = {
-        name: room.currentField.name,
-        multiplier: room.currentField.multiplier || 1.5
-      };
-    } else if (room.fieldEffect && room.fieldEffect.name) {
-      fieldEffectForDamage = {
-        name: room.fieldEffect.name,
-        multiplier: room.fieldEffect.multiplier || 1.3
-      };
-    }
-    
     // 属性相性計算（element優先）
     const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
     const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
@@ -996,7 +1053,7 @@ function handleDefend(roomId, socket, word) {
     // === Attack vs Defense 標準バトル ===
     if (attackRole === 'attack' && defenseRole === 'defense') {
       console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
       // 次ターン用の防御予約（前ターンに確実適用）
       defender.reservedDefense = Number(defenseCard?.defense) || 0;
       defender.hp = Math.max(0, defender.hp - damage);
@@ -1005,8 +1062,8 @@ function handleDefend(roomId, socket, word) {
     // === Attack vs Attack 衝突 ===
     else if (attackRole === 'attack' && defenseRole === 'attack') {
       console.log('⚔️ 【衝突】Attack vs Attack: 双方ダメージ');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
-      counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false, fieldEffectForDamage);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+      counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false, room);
       defender.hp = Math.max(0, defender.hp - damage);
       attacker.hp = Math.max(0, attacker.hp - counterDamage);
     }
@@ -1021,10 +1078,10 @@ function handleDefend(roomId, socket, word) {
     // === Defense vs Attack: 防御態勢フェーズ ===
     else if (attackRole === 'defense' && defenseRole === 'attack') {
       console.log('🛡️ 【防御態勢】Defense が攻撃判定をスキップ: 防御力を適用');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
       // Defense ロール（攻撃側）のdifference フィールドは攻撃力がないため最小ダメージ
       defenseRole === 'attack' && 
-        ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage)));
+        ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room)));
       attacker.hp = Math.max(0, attacker.hp - counterDamage);
     }
     
@@ -1048,7 +1105,7 @@ function handleDefend(roomId, socket, word) {
     // === Support vs Attack: サポート対攻撃 ===
     else if (attackRole === 'support' && defenseRole === 'attack') {
       console.log('📦 【サポート対攻撃】Support vs Attack: 攻撃がサポートを押し通す');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, fieldEffectForDamage);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
       defender.hp = Math.max(0, defender.hp - damage);
     }
     
@@ -1069,7 +1126,7 @@ function handleDefend(roomId, socket, word) {
     // === デフォルト（未想定） ===
     else {
       console.log(`⚠️ 未想定の役割組み合わせ: Attack[${attackRole}] vs Defense[${defenseRole}]`);
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false);
+      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
       defender.hp = Math.max(0, defender.hp - damage);
     }
 
@@ -1306,6 +1363,196 @@ function broadcastWaitingQueue() {
   waitingPlayers.forEach(p => p.socket.emit('waitingUpdate', payload));
 }
 
+// =====================================
+// 新規カード判定API
+// =====================================
+app.post('/api/judgeCard', async (req, res) => {
+  try {
+    const { cardName } = req.body;
+    
+    if (!cardName || typeof cardName !== 'string' || cardName.trim().length === 0) {
+      return res.status(400).json({
+        error: 'cardName は必須です',
+        defaultResponse: getDefaultCardJudgement('デフォルト')
+      });
+    }
+
+    const cleanName = cardName.trim();
+    console.log(`🃏 カード判定リクエスト: ${cleanName}`);
+
+    // Gemini APIに投げる
+    const aiResponse = await judgeCardByAI(cleanName);
+    
+    if (!aiResponse || aiResponse.error) {
+      console.warn(`⚠️ AI判定失敗、デフォルト値を返却: ${cleanName}`);
+      return res.json(getDefaultCardJudgement(cleanName));
+    }
+
+    // AIが返した value に (Math.random() * 0.2 + 0.9) を掛けて最終値を算出
+    const randomMultiplier = Math.random() * 0.2 + 0.9; // 0.9 ~ 1.1
+    const finalValue = Math.round(aiResponse.value * randomMultiplier);
+
+    res.json({
+      success: true,
+      cardName: cleanName,
+      type: aiResponse.type,
+      effectTarget: aiResponse.effectTarget,
+      originalValue: aiResponse.value,
+      finalValue: finalValue,
+      description: aiResponse.description
+    });
+
+  } catch (error) {
+    console.error('❌ /api/judgeCard エラー:', error);
+    res.status(500).json({
+      error: 'サーバーエラー',
+      defaultResponse: getDefaultCardJudgement(req.body.cardName || 'エラー')
+    });
+  }
+});
+
+// Gemini APIでカード判定
+async function judgeCardByAI(cardName) {
+  const prompt = `『${cardName}』の言葉の意味から、以下の3つの要素を決定してJSONで返せ。
+- type: "attack", "defense", "support" のいずれか
+- value: 効果の基本値 (0〜100の整数)
+- effectTarget: 
+    - attackの場合: "enemy_hp"
+    - defenseの場合: "player_defense"
+    - supportの場合: "player_hp" (回復), "player_attack" (バフ), "enemy_attack" (デバフ), "player_speed" (速度アップ), "field_change" (環境変化) など、言葉に最も近いものを選べ
+- description: その効果にした理由（例：『聖なる』という言葉から回復と判断しました）
+
+JSON以外のテキストは出力するな。
+
+例1: 「炎」
+\`\`\`json
+{
+  "type": "attack",
+  "value": 65,
+  "effectTarget": "enemy_hp",
+  "description": "炎は燃やして攻撃するイメージから、敵HPにダメージを与える攻撃タイプと判定しました。"
+}
+\`\`\`
+
+例2: 「盾」
+\`\`\`json
+{
+  "type": "defense",
+  "value": 58,
+  "effectTarget": "player_defense",
+  "description": "盾は防御の象徴であり、自分の防御力を上げるdefenseタイプと判定しました。"
+}
+\`\`\`
+
+例3: 「光」
+\`\`\`json
+{
+  "type": "support",
+  "value": 42,
+  "effectTarget": "player_hp",
+  "description": "光は浄化や回復をイメージさせるため、HPを回復するsupportタイプと判定しました。"
+}
+\`\`\`
+
+例4: 「雷」
+\`\`\`json
+{
+  "type": "support",
+  "value": 73,
+  "effectTarget": "field_change",
+  "description": "雷は環境を変化させる自然現象であり、フィールドに影響を与えるsupportタイプと判定しました。"
+}
+\`\`\``;
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await Promise.race([
+      model.generateContent(prompt),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), GEMINI_TIMEOUT_MS))
+    ]);
+    
+    let responseText = result.response.text().trim();
+    
+    // JSONマークダウン装飾を削除
+    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    const parsed = JSON.parse(responseText);
+    
+    // バリデーション
+    const validTypes = ['attack', 'defense', 'support'];
+    if (!validTypes.includes(parsed.type)) {
+      throw new Error(`無効な type: ${parsed.type}`);
+    }
+    
+    const value = Math.max(0, Math.min(100, parseInt(parsed.value, 10) || 50));
+    
+    // effectTarget のバリデーション（想定外の値が来た場合のデフォルト処理）
+    const validTargets = [
+      'enemy_hp', 'player_defense', 'player_hp', 'player_attack', 
+      'enemy_attack', 'player_speed', 'field_change', 'enemy_defense'
+    ];
+    let effectTarget = parsed.effectTarget;
+    if (!validTargets.includes(effectTarget)) {
+      console.warn(`⚠️ 想定外の effectTarget: ${effectTarget}, デフォルト値を使用`);
+      effectTarget = parsed.type === 'attack' ? 'enemy_hp' 
+                   : parsed.type === 'defense' ? 'player_defense' 
+                   : 'player_hp';
+    }
+    
+    return {
+      type: parsed.type,
+      value: value,
+      effectTarget: effectTarget,
+      description: parsed.description || 'AI判定結果'
+    };
+    
+  } catch (error) {
+    console.error('❌ judgeCardByAI エラー:', error);
+    return { error: true };
+  }
+}
+
+// デフォルトのカード判定結果
+function getDefaultCardJudgement(cardName) {
+  const lower = (cardName || '').toLowerCase();
+  let type = 'attack';
+  let effectTarget = 'enemy_hp';
+  let value = 50;
+  
+  // 簡易的なキーワードマッチング
+  if (/盾|防|守|壁|鎧/.test(lower)) {
+    type = 'defense';
+    effectTarget = 'player_defense';
+    value = 45;
+  } else if (/回復|癒|光|聖|治療/.test(lower)) {
+    type = 'support';
+    effectTarget = 'player_hp';
+    value = 40;
+  } else if (/バフ|強化|鼓舞|応援/.test(lower)) {
+    type = 'support';
+    effectTarget = 'player_attack';
+    value = 35;
+  } else if (/晴|雨|雷|風|環境|天候/.test(lower)) {
+    type = 'support';
+    effectTarget = 'field_change';
+    value = 55;
+  }
+  
+  const randomMultiplier = Math.random() * 0.2 + 0.9;
+  const finalValue = Math.round(value * randomMultiplier);
+  
+  return {
+    success: true,
+    isDefault: true,
+    cardName: cardName,
+    type: type,
+    effectTarget: effectTarget,
+    originalValue: value,
+    finalValue: finalValue,
+    description: 'AI判定に失敗したため、デフォルト値を使用しています。'
+  };
+}
+
 io.on('connection', (socket) => {
   socket.on('startMatching', ({ name, mode, password }) => {
     const playerName = (name || '').trim();
@@ -1383,23 +1630,98 @@ io.on('connection', (socket) => {
   });
 
   socket.on('playWord', async ({ word }) => {
-    const roomId = socket.data.roomId;
-    await handlePlayWord(roomId, socket, word);
+    try {
+      const roomId = socket.data.roomId;
+      await handlePlayWord(roomId, socket, word);
+    } catch (error) {
+      console.error('❌ playWord エラー:', error);
+      const roomId = socket.data.roomId;
+      const room = rooms.get(roomId);
+      if (room && room.started) {
+        // エラー時もターンを進める（デフォルトカードで攻撃）
+        const attacker = findPlayer(room, socket.id);
+        const defender = getOpponent(room, socket.id);
+        if (attacker && defender) {
+          const defaultCard = createDefaultAttackCard('エラー');
+          room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card: defaultCard };
+          io.to(roomId).emit('attackDeclared', {
+            attackerId: attacker.id,
+            defenderId: defender.id,
+            card: defaultCard
+          });
+          updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
+        }
+      }
+      socket.emit('errorMessage', { message: 'エラーが発生しました。デフォルト行動で続行します。' });
+    }
   });
 
   socket.on('defendWord', async ({ word }) => {
-    const roomId = socket.data.roomId;
-    await handleDefend(roomId, socket, word);
+    try {
+      const roomId = socket.data.roomId;
+      await handleDefend(roomId, socket, word);
+    } catch (error) {
+      console.error('❌ defendWord エラー:', error);
+      const roomId = socket.data.roomId;
+      const room = rooms.get(roomId);
+      if (room && room.started && room.pendingAttack) {
+        // エラー時もターンを進める（デフォルトカードで防御）
+        const attacker = findPlayer(room, room.pendingAttack.attackerId);
+        const defender = findPlayer(room, socket.id);
+        if (attacker && defender) {
+          const defaultDefenseCard = createDefaultDefenseCard('エラー');
+          const attackCard = room.pendingAttack.card;
+          const damage = calculateDamage(attackCard, defaultDefenseCard, attacker, defender, false, room);
+          defender.hp = Math.max(0, defender.hp - damage);
+          
+          const hp = {};
+          room.players.forEach(p => { hp[p.id] = p.hp; });
+          
+          let winnerId = null;
+          if (defender.hp <= 0) winnerId = attacker.id;
+          
+          if (!winnerId) {
+            tickBuffEffects(room);
+            room.turnIndex = (room.turnIndex + 1) % room.players.length;
+          }
+          
+          room.pendingAttack = null;
+          room.phase = 'waiting';
+          
+          io.to(roomId).emit('battleResult', {
+            attackCard,
+            defenseCard: defaultDefenseCard,
+            attackerId: attacker.id,
+            defenderId: defender.id,
+            damage,
+            hp,
+            winnerId,
+            nextTurn: winnerId ? null : room.players[room.turnIndex].id
+          });
+          
+          if (!winnerId) {
+            const nextPlayer = room.players[room.turnIndex];
+            io.to(roomId).emit('turnUpdate', {
+              activePlayer: nextPlayer.id,
+              activePlayerName: nextPlayer.name,
+              turnIndex: room.turnIndex
+            });
+          }
+        }
+      }
+      socket.emit('errorMessage', { message: 'エラーが発生しました。デフォルト行動で続行します。' });
+    }
   });
 
   socket.on('supportAction', async ({ word }) => {
-    const roomId = socket.data.roomId;
-    const room = rooms.get(roomId);
-    if (!room || !room.started) return;
-    if (room.players[room.turnIndex].id !== socket.id) {
-      socket.emit('errorMessage', { message: 'あなたのターンではありません' });
-      return;
-    }
+    try {
+      const roomId = socket.data.roomId;
+      const room = rooms.get(roomId);
+      if (!room || !room.started) return;
+      if (room.players[room.turnIndex].id !== socket.id) {
+        socket.emit('errorMessage', { message: 'あなたのターンではありません' });
+        return;
+      }
 
     const player = findPlayer(room, socket.id);
     if (!player) return;
@@ -1599,10 +1921,12 @@ io.on('connection', (socket) => {
           const fieldElem = card.fieldEffect || '火'; // 属性を抽出（デフォルト火）
           const fieldMult = card.fieldMultiplier || 1.5; // 倍率（デフォルト1.5）
           const fieldTurns = card.fieldTurns || 3; // ターン数（デフォルト3）
+          const persistedTurns = Number.isFinite(Number(fieldTurns)) ? Math.max(1, Math.round(Number(fieldTurns))) : (Math.random() < 0.5 ? 3 : 5);
+          const fieldElementName = (fieldElem && typeof fieldElem === 'object') ? (fieldElem.name || fieldElem.element || null) : fieldElem;
           
           // 旧フィールド効果（互換性）
           room.fieldEffect = {
-            name: fieldElem,
+            name: fieldElementName,
             multiplier: fieldMult,
             turns: fieldTurns,
             originalTurns: fieldTurns,
@@ -1611,10 +1935,16 @@ io.on('connection', (socket) => {
           
           // 新しい環境管理オブジェクト
           room.currentField = {
-            name: fieldElem,
+            name: fieldElementName,
             multiplier: fieldMult,
             turns: fieldTurns,
             originalTurns: fieldTurns
+          };
+
+          // 永続フィールド情報に保存
+          room.field = {
+            element: fieldElementName,
+            remainingTurns: persistedTurns
           };
           
           console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${fieldElem}属性 x${fieldMult} (${fieldTurns}ターン継続)`);
@@ -1630,6 +1960,11 @@ io.on('connection', (socket) => {
       // フィールド効果更新
       if (card.fieldEffect && card.fieldEffect.name) {
         room.fieldEffect = card.fieldEffect;
+        const persistedTurns = Number.isFinite(Number(card.fieldEffect.fieldTurns || card.fieldTurns))
+          ? Math.max(1, Math.round(Number(card.fieldEffect.fieldTurns || card.fieldTurns)))
+          : (Math.random() < 0.5 ? 3 : 5);
+        const persistedElement = card.fieldEffect.name || card.fieldEffect.element || card.fieldEffect;
+        room.field = { element: persistedElement, remainingTurns: persistedTurns };
         io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
       }
 
@@ -1724,6 +2059,10 @@ io.on('connection', (socket) => {
         });
         updateStatus(roomId, `${nextPlayer.name} のターンです（サポート生成エラー）`);
       }
+    }
+    } catch (outerError) {
+      console.error('❌ supportAction 外部エラー:', outerError);
+      socket.emit('errorMessage', { message: 'エラーが発生しました。' });
     }
   });
 
