@@ -132,17 +132,51 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const cutinComment = document.getElementById('cutinComment');
 
     cutinWord.textContent = card.word;
-    cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
     
-    // role / effect / tier の順で表示
-    const role = (card.role || card.effect || 'neutral').toUpperCase();
+    // role ベースの表示制御：不規則な数値をそのまま表示
+    const role = (card.role || card.effect || 'neutral').toLowerCase();
+    let statsDisplay = '';
+    
+    if (role === 'defense') {
+      // Defense ロール：防御力のみ表示、攻撃力は非表示
+      statsDisplay = `防御力: ${card.defense}`;
+    } else if (role === 'attack') {
+      // Attack ロール：攻撃力のみ表示、防御力は非表示
+      statsDisplay = `攻撃力: ${card.attack}`;
+    } else if (role === 'support') {
+      // Support ロール：効果説明を優先
+      const supportTypeLabel = {
+        'heal': '🏥 HP回復',
+        'hpMaxUp': '💪 最大HP増加',
+        'staminaRecover': '⚡ スタミナ回復',
+        'magicRecover': '✨ 魔力回復',
+        'defenseBuff': '🛡️ 防御強化',
+        'poison': '☠️ 毒',
+        'burn': '🔥 焼け',
+        'allStatBuff': '👑 全体強化',
+        'debuff': '📉 弱体化',
+        'cleanse': '💧 浄化',
+        'counter': '⚔️ カウンター',
+        'fieldChange': '🌍 フィールド変化'
+      };
+      const typeLabel = supportTypeLabel[card.supportType] || card.supportType || 'サポート効果';
+      statsDisplay = typeLabel;
+    } else {
+      // デフォルト：両方表示
+      statsDisplay = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
+    }
+    
+    cutinStats.textContent = statsDisplay;
+    
+    // role / tier の順で表示
+    const roleDisplay = (card.role || card.effect || 'neutral').toUpperCase();
     const tier = (card.tier || 'common').toUpperCase();
-    cutinTier.textContent = `${card.attribute.toUpperCase()} [${tier}] ${role}`;
+    cutinTier.textContent = `${card.attribute.toUpperCase()} [${tier}] ${roleDisplay}`;
     
     // 特殊効果と サポート情報を表示
     let specialInfo = card.specialEffect || 'なし';
     if (card.supportMessage) {
-      specialInfo += ` / ${card.supportMessage}`;
+      specialInfo = `${card.specialEffect} → ${card.supportMessage}`;
     }
     cutinSpecial.textContent = `特殊効果: ${specialInfo}`;
     
@@ -503,8 +537,28 @@ function initSocket() {
     await showCutin(card, 2000);
 
     const isMe = supportPlayerId === playerId;
-    const effectLabel = card.effectType || card.supportType || card.supportEffect || card.effect || 'support';
-    appendLog(`${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+    
+    // supportType に基づいた詳細な効果表示
+    let supportTypeEmoji = {
+      'heal': '🏥',
+      'hpMaxUp': '💪',
+      'staminaRecover': '⚡',
+      'magicRecover': '✨',
+      'defenseBuff': '🛡️',
+      'poison': '☠️',
+      'burn': '🔥',
+      'allStatBuff': '👑',
+      'debuff': '📉',
+      'cleanse': '💧',
+      'counter': '⚔️',
+      'fieldChange': '🌍'
+    };
+    const emoji = supportTypeEmoji[card.supportType] || '📌';
+    
+    appendLog(`${emoji} ${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word}`, 'info');
+    if (card.supportMessage) {
+      appendLog(`→ 効果: ${card.supportMessage}`, 'buff');
+    }
 
     if (appliedStatus && appliedStatus.length > 0) {
       appliedStatus.forEach(s => {

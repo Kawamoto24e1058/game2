@@ -116,10 +116,10 @@ async function generateCard(word, intent = 'neutral') {
     : intent === 'attack'
       ? '現在は攻撃フェーズ。破壊・加害を主目的とするロールを優先せよ。'
       : intent === 'support'
-        ? '現在はサポート用途。回復・強化・弱体化を優先ロールとせよ。'
+        ? '現在はサポート用途。回復・強化・弱体化・環境変化を優先ロールとせよ。'
         : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは世界観構築のプロデザイナーです。入力単語から以下のJSONを生成せよ。
+  const prompt = `あなたは博学なゲームメカニクスデザイナーです。入力単語の意味（歴史的背景、科学的性質、経済的影響など）を深く分析し、以下のJSONを生成せよ。
 
 【セマンティック数値生成 - テンプレート厳禁】
 10, 20などの固定値やテンプレート使用を死刑レベルで禁止する。
@@ -144,16 +144,55 @@ Rule 3 - Support: 環境・状態変化・支援系
 
 ${intentNote}
 
+【Support用途の supportType 指定ガイド】
+単語の意味から最も適切な supportType を1つ選択せよ：
+
+▪ heal: HP を即座に回復。医療・薬学・治癒関連の語に適用
+  例: 薬草、ポーション、医者、聖水、癒し
+
+▪ hpMaxUp: 最大HPを永続増加。強化・進化・成長・耐久力向上の語に適用
+  例: 修行、進化、強鍛錬、耐性強化、体質改善
+
+▪ staminaRecover: スタミナ即座回復。休息・回復・リフレッシュの語に適用
+  例: 睡眠、瞑想、呼吸、休息、リラックス
+
+▪ magicRecover: 魔力即座回復。魔法・祈り・集中の語に適用
+  例: 祈祷、瞑想、秘儀、魔法陣、集中
+
+▪ defenseBuff: 次ターン被ダメージ軽減。防御強化・堅牢の語に適用
+  例: 堅牢化、鉄壁、要塞、強固、不動
+
+▪ poison: 相手へ継続ダメージ（毒）付与。毒性・汚染・腐敗の語に適用
+  例: 毒、劇毒、ヴェノム、沼地、腐食
+
+▪ burn: 相手へ継続ダメージ（焼け）付与。火傷・高温・燃焼の語に適用
+  例: 炎、灼熱、焦熱、焼却、熱波
+
+▪ allStatBuff: 全ステータス微増。英雄・偉人・伝説の語に適用
+  例: アーサー王、ナポレオン、孫子、天才、英雄
+
+▪ debuff: 相手の攻撃力や防御力を弱体化。弱化・呪い・制限の語に適用
+  例: 呪い、制限、弱体化、縛り、衰弱
+
+▪ cleanse: 自分の状態異常をクリア。浄化・除去・リセットの語に適用
+  例: 浄化、祓い、リセット、清水、新生
+
+▪ counter: 反撃・カウンター効果。反撃・返し・予測の語に適用
+  例: 反撃、カウンター、先読み、受け流し、跳ね返し
+
+▪ fieldChange: 天候や地形の変化。環境・地形・気象の語に適用
+  例: 嵐、地震、津波、竜巻、雷鳴
+
 【出力JSON構造】
 {
   "role": "defense" | "attack" | "support",
   "attack": 数値（roleに応じて0 or 1-99）,
   "defense": 数値（roleに応じて0 or 1-99）,
   "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "supportType": "heal" | "hpMaxUp" | "buff" | "debuff" | "cleanse" | "damage" | "counter" | "field" | null,
-  "supportMessage": "役割説明・効果詳細（サポートのみ）",
+  "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange" | null,
+  "supportMessage": "効果説明・数値（サポートのみ）。heal=回復量、防御buff=軽減率、毒/焼け=継続ターン数など",
   "specialEffect": "【固有効果名】具体的な効果文（20-50字）",
-  "judgeComment": "言葉の語源・歴史・象徴から導いた論理を150字程度で"
+  "judgeComment": "単語の歴史的背景・科学的性質・象徴性から導いた論理を150字程度で"
 }
 
 【厳密実装チェック】
@@ -162,7 +201,8 @@ ${intentNote}
 ✓ Supportなら attack=0 AND defense=0 は必須
 ✓ 数値は 1-99 範囲内（テンプレ値10,20,30禁止）
 ✓ specialEffect は【】で囲む
-✓ attribute は小文字統一`;
+✓ attribute は小文字統一
+✓ supportType はガイドの中から1つのみ選択`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -226,7 +266,7 @@ function generateCardFallback(word) {
   if (/dragon|神|excalibur|phoenix/i.test(lower)) {
     strength = 89;  // テンプレート禁止：89
     tier = 'mythical';
-  } else if (/katana|sword|wizard|thunder|fire/i.test(lower)) {
+  } else if (/katana|sword|wizard|thunder|fire/.test(lower)) {
     strength = 63;  // 63
     tier = 'weapon';
   }
@@ -235,6 +275,8 @@ function generateCardFallback(word) {
   
   const defVal = Math.round(strength * 0.65);  // テンプレート値回避
   let role = 'attack';
+  let supportType = null;
+  let supportMessage = '';
   
   // 属性判定
   let attribute = 'earth';
@@ -246,10 +288,52 @@ function generateCardFallback(word) {
   else if (/dark|闇|死|呪|影/.test(lower)) attribute = 'dark';
   
   // 役割判定（新ルール：Defense/Attack/Support）
-  if (/盾|shield|防|鎧|バリア|壁|shield/.test(lower)) {
+  if (/盾|shield|防|鎧|バリア|壁|要塞/.test(lower)) {
     role = 'defense';
-  } else if (/毒|poison|回復|heal|support|サポート|環境|field/.test(lower)) {
+  } else if (/毒|poison|回復|heal|support|サポート|環境|field|薬|医|祈|呪|弱|焼|灼|光|神|英雄|偉人|強|修行/.test(lower)) {
     role = 'support';
+    
+    // supportType の自動判定
+    if (/毒|poison|ヘビ|蛇|沼/.test(lower)) {
+      supportType = 'poison';
+      supportMessage = '相手に毒を付与。3ターン継続、毎ターンHP-3';
+    } else if (/焼|灼|焙|熱波|炎炎/.test(lower)) {
+      supportType = 'burn';
+      supportMessage = '相手に焼けを付与。3ターン継続、毎ターンHP-3';
+    } else if (/回復|治|医|薬|ポーション|聖水|癒/.test(lower)) {
+      supportType = 'heal';
+      supportMessage = 'HP を23回復';
+    } else if (/修行|進化|強鍛|耐性|体質/.test(lower)) {
+      supportType = 'hpMaxUp';
+      supportMessage = '最大HP +41';
+    } else if (/睡眠|瞑想|呼吸|休息|リラック/.test(lower)) {
+      supportType = 'staminaRecover';
+      supportMessage = 'スタミナを37回復';
+    } else if (/祈|秘儀|魔法陣|集中|瞑想/.test(lower)) {
+      supportType = 'magicRecover';
+      supportMessage = '魔力を29回復';
+    } else if (/堅牢|鉄壁|要塞|強固|不動/.test(lower)) {
+      supportType = 'defenseBuff';
+      supportMessage = '次ターン被ダメージ-34%';
+    } else if (/呪|制限|弱体|縛|衰弱/.test(lower)) {
+      supportType = 'debuff';
+      supportMessage = '相手の攻撃力 -17';
+    } else if (/浄|祓|リセット|清|新生/.test(lower)) {
+      supportType = 'cleanse';
+      supportMessage = '状態異常をクリア';
+    } else if (/反撃|カウンター|先読|受け流|跳ね返/.test(lower)) {
+      supportType = 'counter';
+      supportMessage = '次ターン反撃可能';
+    } else if (/嵐|地震|津波|竜巻|雷鳴|台風/.test(lower)) {
+      supportType = 'fieldChange';
+      supportMessage = 'フィールド効果を発動';
+    } else if (/アーサー|ナポレオン|孫子|天才|英雄/.test(lower)) {
+      supportType = 'allStatBuff';
+      supportMessage = '全ステータス +19';
+    } else {
+      supportType = 'cleanse';
+      supportMessage = '環境の状態を改善する';
+    }
   }
   
   // 役割に基づいて数値を厳格化
@@ -266,9 +350,11 @@ function generateCardFallback(word) {
   // 特殊効果判定
   let specialEffect = '【標準効果】基本的な性質';
   if (/サボテン|cactus/.test(lower)) specialEffect = '【トゲ反射】受けたダメージの18%を反射';
-  else if (/毒|poison|ヘビ|蛇/.test(lower)) specialEffect = '【猛毒】3ターン継続、毎ターンHP-3';
-  else if (/氷|ice|凍/.test(lower)) specialEffect = '【凍結】相手次ターン行動不能（確率22%）';
-  else if (/盾|shield|防/.test(lower)) specialEffect = '【堅牢】被ダメージ-17%';
+  else if (/毒|poison|ヘビ|蛇/.test(lower)) specialEffect = '【猛毒】継続的な猛毒効果';
+  else if (/氷|ice|凍|冷/.test(lower)) specialEffect = '【凍結】相手行動不能（確率22%）';
+  else if (/盾|shield|防|鎧/.test(lower)) specialEffect = '【堅牢】被ダメージ-17%';
+  else if (/光|聖|神|天使/.test(lower)) specialEffect = '【聖光】敵に光属性ダメージ';
+  else if (/闇|死|呪|影/.test(lower)) specialEffect = '【呪詛】敵に呪詛効果';
   
   return {
     word,
@@ -278,8 +364,8 @@ function generateCardFallback(word) {
     effect: role,
     role,
     tier,
-    supportType: role === 'support' ? 'cleanse' : null,
-    supportMessage: role === 'support' ? '環境の状態を改善する' : '',
+    supportType,
+    supportMessage,
     specialEffect,
     judgeComment: 'フォールバック推定。言葉の物理的特性から簡易判定。',
     description: `${attribute.toUpperCase()} [${role.toUpperCase()}] ATK:${attack} DEF:${defense}`
@@ -968,6 +1054,32 @@ io.on('connection', (socket) => {
           player.hp = Math.min(maxHp, player.hp + heal);
           break;
         }
+        case 'staminarecover': {
+          const stamina = effectValue && effectValue > 0 ? effectValue : 20;
+          // スタミナ系（攻撃力ブースト）
+          player.attackBoost = (player.attackBoost || 0) + stamina;
+          break;
+        }
+        case 'magicrecover': {
+          const magic = effectValue && effectValue > 0 ? effectValue : 20;
+          // 魔力系（防御力ブースト）
+          player.defenseBoost = (player.defenseBoost || 0) + magic;
+          break;
+        }
+        case 'defensebuff': {
+          const defense = effectValue && effectValue > 0 ? effectValue : 40;
+          player.defenseBoost = (player.defenseBoost || 0) + defense;
+          break;
+        }
+        case 'allstatbuff': {
+          // 英雄・偉人効果：全ステータス微増
+          const boost = effectValue && effectValue > 0 ? effectValue : 15;
+          player.attackBoost = (player.attackBoost || 0) + boost;
+          player.defenseBoost = (player.defenseBoost || 0) + boost;
+          const heal = Math.round(boost * 1.2);
+          player.hp = Math.min(maxHp, player.hp + heal);
+          break;
+        }
         case 'buff':
         case 'attack_boost': {
           player.attackBoost = effectValue && effectValue > 0 ? effectValue : 50;
@@ -975,6 +1087,48 @@ io.on('connection', (socket) => {
         }
         case 'defense_boost': {
           player.defenseBoost = effectValue && effectValue > 0 ? effectValue : 40;
+          break;
+        }
+        case 'poison': {
+          if (opponent && opponent.statusAilments) {
+            if (opponent.statusAilments.length < 3) {
+              const value = effectValue && effectValue > 0 ? effectValue : 3;
+              opponent.statusAilments.push({ 
+                name: '毒', 
+                turns: 3, 
+                effectType: 'dot', 
+                value 
+              });
+              appliedStatus.push({ 
+                targetId: opponent.id, 
+                name: '毒', 
+                turns: 3, 
+                effectType: 'dot', 
+                value 
+              });
+            }
+          }
+          break;
+        }
+        case 'burn': {
+          if (opponent && opponent.statusAilments) {
+            if (opponent.statusAilments.length < 3) {
+              const value = effectValue && effectValue > 0 ? effectValue : 3;
+              opponent.statusAilments.push({ 
+                name: '焼け', 
+                turns: 3, 
+                effectType: 'dot', 
+                value 
+              });
+              appliedStatus.push({ 
+                targetId: opponent.id, 
+                name: '焼け', 
+                turns: 3, 
+                effectType: 'dot', 
+                value 
+              });
+            }
+          }
           break;
         }
         case 'debuff':
@@ -985,15 +1139,29 @@ io.on('connection', (socket) => {
           }
           break;
         }
+        case 'counter': {
+          // カウンター効果：次ターン反撃可能
+          player.counterActive = true;
+          break;
+        }
+        case 'fieldchange': {
+          // フィールド変化：フィールド効果を更新
+          room.fieldEffect = {
+            name: card.supportMessage || '環境変化',
+            visual: 'linear-gradient(135deg, rgba(255, 100, 100, 0.3), rgba(100, 100, 255, 0.3))'
+          };
+          io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
+          break;
+        }
+        case 'cleanse': {
+          player.statusAilments = [];
+          break;
+        }
         case 'damage': {
           if (opponent) {
             const dmg = effectValue && effectValue > 0 ? effectValue : 20;
             opponent.hp = Math.max(0, opponent.hp - dmg);
           }
-          break;
-        }
-        case 'cleanse': {
-          player.statusAilments = [];
           break;
         }
         default: {
