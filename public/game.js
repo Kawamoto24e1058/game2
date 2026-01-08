@@ -133,9 +133,21 @@ function showCutin(card, duration = 2500, extraComment = '') {
 
     cutinWord.textContent = card.word;
     cutinStats.textContent = `攻撃力: ${card.attack} / 防御力: ${card.defense}`;
-    cutinTier.textContent = `${card.attribute.toUpperCase()} [${card.tier.toUpperCase()}] ${card.effect.toUpperCase()}`;
-    cutinSpecial.textContent = `特殊効果: ${card.specialEffect || 'なし'}`;
-    const comments = [card.judgeComment || '審判: 良好'];
+    
+    // role / effect / tier の順で表示
+    const role = (card.role || card.effect || 'neutral').toUpperCase();
+    const tier = (card.tier || 'common').toUpperCase();
+    cutinTier.textContent = `${card.attribute.toUpperCase()} [${tier}] ${role}`;
+    
+    // 特殊効果と サポート情報を表示
+    let specialInfo = card.specialEffect || 'なし';
+    if (card.supportMessage) {
+      specialInfo += ` / ${card.supportMessage}`;
+    }
+    cutinSpecial.textContent = `特殊効果: ${specialInfo}`;
+    
+    // コメント（審判コメント + 相性情報等）
+    const comments = [card.judgeComment || '判定コメントなし'];
     if (extraComment) comments.push(extraComment);
     cutinComment.textContent = comments.join(' / ');
 

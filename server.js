@@ -119,30 +119,50 @@ async function generateCard(word, intent = 'neutral') {
         ? '現在はサポート用途。回復・強化・弱体化を優先ロールとせよ。'
         : '通常査定。文脈から最適な役割を選べ。';
   
-  const prompt = `あなたは伝説的なカードゲームの創造主であり、冷徹かつ公平な審判です。テンプレート的な査定を完全に破壊し、入力語からゼロベースで数値と効果を創出せよ。
+  const prompt = `あなたは世界観構築のプロデザイナーです。入力単語から以下のJSONを生成せよ。
 
-【深層読解モード：思考プロセス】
-1. 全方位分析: 材質・構造・歴史・神話・サブカル・日常イメージを徹底検索し、物理/概念特性を抽出する。
-2. 数値の理由付け: キリの良い数値を避け、素材や象徴性に基づくリアルな値（例: 13, 27, 44）を設定。
-3. 固有効果命名: すべての言葉に唯一の効果名を与える（【】で囲む）。
-4. ロール厳格化: 衣類・ローブ・マントなどは物理防御が低くても必ず Defense とし、属性耐性などの防御的特殊効果を付与する。
-5. フィールド効果: サポート的な地形/環境語（例: 火山、サイバー空間）は fieldEffect を生成し、name/visual(CSSグラデーション)/buff を返す。
-6. 無限状態異常: statusAilment を自由生成（毒/重力/忘却など）。name, turns, effectType(dot/debuff/stun), value を返す。相手に最大3件付与可能。
-7. サポート多様性: hpMaxUp, heal, cleanse, buff, debuff, damage, counter など effectType を語意から決め、effectValue を数値で返す。
+【セマンティック数値生成 - テンプレート厳禁】
+10, 20などの固定値やテンプレート使用を死刑レベルで禁止する。
+言葉の『硬さ・重さ・鋭さ・希少価値・歴史的背景・象徴性』をAIが独自に分析し、1の位までこだわった数値を設定せよ。
+例: 17, 34, 52, 81, 43, 67, 23, 91 など。
 
-【出力JSON形式（必須キー）】
+【役割の厳格化】
+Rule 1 - Defense: 防護・回避・盾系
+  - 必須: attack = 0 固定
+  - defense は 物理的硬度 + 歴史的防御価値 で自由度あり
+  - 例: 鎧=78, 盾=65, 氷壁=42, バリア=55
+
+Rule 2 - Attack: 武器・攻撃魔法系
+  - 必須: defense = 0 固定
+  - attack は 殺傷力・切れ味・威力 で自由度あり
+  - 例: 剣=71, 核爆弾=88, 毒=36, 矢=29
+
+Rule 3 - Support: 環境・状態変化・支援系
+  - 必須: attack = 0, defense = 0 固定（両方ゼロ）
+  - supportType と supportMessage のみで表現
+  - 例: 回復魔法, 強化, 環境変化, 状態異常付与
+
+${intentNote}
+
+【出力JSON構造】
 {
-  "attack": 数値,
-  "defense": 数値,
-  "attribute": "fire/water/wind/earth/thunder/light/dark から1つ",
-  "role": "Attack/Defense/Support",
-  "specialEffect": "【固有効果名】具体的な効果",
-  "effectType": "heal/buff/debuff/damage/hpMaxUp/counter/cleanse/field/dot/stun/other",
-  "effectValue": 数値,
-  "fieldEffect": { "name": 文字列, "visual": "linear-gradient(...)", "buff": 文字列 }  // フィールドがある場合のみ
-  "statusAilment": [{ "name": 文字列, "turns": 数値, "effectType": "dot/debuff/stun", "value": 数値 }]  // 任意件数
-  "judgeComment": "語源や材質から導いた全論理を200文字程度で熱く語れ"
-}`;
+  "role": "defense" | "attack" | "support",
+  "attack": 数値（roleに応じて0 or 1-99）,
+  "defense": 数値（roleに応じて0 or 1-99）,
+  "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
+  "supportType": "heal" | "hpMaxUp" | "buff" | "debuff" | "cleanse" | "damage" | "counter" | "field" | null,
+  "supportMessage": "役割説明・効果詳細（サポートのみ）",
+  "specialEffect": "【固有効果名】具体的な効果文（20-50字）",
+  "judgeComment": "言葉の語源・歴史・象徴から導いた論理を150字程度で"
+}
+
+【厳密実装チェック】
+✓ Defenseなら attack=0 は必須（検証: "attack": 0）
+✓ Attackなら defense=0 は必須（検証: "defense": 0）
+✓ Supportなら attack=0 AND defense=0 は必須
+✓ 数値は 1-99 範囲内（テンプレ値10,20,30禁止）
+✓ specialEffect は【】で囲む
+✓ attribute は小文字統一`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -154,64 +174,44 @@ async function generateCard(word, intent = 'neutral') {
     
     const cardData = JSON.parse(responseText);
 
-    // 必須フィールドのチェック（新形式に対応）
-    if (cardData.attack === undefined || cardData.defense === undefined || !cardData.specialEffect || !cardData.judgeComment) {
+    // 必須フィールドのチェック
+    if (cardData.attack === undefined || cardData.defense === undefined || !cardData.specialEffect) {
       throw new Error('必須フィールドが不足しています');
     }
 
-    const attackVal = Math.max(0, Math.min(100, Math.round(cardData.attack)));
-    const defenseVal = Math.max(0, Math.min(100, Math.round(cardData.defense)));
+    const role = (cardData.role || 'attack').toLowerCase();
+    let attack = Math.max(0, Math.min(99, Math.round(cardData.attack || 0)));
+    let defense = Math.max(0, Math.min(99, Math.round(cardData.defense || 0)));
     
-    // role の正規化（Attack/Defense/Support → attack/defense/support）
-    let role = 'attack';
-    if (cardData.role) {
-      const roleLower = cardData.role.toLowerCase();
-      if (roleLower === 'attack' || roleLower === 'defense' || roleLower === 'support') {
-        role = roleLower;
-      } else if (roleLower === 'heal') {
-        role = 'heal';
-      }
+    // 役割による厳格チェック
+    if (role === 'defense') {
+      attack = 0;  // Defense は必ず attack = 0
+    } else if (role === 'attack') {
+      defense = 0;  // Attack は必ず defense = 0
+    } else if (role === 'support') {
+      attack = 0;  // Support は両方ゼロ
+      defense = 0;
     }
     
-    const supportType = cardData.supportEffect || cardData.supportType || null;
-    const effectType = cardData.effectType || supportType || null;
-    const effectValue = cardData.effectValue !== undefined ? Number(cardData.effectValue) : null;
-    const attribute = cardData.attribute || 'earth';
-    const specialEffect = (cardData.specialEffect && 
-                           cardData.specialEffect !== 'none' && 
-                           cardData.specialEffect.trim() !== '' &&
-                           cardData.specialEffect !== 'なし' &&
-                           cardData.specialEffect !== '特になし' &&
-                           !cardData.specialEffect.match(/攻撃力.*\+|防御力.*\+/)) 
-                           ? cardData.specialEffect 
-                           : '【微弱反射】被ダメージの3%を反射';
-    const hasReflect = cardData.hasReflect === true || /反射/.test(specialEffect) || /cactus|サボテン/.test(original);
-    const counterDamage = cardData.counterDamage !== undefined
-      ? Number(cardData.counterDamage)
-      : (effectType && effectType.toLowerCase() === 'counter' ? Number(effectValue || 0) : 0);
-    const hasCounter = cardData.hasCounter === true || counterDamage > 0;
-    const fieldEffect = cardData.fieldEffect && cardData.fieldEffect.name ? cardData.fieldEffect : null;
-    const statusAilment = Array.isArray(cardData.statusAilment) ? cardData.statusAilment : (cardData.statusAilment ? [cardData.statusAilment] : []);
-    const tier = cardData.tier || (attackVal >= 80 ? 'mythical' : attackVal >= 50 ? 'weapon' : 'common');
+    const supportType = cardData.supportType || null;
+    const supportMessage = cardData.supportMessage || '';
+    const attribute = (cardData.attribute || 'earth').toLowerCase();
+    const specialEffect = cardData.specialEffect || '【基本効果】標準的な効果';
+    const judgeComment = cardData.judgeComment || '判定コメントなし';
 
     return {
-      word: original,  // 入力された元の単語を使用
+      word: original,
       attribute,
-      attack: attackVal,
-      defense: defenseVal,
+      attack,
+      defense,
       effect: role,
-      tier,
+      tier: attack >= 70 || defense >= 70 ? 'mythical' : attack >= 40 || defense >= 40 ? 'weapon' : 'common',
       supportType,
-      effectType,
-      effectValue,
-      fieldEffect,
-      statusAilment,
+      supportMessage,
       specialEffect,
-      hasReflect,
-      hasCounter,
-      counterDamage,
-      judgeComment: cardData.judgeComment || '審判のコメントなし',
-      description: `${attribute.toUpperCase()} [${tier.toUpperCase()}] / ATK:${attackVal} DEF:${defenseVal} / ${role}${effectType ? ' (' + effectType + ')' : ''} / ${specialEffect}${hasReflect ? ' / hasReflect' : ''}${hasCounter ? ` / counter:${counterDamage}` : ''}`
+      judgeComment,
+      role,
+      description: `${attribute.toUpperCase()} [${role.toUpperCase()}] ATK:${attack} DEF:${defense} / ${specialEffect}`
     };
   } catch (error) {
     console.error('❌ Gemini API エラー:', error);
@@ -220,20 +220,21 @@ async function generateCard(word, intent = 'neutral') {
 }
 function generateCardFallback(word) {
   const lower = word.toLowerCase();
-  let strength = 30;
+  let strength = 37;  // テンプレート禁止：37（素数）
   let tier = 'common';
   
   if (/dragon|神|excalibur|phoenix/i.test(lower)) {
-    strength = 90;
+    strength = 89;  // テンプレート禁止：89
     tier = 'mythical';
   } else if (/katana|sword|wizard|thunder|fire/i.test(lower)) {
-    strength = 65;
+    strength = 63;  // 63
     tier = 'weapon';
   }
   
-  if (/ため息|whisper|gentle/i.test(lower)) strength = Math.min(15, strength * 0.3);
+  if (/ため息|whisper|gentle/i.test(lower)) strength = Math.min(14, strength * 0.3);
   
-  const defVal = Math.round(strength * 0.7);
+  const defVal = Math.round(strength * 0.65);  // テンプレート値回避
+  let role = 'attack';
   
   // 属性判定
   let attribute = 'earth';
@@ -244,35 +245,44 @@ function generateCardFallback(word) {
   else if (/light|光|聖|天使|神/.test(lower)) attribute = 'light';
   else if (/dark|闇|死|呪|影/.test(lower)) attribute = 'dark';
   
-  // 特殊効果判定（特殊能力特化型・【】命名規則）
-  let specialEffect = '【微弱反射】被ダメージの3%を反射';
-  if (/サボテン|cactus/.test(lower)) specialEffect = '【トゲの反射】受けたダメージの20%を反射するトゲの呪い';
-  else if (/毒|poison|ヘビ|蛇/.test(lower)) specialEffect = '【猛毒】3ターンの間、毎ターンHP-3';
-  else if (/氷|ice|凍/.test(lower)) specialEffect = '【凍結】相手次ターン行動不能（確率20%）';
-  else if (/雷|thunder|電/.test(lower)) specialEffect = '【麻痺】相手の回避不能化（1ターン）';
-  else if (/火|fire|炎/.test(lower)) specialEffect = '【火傷】2ターンの間、毎ターンHP-2';
-  else if (/吸血|vampire|ドレイン/.test(lower)) specialEffect = '【吸血】与ダメージの25%をHP回復';
-  else if (/盾|shield|防/.test(lower)) specialEffect = '【頑強】被ダメージ-15%';
-  else if (/鏡|mirror|反射/.test(lower)) specialEffect = '【完全反射】被ダメージの12%を反射';
-  else if (/トゲ|針|spike/.test(lower)) specialEffect = '【刺反射】被ダメージの8%を反射';
-  else if (/霧|fog|煙/.test(lower)) specialEffect = '【視界妨害】相手の命中率-15%';
-  else if (/風|wind/.test(lower)) specialEffect = '【回避上昇】自身の回避率+12%';
-  else if (/重|gravity|圧/.test(lower)) specialEffect = '【重圧】相手の全ステータス-8%（1ターン）';
-
-  const hasReflect = /サボテン|cactus/.test(lower) || /反射/.test(specialEffect);
+  // 役割判定（新ルール：Defense/Attack/Support）
+  if (/盾|shield|防|鎧|バリア|壁|shield/.test(lower)) {
+    role = 'defense';
+  } else if (/毒|poison|回復|heal|support|サポート|環境|field/.test(lower)) {
+    role = 'support';
+  }
+  
+  // 役割に基づいて数値を厳格化
+  let attack = strength;
+  let defense = defVal;
+  
+  if (role === 'defense') {
+    attack = 0;  // Defense は attack = 0
+  } else if (role === 'support') {
+    attack = 0;  // Support は両方 0
+    defense = 0;
+  }
+  
+  // 特殊効果判定
+  let specialEffect = '【標準効果】基本的な性質';
+  if (/サボテン|cactus/.test(lower)) specialEffect = '【トゲ反射】受けたダメージの18%を反射';
+  else if (/毒|poison|ヘビ|蛇/.test(lower)) specialEffect = '【猛毒】3ターン継続、毎ターンHP-3';
+  else if (/氷|ice|凍/.test(lower)) specialEffect = '【凍結】相手次ターン行動不能（確率22%）';
+  else if (/盾|shield|防/.test(lower)) specialEffect = '【堅牢】被ダメージ-17%';
   
   return {
     word,
     attribute,
-    attack: strength,
-    defense: defVal,
-    effect: 'attack',
+    attack,
+    defense,
+    effect: role,
+    role,
     tier,
-    supportType: null,
-    judgeComment: 'フォールバック: 簡易推定。特性不明のため汎用反射効果を付与。物質的特徴から【】命名。',
+    supportType: role === 'support' ? 'cleanse' : null,
+    supportMessage: role === 'support' ? '環境の状態を改善する' : '',
     specialEffect,
-    hasReflect,
-    description: `[${tier.toUpperCase()}] ATK:${strength} DEF:${defVal} / ${specialEffect}`
+    judgeComment: 'フォールバック推定。言葉の物理的特性から簡易判定。',
+    description: `${attribute.toUpperCase()} [${role.toUpperCase()}] ATK:${attack} DEF:${defense}`
   };
 }
 
