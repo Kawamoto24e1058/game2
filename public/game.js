@@ -291,8 +291,31 @@ function showFieldEffect(fieldEffect) {
       document.body.style.background = '';
     }, 3000);
     
-    appendLog(`🌐 フィールド効果発動: ${fieldEffect.name}`, 'info');
+    appendLog(`� フィールド効果発動: ${fieldEffect.name}`, 'info');
   }
+}
+
+// supportType に基づいた詳細メッセージを生成
+function buildSupportEffectMessage(card, isMe) {
+  const supportType = card.supportType || '';
+  const targetName = isMe ? 'あなた' : '相手';
+  
+  const effectMessages = {
+    'heal': `${targetName}のHPを回復！`,
+    'hpMaxUp': `${targetName}の最大HPが増加した！`,
+    'staminaRecover': `${targetName}のスタミナを回復！`,
+    'magicRecover': `${targetName}の魔力を回復！`,
+    'defenseBuff': `${targetName}の防御力が上昇した！`,
+    'allStatBuff': `${targetName}の全能力が上昇した！`,
+    'poison': `${isMe ? '相手' : 'あなた'}に猛毒を付与！毎ターンダメージ！`,
+    'burn': `${isMe ? '相手' : 'あなた'}に焼けを付与！毎ターンダメージ！`,
+    'debuff': `${isMe ? '相手' : 'あなた'}の能力が低下した...`,
+    'cleanse': `${targetName}の状態異常が全てクリアされた！`,
+    'counter': `${targetName}がカウンター準備完了！`,
+    'fieldChange': `フィールドの環境が大きく変わった！`
+  };
+  
+  return effectMessages[supportType] || `${targetName}がサポート効果を発動！`;
 }
 
 function appendLog(message, type = 'info') {
@@ -553,11 +576,35 @@ function initSocket() {
       'counter': '⚔️',
       'fieldChange': '🌍'
     };
-    const emoji = supportTypeEmoji[card.supportType] || '📌';
     
-    appendLog(`${emoji} ${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word}`, 'info');
+    const supportTypeEffectMap = {
+      'heal': 'HP回復',
+      'hpMaxUp': '最大HP増加',
+      'staminaRecover': 'スタミナ回復',
+      'magicRecover': '魔力回復',
+      'defenseBuff': '防御力強化',
+      'allStatBuff': '全能力強化',
+      'poison': '毒付与',
+      'burn': '焼け付与',
+      'debuff': '能力低下',
+      'cleanse': '状態異常クリア',
+      'counter': 'カウンター準備',
+      'fieldChange': 'フィールド変化'
+    };
+    
+    const emoji = supportTypeEmoji[card.supportType] || '📌';
+    const effectLabel = supportTypeEffectMap[card.supportType] || card.supportType || 'サポート';
+    
+    // メインログ：誰が何を使ったか
+    appendLog(`${emoji} ${isMe ? 'あなた' : '相手'}がサポートを使用: ${card.word} (${effectLabel})`, 'info');
+    
+    // 効果詳細ログ
+    const effectMessage = buildSupportEffectMessage(card, isMe);
+    appendLog(`→ ${effectMessage}`, 'buff');
+    
+    // サポートメッセージがあれば追加
     if (card.supportMessage) {
-      appendLog(`→ 効果: ${card.supportMessage}`, 'buff');
+      appendLog(`  詳細: ${card.supportMessage}`, 'buff');
     }
 
     if (appliedStatus && appliedStatus.length > 0) {
@@ -573,6 +620,7 @@ function initSocket() {
       }
     }
 
+    // フィールド効果の表示（背景グラデーション更新）
     if (fieldEffect && fieldEffect.name) {
       showFieldEffect(fieldEffect);
     }
