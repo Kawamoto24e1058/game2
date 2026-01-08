@@ -564,10 +564,11 @@ function handleDefend(roomId, socket, word) {
     room.usedWordsGlobal.add(lower);
     defender.usedWords.add(lower);
 
-    // 防御失敗ロジック：防御フェーズで攻撃カードを出した場合
+    // 防御失敗ロジック：防御フェーズで攻撃カード(role=attack)を出した場合
     let defenseFailed = false;
-    if (defenseCard.effect === 'attack') {
+    if (defenseCard.role === 'attack') {
       defenseFailed = true;
+      console.log('⚠️ 防御失敗: 防御フェーズで攻撃カード (role=attack) が出された');
     }
 
     // ダメージ計算（属性相性2.0倍対応）
@@ -576,23 +577,38 @@ function handleDefend(roomId, socket, word) {
     const appliedStatus = [];
     let dotDamage = 0;
 
-    // カウンターダメージ処理（トゲ系）
+    // カウンターダメージ処理（Defense ロール専用）
     let counterDamage = 0;
-    if (defenseCard.counterDamage && !defenseFailed) {
+    if (defenseCard.role === 'defense' && defenseCard.counterDamage && !defenseFailed) {
       counterDamage = defenseCard.counterDamage;
       attacker.hp = Math.max(0, attacker.hp - counterDamage);
-      console.log(`🌵 カウンターダメージ発動: ${defenseCard.counterDamage}ダメージを攻撃者に与えた`);
+      console.log(`🌵 カウンターダメージ発動 (${defenseCard.word}): ${counterDamage}ダメージを攻撃者に与えた`);
     }
 
     const attackerMaxHp = attacker.maxHp || STARTING_HP;
     const defenderMaxHp = defender.maxHp || STARTING_HP;
 
-    if (attackCard.effect === 'heal') {
-      attacker.hp = Math.min(attackerMaxHp, attacker.hp + Math.round(attackCard.attack * 0.6));
+    // Support ロール特別処理
+    if (attackCard.role === 'support') {
+      // サポートは攻撃として機能しない
       damage = 0;
+      console.log(`📦 攻撃カードがサポート (role=support): ダメージなし`);
     }
-    if (defenseCard.effect === 'heal' && !defenseFailed) {
-      defender.hp = Math.min(defenderMaxHp, defender.hp + Math.round(defenseCard.defense * 0.5));
+    if (defenseCard.role === 'support' && !defenseFailed) {
+      // 防御フェーズのサポート効果
+      const supportHeal = Math.round(defenseCard.defense || 0);
+      defender.hp = Math.min(defenderMaxHp, defender.hp + supportHeal);
+      console.log(`📦 防御カードがサポート (role=support): ${supportHeal}回復`);
+    }
+
+    // Defense ロール時のダメージ減衰（防御値で減衰）
+    if (defenseCard.role === 'defense' && !defenseFailed) {
+      const defenseValue = defenseCard.defense || 0;
+      if (defenseValue > 0) {
+        const damageReduction = Math.round(damage * (defenseValue / 100));
+        damage = Math.max(5, damage - damageReduction);
+        console.log(`🛡️ Defense ロール: ダメージ減衰: ${defenseValue}% → ${damage}に軽減`);
+      }
     }
 
     defender.hp = Math.max(0, defender.hp - damage);
