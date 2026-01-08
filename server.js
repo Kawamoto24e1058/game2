@@ -1397,8 +1397,10 @@ app.post('/api/judgeCard', async (req, res) => {
       cardName: cleanName,
       type: aiResponse.type,
       effectTarget: aiResponse.effectTarget,
+      effectName: aiResponse.effectName,
       originalValue: aiResponse.value,
       finalValue: finalValue,
+      baseValue: aiResponse.baseValue || aiResponse.value,
       description: aiResponse.description
     });
 
@@ -1413,18 +1415,31 @@ app.post('/api/judgeCard', async (req, res) => {
 
 // Gemini APIでカード判定
 async function judgeCardByAI(cardName) {
-  const prompt = `『${cardName}』の言葉の意味から、以下の3つの要素を決定してJSONで返せ。
+  const prompt = `『${cardName}』の言葉の意味から、以下の要素を決定してJSONで返せ。
+
+【共通項目】
 - type: "attack", "defense", "support" のいずれか
 - value: 効果の基本値 (0〜100の整数)
-- effectTarget: 
-    - attackの場合: "enemy_hp"
-    - defenseの場合: "player_defense"
-    - supportの場合: "player_hp" (回復), "player_attack" (バフ), "enemy_attack" (デバフ), "player_speed" (速度アップ), "field_change" (環境変化) など、言葉に最も近いものを選べ
 - description: その効果にした理由（例：『聖なる』という言葉から回復と判断しました）
+
+【type別の必須項目】
+
+1. typeが"attack"の場合：
+   - effectTarget: "enemy_hp" のみ
+
+2. typeが"defense"の場合：
+   - effectTarget: "player_defense" のみ
+
+3. typeが"support"の場合：
+   - effectName: そのカードにふさわしい効果名（例：「聖なる癒やし」「瞬足の構え」「魔力の波動」）
+   - effectTarget: 【厳守】"player_hp", "player_attack", "enemy_attack", "player_speed" のいずれかのみを使用
+   - baseValueをvalueと同じ値に設定
 
 JSON以外のテキストは出力するな。
 
-例1: 「炎」
+JSON以外のテキストは出力するな。
+
+例1: 「炎」 (attack)
 \`\`\`json
 {
   "type": "attack",
@@ -1434,7 +1449,7 @@ JSON以外のテキストは出力するな。
 }
 \`\`\`
 
-例2: 「盾」
+例2: 「盾」 (defense)
 \`\`\`json
 {
   "type": "defense",
@@ -1444,23 +1459,27 @@ JSON以外のテキストは出力するな。
 }
 \`\`\`
 
-例3: 「光」
+例3: 「光」 (support)
 \`\`\`json
 {
   "type": "support",
+  "effectName": "聖なる癒やし",
   "value": 42,
+  "baseValue": 42,
   "effectTarget": "player_hp",
   "description": "光は浄化や回復をイメージさせるため、HPを回復するsupportタイプと判定しました。"
 }
 \`\`\`
 
-例4: 「雷」
+例4: 「風」 (support)
 \`\`\`json
 {
   "type": "support",
-  "value": 73,
-  "effectTarget": "field_change",
-  "description": "雷は環境を変化させる自然現象であり、フィールドに影響を与えるsupportタイプと判定しました。"
+  "effectName": "瞬足の風",
+  "value": 35,
+  "baseValue": 35,
+  "effectTarget": "player_speed",
+  "description": "風は速さを連想させるため、プレイヤーの速度を上げるsupportタイプと判定しました。"
 }
 \`\`\``;
 
@@ -1486,14 +1505,18 @@ JSON以外のテキストは出力するな。
     
     const value = Math.max(0, Math.min(100, parseInt(parsed.value, 10) || 50));
     
-    // effectTarget のバリデーション（想定外の値が来た場合のデフォルト処理）
-    const validTargets = [
-      'enemy_hp', 'player_defense', 'player_hp', 'player_attack', 
-      'enemy_attack', 'player_speed', 'field_change', 'enemy_defense'
-    ];
+    // effectTarget のバリデーション（厳格な制限）
+    const validTargetsByType = {
+      'attack': ['enemy_hp'],
+      'defense': ['player_defense'],
+      'support': ['player_hp', 'player_attack', 'enemy_attack', 'player_speed']
+    };
+    
+    const allowedTargets = validTargetsByType[parsed.type] || [];
     let effectTarget = parsed.effectTarget;
-    if (!validTargets.includes(effectTarget)) {
-      console.warn(`⚠️ 想定外の effectTarget: ${effectTarget}, デフォルト値を使用`);
+    
+    if (!allowedTargets.includes(effectTarget)) {
+      console.warn(`⚠️ 無効な effectTarget: ${effectTarget} (type: ${parsed.type}), デフォルト値を使用`);
       effectTarget = parsed.type === 'attack' ? 'enemy_hp' 
                    : parsed.type === 'defense' ? 'player_defense' 
                    : 'player_hp';
@@ -1503,6 +1526,8 @@ JSON以外のテキストは出力するな。
       type: parsed.type,
       value: value,
       effectTarget: effectTarget,
+      effectName: parsed.effectName || null,
+      baseValue: parsed.baseValue || value,
       description: parsed.description || 'AI判定結果'
     };
     
@@ -1520,6 +1545,8 @@ function getDefaultCardJudgement(cardName) {
   let value = 50;
   
   // 簡易的なキーワードマッチング
+  let effectName = null;
+  
   if (/盾|防|守|壁|鎧/.test(lower)) {
     type = 'defense';
     effectTarget = 'player_defense';
@@ -1528,14 +1555,17 @@ function getDefaultCardJudgement(cardName) {
     type = 'support';
     effectTarget = 'player_hp';
     value = 40;
+    effectName = '聖なる癒やし';
   } else if (/バフ|強化|鼓舞|応援/.test(lower)) {
     type = 'support';
     effectTarget = 'player_attack';
     value = 35;
+    effectName = '戦闘の鼓舞';
   } else if (/晴|雨|雷|風|環境|天候/.test(lower)) {
     type = 'support';
-    effectTarget = 'field_change';
+    effectTarget = 'player_speed';
     value = 55;
+    effectName = '瞬足の構え';
   }
   
   const randomMultiplier = Math.random() * 0.2 + 0.9;
@@ -1547,8 +1577,10 @@ function getDefaultCardJudgement(cardName) {
     cardName: cardName,
     type: type,
     effectTarget: effectTarget,
+    effectName: effectName,
     originalValue: value,
     finalValue: finalValue,
+    baseValue: value,
     description: 'AI判定に失敗したため、デフォルト値を使用しています。'
   };
 }

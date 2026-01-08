@@ -1044,24 +1044,31 @@ h2 {
 }
 
 .battle-log {
-  margin-top: 16px;
-  margin-bottom: 180px;
-  background: #f8fbff;
-  border-radius: 16px;
-  padding: 16px;
-  max-height: 260px;
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  width: 300px;
+  max-height: 150px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  padding: 12px;
   overflow-y: auto;
-  border: 1px solid #d8edff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  z-index: 9999;
 }
 
 .log-entry {
-  background: #fff;
-  border-radius: 12px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border-left: 6px solid var(--blue-sky);
-  box-shadow: 0 6px 12px var(--shadow);
-  font-weight: 700;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-left: 4px solid var(--blue-sky);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  font-weight: 600;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .log-entry.damage { border-left-color: #ff8a8a; }
