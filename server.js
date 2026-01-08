@@ -69,11 +69,18 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
     dark: { light: 2.0 }
   };
 
-  // 攻撃力補正（ブースト適用）
+  // 攻撃力補正（ブースト + 乗数適用）
   let finalAttack = attackCard.attack;
+  
+  // 古い attackBoost システムを継続サポート
   if (attacker.attackBoost > 0) {
     finalAttack = Math.round(finalAttack * (1 + attacker.attackBoost / 100));
     attacker.attackBoost = 0;
+  }
+  
+  // 新しい atkMultiplier システム（バフ優先）
+  if (attacker.atkMultiplier && attacker.atkMultiplier !== 1.0) {
+    finalAttack = Math.round(finalAttack * attacker.atkMultiplier);
   }
 
   // 属性相性補正
@@ -91,10 +98,18 @@ function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFai
     damage = finalAttack;
   } else {
     let finalDefense = defenseCard.defense;
+    
+    // 防御力補正（ブースト + 乗数適用）
     if (defender.defenseBoost > 0) {
       finalDefense = Math.round(finalDefense * (1 + defender.defenseBoost / 100));
       defender.defenseBoost = 0;
     }
+    
+    // 新しい defMultiplier システム（バフ優先）
+    if (defender.defMultiplier && defender.defMultiplier !== 1.0) {
+      finalDefense = Math.round(finalDefense * defender.defMultiplier);
+    }
+    
     damage = Math.max(5, finalAttack - finalDefense);
   }
 
@@ -384,12 +399,23 @@ function createRoom(players, mode, password) {
       socketId: p.socket.id,
       hp: STARTING_HP,
       maxHp: STARTING_HP,
+      stamina: 100,                    // スタミナ（0-100）
+      maxStamina: 100,
+      mp: 50,                          // マジックポイント（0-100）
+      maxMp: 50,
       usedWords: new Set(),
       isHost: idx === 0,
       supportUsed: 0,
       attackBoost: 0,
       defenseBoost: 0,
-      statusAilments: []
+      atkMultiplier: 1.0,              // 攻撃力乗数
+      defMultiplier: 1.0,              // 防御力乗数
+      statusAilments: [],
+      buffs: {                         // バフ管理
+        atkUp: 0,                       // ターン数
+        defUp: 0,
+        allStatUp: 0
+      }
     })),
     hostId: players[0].socket.id,
     started: false,
@@ -432,7 +458,25 @@ function startBattle(roomId) {
   room.started = true;
   room.phase = 'attack';
   room.turnIndex = Math.floor(Math.random() * room.players.length);
-  room.players.forEach(p => { p.maxHp = STARTING_HP; p.hp = p.maxHp; p.statusAilments = []; });
+  
+  // プレイヤーステータス完全リセット
+  room.players.forEach(p => {
+    p.hp = STARTING_HP;
+    p.maxHp = STARTING_HP;
+    p.stamina = 100;
+    p.maxStamina = 100;
+    p.mp = 50;
+    p.maxMp = 50;
+    p.attackBoost = 0;
+    p.defenseBoost = 0;
+    p.atkMultiplier = 1.0;
+    p.defMultiplier = 1.0;
+    p.statusAilments = [];
+    p.buffs = { atkUp: 0, defUp: 0, allStatUp: 0 };
+    p.usedWords.clear();
+    p.supportUsed = 0;
+  });
+  
   room.fieldEffect = null;
 
   io.to(roomId).emit('battleStarted', {
@@ -502,6 +546,51 @@ function tickStatusEffects(room) {
     }
   });
   return ticks;
+}
+
+// バフの毎ターン減衰処理
+function tickBuffEffects(room) {
+  if (!room || !room.players) return;
+  room.players.forEach(p => {
+    if (!p.buffs) p.buffs = { atkUp: 0, defUp: 0, allStatUp: 0, counterUp: 0 };
+    
+    // 攻撃力バフの減衰
+    if (p.buffs.atkUp > 0) {
+      p.buffs.atkUp--;
+      if (p.buffs.atkUp <= 0) {
+        p.atkMultiplier = Math.max(1.0, p.atkMultiplier - 0.5);  // バフ解除時に乗数を戻す
+        console.log(`⏰ ${p.name}: 攻撃力バフが消滅 (乗数: ${p.atkMultiplier.toFixed(2)}x)`);
+      }
+    }
+    
+    // 防御力バフの減衰
+    if (p.buffs.defUp > 0) {
+      p.buffs.defUp--;
+      if (p.buffs.defUp <= 0) {
+        p.defenseBoost = Math.max(0, p.defenseBoost - 34);  // バフ解除時に防御力を戻す
+        console.log(`⏰ ${p.name}: 防御力バフが消滅 (防御: ${p.defenseBoost})`);
+      }
+    }
+    
+    // 全能力バフの減衰
+    if (p.buffs.allStatUp > 0) {
+      p.buffs.allStatUp--;
+      if (p.buffs.allStatUp <= 0) {
+        p.atkMultiplier = Math.max(1.0, p.atkMultiplier - 0.19);
+        p.defMultiplier = Math.max(1.0, p.defMultiplier - 0.19);
+        console.log(`⏰ ${p.name}: 全能力バフが消滅`);
+      }
+    }
+    
+    // カウンター効果の減衰
+    if (p.buffs.counterUp > 0) {
+      p.buffs.counterUp--;
+      if (p.buffs.counterUp <= 0) {
+        p.counterActive = false;
+        console.log(`⏰ ${p.name}: カウンター能力が消滅`);
+      }
+    }
+  });
 }
 
 function findPlayer(room, socketId) {
@@ -594,6 +683,7 @@ function handleDefend(roomId, socket, word) {
     preWinner = survivor?.id || null;
   }
   if (preWinner) {
+    // バフ減衰処理（ゲーム終了なので実行しない）
     const hp = {};
     room.players.forEach(p => { hp[p.id] = p.hp; });
     io.to(roomId).emit('turnResolved', {
@@ -730,6 +820,12 @@ function handleDefend(roomId, socket, word) {
 
     // ターン開始時の状態異常処理
     const statusTick = tickStatusEffects(room);
+
+    // ターン終了時のバフ減衰処理
+    if (!winnerId) {
+      tickBuffEffects(room);
+      room.turnIndex = (room.turnIndex + 1) % room.players.length;
+    }
 
     io.to(roomId).emit('turnResolved', {
       attackerId: attacker.id,
@@ -1044,138 +1140,192 @@ io.on('connection', (socket) => {
 
       switch (effectTypeRaw) {
         case 'hpmaxup': {
+          // 最大HP永続増加
           const gain = effectValue && effectValue > 0 ? effectValue : 20;
-          player.maxHp = (player.maxHp || STARTING_HP) + gain;
-          player.hp = player.hp + gain;
+          player.maxHp = Math.min(999, player.maxHp + gain);  // キャップ999
+          player.hp = Math.min(player.maxHp, player.hp + gain);
+          console.log(`💪 ${player.name}: maxHp +${gain} (${player.maxHp}), HP +${gain} (${player.hp})`);
           break;
         }
         case 'heal': {
+          // HP即座回復
           const heal = effectValue && effectValue > 0 ? effectValue : 25;
+          const healAmount = Math.min(maxHp, player.hp + heal) - player.hp;
           player.hp = Math.min(maxHp, player.hp + heal);
+          console.log(`🏥 ${player.name}: HP +${healAmount} (${player.hp}/${maxHp})`);
           break;
         }
         case 'staminarecover': {
-          const stamina = effectValue && effectValue > 0 ? effectValue : 20;
-          // スタミナ系（攻撃力ブースト）
-          player.attackBoost = (player.attackBoost || 0) + stamina;
+          // スタミナ即座回復
+          const staminaGain = effectValue && effectValue > 0 ? effectValue : 37;
+          const oldStamina = player.stamina;
+          player.stamina = Math.min(player.maxStamina, player.stamina + staminaGain);
+          console.log(`⚡ ${player.name}: スタミナ +${player.stamina - oldStamina} (${player.stamina}/${player.maxStamina})`);
           break;
         }
         case 'magicrecover': {
-          const magic = effectValue && effectValue > 0 ? effectValue : 20;
-          // 魔力系（防御力ブースト）
-          player.defenseBoost = (player.defenseBoost || 0) + magic;
+          // 魔力即座回復
+          const mpGain = effectValue && effectValue > 0 ? effectValue : 29;
+          const oldMp = player.mp;
+          player.mp = Math.min(player.maxMp, player.mp + mpGain);
+          console.log(`✨ ${player.name}: 魔力 +${player.mp - oldMp} (${player.mp}/${player.maxMp})`);
           break;
         }
         case 'defensebuff': {
-          const defense = effectValue && effectValue > 0 ? effectValue : 40;
-          player.defenseBoost = (player.defenseBoost || 0) + defense;
+          // 防御力強化（次ターン被ダメージ軽減）
+          const defIncrease = effectValue && effectValue > 0 ? effectValue : 34;
+          player.defenseBoost = Math.max(player.defenseBoost, defIncrease);  // より高い値を採用
+          player.buffs.defUp = 2;  // 2ターン有効
+          console.log(`🛡️ ${player.name}: 防御力強化 +${defIncrease}% (${player.defenseBoost}%), 2ターン有効`);
           break;
         }
         case 'allstatbuff': {
-          // 英雄・偉人効果：全ステータス微増
-          const boost = effectValue && effectValue > 0 ? effectValue : 15;
-          player.attackBoost = (player.attackBoost || 0) + boost;
-          player.defenseBoost = (player.defenseBoost || 0) + boost;
-          const heal = Math.round(boost * 1.2);
-          player.hp = Math.min(maxHp, player.hp + heal);
+          // 全ステータス微増（英雄・偉人効果）
+          const boost = effectValue && effectValue > 0 ? effectValue : 19;
+          player.atkMultiplier = Math.min(2.0, player.atkMultiplier + (boost / 100));
+          player.defMultiplier = Math.min(2.0, player.defMultiplier + (boost / 100));
+          const healBonus = Math.round(boost * 1.5);
+          player.hp = Math.min(maxHp, player.hp + healBonus);
+          player.buffs.allStatUp = 3;  // 3ターン有効
+          console.log(`👑 ${player.name}: 全能力強化 ${boost}%, HP +${healBonus}, 3ターン有効`);
           break;
         }
         case 'buff':
         case 'attack_boost': {
-          player.attackBoost = effectValue && effectValue > 0 ? effectValue : 50;
+          // 攻撃力強化
+          const atkIncrease = effectValue && effectValue > 0 ? effectValue : 50;
+          player.atkMultiplier = Math.min(2.0, player.atkMultiplier + (atkIncrease / 100));
+          player.buffs.atkUp = 2;  // 2ターン有効
+          console.log(`⬆️ ${player.name}: 攻撃力強化 ${atkIncrease}% (乗数: ${player.atkMultiplier.toFixed(2)}x), 2ターン有効`);
           break;
         }
         case 'defense_boost': {
-          player.defenseBoost = effectValue && effectValue > 0 ? effectValue : 40;
+          // 防御力強化
+          const defIncrease = effectValue && effectValue > 0 ? effectValue : 40;
+          player.defenseBoost = Math.max(player.defenseBoost, defIncrease);
+          player.buffs.defUp = 2;
+          console.log(`🛡️ ${player.name}: 防御力強化 +${defIncrease}%, 2ターン有効`);
           break;
         }
         case 'poison': {
+          // 相手に毒付与（3ターン継続ダメージ）
           if (opponent && opponent.statusAilments) {
             if (opponent.statusAilments.length < 3) {
-              const value = effectValue && effectValue > 0 ? effectValue : 3;
-              opponent.statusAilments.push({ 
-                name: '毒', 
-                turns: 3, 
-                effectType: 'dot', 
-                value 
+              const dotValue = effectValue && effectValue > 0 ? effectValue : 3;
+              opponent.statusAilments.push({
+                name: '毒',
+                turns: 3,
+                effectType: 'dot',
+                value: dotValue
               });
-              appliedStatus.push({ 
-                targetId: opponent.id, 
-                name: '毒', 
-                turns: 3, 
-                effectType: 'dot', 
-                value 
+              appliedStatus.push({
+                targetId: opponent.id,
+                name: '毒',
+                turns: 3,
+                effectType: 'dot',
+                value: dotValue
               });
+              console.log(`☠️ ${opponent.name}: 毒付与 (${dotValue}ダメージ×3ターン = 計${dotValue * 3})`);
             }
           }
           break;
         }
         case 'burn': {
+          // 相手に焼け付与（3ターン継続ダメージ）
           if (opponent && opponent.statusAilments) {
             if (opponent.statusAilments.length < 3) {
-              const value = effectValue && effectValue > 0 ? effectValue : 3;
-              opponent.statusAilments.push({ 
-                name: '焼け', 
-                turns: 3, 
-                effectType: 'dot', 
-                value 
+              const dotValue = effectValue && effectValue > 0 ? effectValue : 3;
+              opponent.statusAilments.push({
+                name: '焼け',
+                turns: 3,
+                effectType: 'dot',
+                value: dotValue
               });
-              appliedStatus.push({ 
-                targetId: opponent.id, 
-                name: '焼け', 
-                turns: 3, 
-                effectType: 'dot', 
-                value 
+              appliedStatus.push({
+                targetId: opponent.id,
+                name: '焼け',
+                turns: 3,
+                effectType: 'dot',
+                value: dotValue
               });
+              console.log(`🔥 ${opponent.name}: 焼け付与 (${dotValue}ダメージ×3ターン = 計${dotValue * 3})`);
             }
           }
           break;
         }
-        case 'debuff':
+        case 'debuff': {
+          // 相手の攻撃力または防御力を弱体化
+          if (opponent) {
+            const debuffAmount = effectValue && effectValue > 0 ? effectValue : 25;
+            opponent.atkMultiplier = Math.max(0.5, opponent.atkMultiplier - (debuffAmount / 100));
+            opponent.defMultiplier = Math.max(0.5, opponent.defMultiplier - (debuffAmount / 100));
+            console.log(`📉 ${opponent.name}: 弱体化 ${debuffAmount}% (攻撃乗数: ${opponent.atkMultiplier.toFixed(2)}x, 防御乗数: ${opponent.defMultiplier.toFixed(2)}x)`);
+          }
+          break;
+        }
         case 'enemy_debuff': {
+          // 相手へ直接ダメージ
           if (opponent) {
             const dmg = effectValue && effectValue > 0 ? effectValue : 15;
             opponent.hp = Math.max(0, opponent.hp - dmg);
+            console.log(`💢 ${opponent.name}: ダメージ ${dmg} (HP: ${opponent.hp})`);
           }
           break;
         }
         case 'counter': {
-          // カウンター効果：次ターン反撃可能
+          // カウンター効果：次ターン攻撃を受けると自動で反撃
           player.counterActive = true;
+          player.buffs.counterUp = 2;  // 2ターン有効
+          console.log(`⚔️ ${player.name}: カウンター能力発動 (2ターン有効)`);
           break;
         }
         case 'fieldchange': {
-          // フィールド変化：フィールド効果を更新
+          // フィールド効果発動
           room.fieldEffect = {
             name: card.supportMessage || '環境変化',
             visual: 'linear-gradient(135deg, rgba(255, 100, 100, 0.3), rgba(100, 100, 255, 0.3))'
           };
+          console.log(`🌍 フィールド効果: ${room.fieldEffect.name}`);
           io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
           break;
         }
         case 'cleanse': {
+          // 自身の状態異常をすべてクリア
+          const cleansedCount = player.statusAilments.length;
           player.statusAilments = [];
+          console.log(`💧 ${player.name}: 浄化 (${cleansedCount}個の状態異常をクリア)`);
           break;
         }
         case 'damage': {
+          // 相手へ直接ダメージ
           if (opponent) {
             const dmg = effectValue && effectValue > 0 ? effectValue : 20;
             opponent.hp = Math.max(0, opponent.hp - dmg);
+            console.log(`💥 ${opponent.name}: ダメージ ${dmg} (HP: ${opponent.hp})`);
           }
           break;
         }
         default: {
           // 旧サポート種別との後方互換
           if (card.supportType === 'heal_boost') {
-            player.hp = Math.min(maxHp, player.hp + 30);
+            const heal = 30;
+            player.hp = Math.min(maxHp, player.hp + heal);
+            console.log(`🏥 ${player.name}: 回復ブースト +${heal} (HP: ${player.hp})`);
           } else if (card.supportType === 'attack_boost') {
             player.attackBoost = 50;
+            console.log(`⬆️ ${player.name}: 攻撃力ブースト 50%`);
           } else if (card.supportType === 'defense_boost') {
             player.defenseBoost = 40;
+            console.log(`🛡️ ${player.name}: 防御力ブースト 40%`);
           } else if (card.supportType === 'enemy_debuff') {
-            if (opponent) opponent.hp = Math.max(0, opponent.hp - 15);
+            if (opponent) {
+              opponent.hp = Math.max(0, opponent.hp - 15);
+              console.log(`💢 ${opponent.name}: 敵弱体化ダメージ 15`);
+            }
           } else {
-            player.hp = Math.min(maxHp, player.hp + 20);
+            const heal = 20;
+            player.hp = Math.min(maxHp, player.hp + heal);
+            console.log(`🏥 ${player.name}: デフォルト回復 +${heal}`);
           }
         }
       }
@@ -1211,6 +1361,8 @@ io.on('connection', (socket) => {
       }
 
       if (!winnerId) {
+        // ターン終了時のバフ減衰処理
+        tickBuffEffects(room);
         room.turnIndex = (room.turnIndex + 1) % room.players.length;
       }
 
