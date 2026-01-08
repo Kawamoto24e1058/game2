@@ -593,23 +593,25 @@ function handlePlayWord(roomId, socket, word) {
   const defender = getOpponent(room, socket.id);
   if (!attacker || !defender) return;
 
-  // 非同期でカード生成
-  generateCard(cleanWord, 'attack').then(card => {
-    room.usedWordsGlobal.add(lower);
-    attacker.usedWords.add(lower);
-    room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
-    room.phase = 'defense';
+  // 非同期でカード生成（エラー時はフォールバック使用）
+  generateCard(cleanWord, 'attack')
+    .catch(error => {
+      console.error('❌ 攻撃カード生成エラー:', error);
+      return generateCardFallback(cleanWord);
+    })
+    .then(card => {
+      room.usedWordsGlobal.add(lower);
+      attacker.usedWords.add(lower);
+      room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
+      room.phase = 'defense';
 
-    io.to(roomId).emit('attackDeclared', {
-      attackerId: attacker.id,
-      defenderId: defender.id,
-      card
+      io.to(roomId).emit('attackDeclared', {
+        attackerId: attacker.id,
+        defenderId: defender.id,
+        card
+      });
+      updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
     });
-    updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
-  }).catch(error => {
-    console.error('カード生成エラー:', error);
-    socket.emit('errorMessage', { message: 'エラーが発生しました' });
-  });
 }
 
 function handleDefend(roomId, socket, word) {
@@ -706,11 +708,16 @@ function handleDefend(roomId, socket, word) {
     return { dot };
   };
   
-  // 非同期で防御カードを生成
-  generateCard(cleanWord, 'defense').then(defenseCard => {
-    console.log('🛡️ 防御カード生成完了:', defenseCard);
-    room.usedWordsGlobal.add(lower);
-    defender.usedWords.add(lower);
+  // 非同期で防御カードを生成（エラー時はフォールバック使用）
+  generateCard(cleanWord, 'defense')
+    .catch(error => {
+      console.error('❌ 防御カード生成エラー:', error);
+      return generateCardFallback(cleanWord);
+    })
+    .then(defenseCard => {
+      console.log('🛡️ 防御カード生成完了:', defenseCard);
+      room.usedWordsGlobal.add(lower);
+      defender.usedWords.add(lower);
 
     // 【役割別バトルロジック】 - 文字列ベースの役割判定
     const attackRole = (attackCard.role || '').toLowerCase();
@@ -872,14 +879,67 @@ function handleDefend(roomId, socket, word) {
     } else {
       updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
     }
-  }).catch(error => {
-    console.error('❌ 防御カード生成エラー:', error);
-    socket.emit('errorMessage', { message: 'エラーが発生しました。もう一度お試しください。' });
-    // エラー時は攻撃をキャンセルして次のターンへ
-    room.pendingAttack = null;
-    room.turnIndex = (room.turnIndex + 1) % room.players.length;
-    updateStatus(roomId, `エラーが発生しました。${room.players[room.turnIndex].name} のターンです`);
-  });
+
+    // 【完全同期】ターン交代と turnUpdate emit を確約
+    if (!winnerId) {
+      const nextPlayer = room.players[room.turnIndex];
+      io.to(roomId).emit('turnUpdate', {
+        activePlayer: nextPlayer.id,
+        activePlayerName: nextPlayer.name,
+        turnIndex: room.turnIndex,
+        players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
+      });
+    }
+    })
+    .catch(error => {
+      console.error('❌ 防御カード生成エラー（フォールバック利用）:', error);
+      // エラー時もターン交代を実行してゲームを進行させる
+      room.usedWordsGlobal.add(lower);
+      defender.usedWords.add(lower);
+      
+      // フォールバック防御カード
+      const fallbackDefenseCard = generateCardFallback(cleanWord);
+      console.log('🛡️ フォールバック防御カード使用:', fallbackDefenseCard);
+      
+      // 簡易ダメージ計算（フォールバック時）
+      const fallbackDamage = 10; // 基本ダメージ
+      defender.hp = Math.max(0, defender.hp - fallbackDamage);
+      
+      room.pendingAttack = null;
+      room.turnIndex = (room.turnIndex + 1) % room.players.length;
+      
+      const hp = {};
+      room.players.forEach(p => { hp[p.id] = p.hp; });
+
+      io.to(roomId).emit('turnResolved', {
+        attackerId: attacker.id,
+        defenderId: defender.id,
+        attackCard: attackCard,
+        defenseCard: fallbackDefenseCard,
+        damage: fallbackDamage,
+        counterDamage: 0,
+        dotDamage: 0,
+        affinity: null,
+        hp,
+        defenseFailed: true,
+        appliedStatus: [],
+        statusTick: tickStatusEffects(room),
+        fieldEffect: room.fieldEffect,
+        nextTurn: room.players[room.turnIndex].id,
+        winnerId: null
+      });
+
+      // 【完全同期】フォールバック時もターン交代と turnUpdate を emit
+      const nextPlayer = room.players[room.turnIndex];
+      io.to(roomId).emit('turnUpdate', {
+        activePlayer: nextPlayer.id,
+        activePlayerName: nextPlayer.name,
+        turnIndex: room.turnIndex,
+        players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
+      });
+      
+      updateStatus(roomId, `${nextPlayer.name} のターンです（カード生成エラーで処理スキップ）`);
+    });
 }
 
 function removeFromWaiting(socketId) {
@@ -1418,9 +1478,40 @@ io.on('connection', (socket) => {
       } else {
         updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
       }
+
+      // 【完全同期】supportAction 後も必ずターン交代と turnUpdate を emit
+      if (!winnerId) {
+        const nextPlayer = room.players[room.turnIndex];
+        io.to(roomId).emit('turnUpdate', {
+          activePlayer: nextPlayer.id,
+          activePlayerName: nextPlayer.name,
+          turnIndex: room.turnIndex,
+          players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
+        });
+      }
     } catch (error) {
-      console.error('サポートカード生成エラー:', error);
-      socket.emit('errorMessage', { message: 'エラーが発生しました' });
+      console.error('❌ サポートカード生成エラー:', error);
+      // エラー時もターン交代を実行（フロントエンド同期のため）
+      const fallbackCard = generateCardFallback(cleanWord);
+      room.usedWordsGlobal.add(lower);
+      player.usedWords.add(lower);
+      player.supportUsed++;
+
+      console.log(`⚠️ サポート処理: フォールバックカード使用`);
+      socket.emit('errorMessage', { message: 'サポート効果を発動しました（カード生成エラー時の代替）' });
+
+      // 【完全同期】エラー時もターン交代と turnUpdate を emit
+      if (!room.players.some(p => p.hp <= 0)) { // 誰も倒れていない場合のみ
+        room.turnIndex = (room.turnIndex + 1) % room.players.length;
+        const nextPlayer = room.players[room.turnIndex];
+        io.to(roomId).emit('turnUpdate', {
+          activePlayer: nextPlayer.id,
+          activePlayerName: nextPlayer.name,
+          turnIndex: room.turnIndex,
+          players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
+        });
+        updateStatus(roomId, `${nextPlayer.name} のターンです（サポート生成エラー）`);
+      }
     }
   });
 

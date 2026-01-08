@@ -958,6 +958,33 @@ function initSocket() {
 
   socket.on('status', ({ message }) => setStatus(message));
 
+  // 【完全同期】ターン更新イベントを受け取り UI を同期
+  socket.on('turnUpdate', ({ activePlayer, activePlayerName, turnIndex, players }) => {
+    console.log(`📢 turnUpdate受信: アクティブプレイヤー=${activePlayerName}, turnIndex=${turnIndex}`);
+    
+    currentTurn = activePlayer;
+    currentTurnIndex = turnIndex;
+    
+    // プレイヤー情報を更新
+    if (players && Array.isArray(players)) {
+      players.forEach(p => {
+        const player = gameState.players.find(gp => gp.id === p.id);
+        if (player) {
+          player.hp = p.hp;
+          player.maxHp = p.maxHp;
+        }
+      });
+    }
+    
+    // UI 更新
+    const myTurn = activePlayer === socket.id;
+    updateTurnBanner(myTurn ? 'あなたのターン' : `${activePlayerName} のターン`);
+    updateHealthBars();
+    toggleInputs(myTurn);
+    
+    console.log(`✅ ターン同期完了: ${myTurn ? 'あなたが' : activePlayerName + 'が'}プレイ中`);
+  });
+
   socket.on('fieldEffectUpdate', ({ fieldEffect }) => {
     if (fieldEffect && fieldEffect.name) {
       showFieldEffect(fieldEffect);
