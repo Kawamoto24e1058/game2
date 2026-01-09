@@ -242,11 +242,16 @@ async function generateCard(word, intent = 'neutral') {
 
 【概念深層分析ロジック】
 
-1. **固定観念の破壊：属性を言葉の本質から決定**
+1. **固定観念の破壊：属性を言葉の本質から決定（属性誤認を徹底防止）**
+   - 【超重要】入力されたカード名に最も近い属性や概念を、言葉に忠実に判定せよ
+   - 【厳格ルール】属性の混同は絶対禁止：「光」なら必ず「光属性」とし、「火」と混同するな
+   - 【厳格ルール】「雷」なら必ず「雷属性」、「水」なら必ず「水属性」として扱え
    - 「火/水/風/土/雷/光/闇/草」の8属性に縛られず、言葉の本質的性質から最も近い属性を選ぶ
    - 例：「インフレ」→ 経済膨張 → 風（拡散）または火（熱）
    - 例：「AI」→ 思考の抽象化 → 光（知）または闇（不可視性）
    - 例：「原爆」→ 核分裂エネルギー → 火（破壊熱）
+   - 例：「光」→ 必ず光属性（「火」と混同しない）
+   - 例：「雷」→ 必ず雷属性（「火」「光」と混同しない）
    - カスタム属性も許可：「金」「魂」「夢」「虚無」などを element に設定可能（attribute は既存8種から選択）
 
 2. **動的エフェクト生成：既存リストから選ばず、言葉の特徴から創造**
@@ -270,6 +275,21 @@ async function generateCard(word, intent = 'neutral') {
    - Defense：防御・保護・耐久・遮蔽・反射・吸収
    - Support：治療・強化・弱体化・環境変化・状態操作
    - 天候・環境ワード（晴れ/雨/嵐/砂漠/雷雲/月光 等）は必ず role: "Support", supportType: "fieldChange"
+   
+   **【Support の effectTarget 厳格化】**
+   - サポートカードの effectTarget は以下の具体的かつ適切なものから選べ：
+     * player_hp: プレイヤーのHP回復・増加
+     * player_atk: プレイヤーの攻撃力強化
+     * player_def: プレイヤーの防御力強化
+     * player_spd: プレイヤーの速度強化
+     * player_light_atk: プレイヤーの光属性攻撃力強化（属性強化の場合）
+     * player_fire_atk: プレイヤーの火属性攻撃力強化
+     * player_water_atk: プレイヤーの水属性攻撃力強化
+     * player_thunder_atk: プレイヤーの雷属性攻撃力強化
+     * enemy_atk: 敵の攻撃力低下（デバフ）
+     * enemy_def: 敵の防御力低下
+   - 【重要】属性強化の場合、effectTarget に必ずその属性名を含めること（例：player_light_atk）
+   - 【重要】単なる "player_attack" ではなく、より具体的なターゲットを選ぶこと
    
    **【重要：fieldChange の厳格ルール】**
    - 環境・気象・地形・状態に関する言葉（例：「晴れ」「雨」「嵐」「砂嵐」「月光」「朝焼け」「極寒」「灼熱」「干ばつ」等）は必ず supportType: "fieldChange" とせよ
@@ -360,6 +380,29 @@ async function generateCard(word, intent = 'neutral') {
 8. 属性判断は言葉の本質から自由に決定せよ（既存の枠に囚われるな）
    - 「霧」→ 水属性、「朝焼け」→ 火属性、「極寒」→ 水属性、「砂嵐」→ 土または風属性
    - その言葉が最も強く連想させる属性を選べ
+9. **【AI創造的サポート効果システム】Support カード生成時の特別ルール：**
+   - **effectName**: カード名から独自の効果名をAIが創造せよ（既存概念にとらわれるな）
+     例：「光」→ 【聖域光臨】、「量子」→ 【確率収束制御】、「雨」→ 【水流治癒波】
+   - **creativeDescription**: AIが考えた効果の詳細説明を記述せよ（100-200字、具体的な効果内容を含む）
+     例：「対象の全ステータスを量子的に再構成し、3ターンの間、被ダメージを43%軽減する」
+   - **mechanicType**: プログラムが処理するための分類。以下から1つ選べ：
+     * stat_boost: ステータス強化（HP、攻撃、防御、速度等の数値上昇）
+     * status_ailment: 状態異常付与（毒、火傷、麻痺等）
+     * field_change: フィールド効果変化（属性強化、環境変化）
+     * turn_manipulation: ターン操作（追加行動、スキップ等）
+     * special: 上記に当てはまらない特殊効果
+   - **targetStat**: 影響を与えるステータス。以下から1つ選べ：
+     * hp: HP回復・最大HP増加
+     * atk: 攻撃力強化・低下
+     * def: 防御力強化・低下
+     * spd: 速度強化・低下
+     * field_element: フィールド属性変化（mechanicType が field_change の場合に使用）
+     * turn_count: ターン数操作
+     * special: 特殊効果（上記に当てはまらない場合）
+   - **duration**: 効果持続ターン数（2, 3, 4, 5 など意味のある不規則な値）
+   - **フィールド効果判定の厳守**: 言葉の定義を厳守せよ（光は光、火は火、雨は水）
+     * mechanicType が "field_change" で targetStat が "field_element" の場合、fieldEffect に属性名を必ず設定
+     * 例：「光」なら fieldEffect: "光"、mechanicType: "field_change"、targetStat: "field_element"
 
 ${intentNote}`;
 
@@ -419,6 +462,13 @@ ${intentNote}`;
     }
     const specialEffect = cardData.specialEffect || '【基本効果】標準的な効果';
     const judgeComment = cardData.judgeComment || '判定コメントなし';
+    
+    // ★【AI創造的サポート効果】新フィールドを取得
+    const effectName = cardData.effectName || specialEffect; // effectNameがなければspecialEffectで代用
+    const creativeDescription = cardData.creativeDescription || supportMessage; // creativeDescriptionがなければsupportMessageで代用
+    const mechanicType = cardData.mechanicType || (supportType === 'fieldChange' ? 'field_change' : 'stat_boost');
+    const targetStat = cardData.targetStat || 'hp';
+    const duration = cardData.duration || 3;
 
     return {
       word: original,
@@ -433,12 +483,17 @@ ${intentNote}`;
       specialEffect,
       judgeComment,
       role,
-         // ★【Support時のフィールド常時含有】fieldEffect は fieldChange でなくても常に含める
-         ...(role === 'support' ? {
-           fieldEffect: (supportType === 'fieldchange' ? cardData.fieldEffect : '') || '',
-           fieldMultiplier: (supportType === 'fieldchange' ? cardData.fieldMultiplier : 1.0) || 1.0,
-           fieldTurns: (supportType === 'fieldchange' ? cardData.fieldTurns : 0) || 0
-         } : {}),
+      // ★【AI創造的サポート効果】新フィールドを含める
+      ...(role === 'support' ? {
+        effectName,
+        creativeDescription,
+        mechanicType,
+        targetStat,
+        duration,
+        fieldEffect: (supportType === 'fieldChange' || mechanicType === 'field_change') ? (cardData.fieldEffect || '') : '',
+        fieldMultiplier: (supportType === 'fieldChange' || mechanicType === 'field_change') ? (cardData.fieldMultiplier || 1.5) : 1.0,
+        fieldTurns: (supportType === 'fieldChange' || mechanicType === 'field_change') ? (cardData.fieldTurns || duration || 3) : 0
+      } : {}),
       description: `${attribute.toUpperCase()} [${role.toUpperCase()}] ATK:${attack} DEF:${defense} / ${specialEffect}`
     };
   } catch (error) {
@@ -589,6 +644,13 @@ function generateCardFallback(word) {
       fieldTurnsData = fieldTurns;
     }
     
+    // ★【AI創造的サポート効果】フォールバック時のデフォルト値を生成
+    const effectName = `【${supportType}効果】`;
+    const creativeDescription = supportMessage;
+    const mechanicType = supportType === 'fieldChange' ? 'field_change' : supportType === 'heal' ? 'stat_boost' : 'special';
+    const targetStat = supportType === 'heal' ? 'hp' : supportType === 'fieldChange' ? 'field_element' : 'special';
+    const duration = supportType === 'fieldChange' ? fieldTurns : 3;
+    
     return {
       role: 'Support',
       word: word,
@@ -602,7 +664,13 @@ function generateCardFallback(word) {
       // ★【常に含める】fieldEffect 関連フィールドは undefined でなく、常にデフォルト値を含める
       fieldEffect: supportType === 'fieldChange' ? fieldEffect : '',
       fieldMultiplier: supportType === 'fieldChange' ? fieldMultiplier : 1.0,
-      fieldTurns: supportType === 'fieldChange' ? fieldTurns : 0
+      fieldTurns: supportType === 'fieldChange' ? fieldTurns : 0,
+      // ★【AI創造的サポート効果】フォールバック時も新フィールドを含める
+      effectName,
+      creativeDescription,
+      mechanicType,
+      targetStat,
+      duration
     };
   }
 }
@@ -624,6 +692,7 @@ function createRoom(players, mode, password) {
       mp: 50,                          // マジックポイント（0-100）
       maxMp: 50,
       usedWords: new Set(),
+      activeEffects: [],               // ★ 持続効果（バフ・デバフ）
       isHost: idx === 0,
       supportUsed: 0,
       attackBoost: 0,
@@ -871,6 +940,33 @@ function tickBuffEffects(room) {
       }
     }
   });
+}
+
+// ★ 持続効果（activeEffects）の毎ターン減衰処理
+function tickActiveEffects(room, finishedPlayerId) {
+  if (!room || !room.players || !finishedPlayerId) return [];
+  const p = room.players.find(x => x.id === finishedPlayerId);
+  if (!p) return [];
+  if (!Array.isArray(p.activeEffects)) p.activeEffects = [];
+
+  const expired = [];
+  p.activeEffects.forEach(e => {
+    if (typeof e.duration === 'number') {
+      e.duration -= 1;
+    }
+    if (!e.duration || e.duration <= 0) {
+      expired.push(e.name || '効果');
+    }
+  });
+
+  // 期限切れを削除
+  p.activeEffects = p.activeEffects.filter(e => e.duration > 0);
+
+  // UI/ログ用に返す
+  if (expired.length > 0) {
+    return [{ playerId: p.id, expired }];
+  }
+  return [];
 }
 
 function findPlayer(room, socketId) {
@@ -1163,7 +1259,8 @@ function handleDefend(roomId, socket, word) {
       name: p.name,
       hp: p.hp,
       maxHp: p.maxHp || STARTING_HP,
-      statusAilments: p.statusAilments || []
+      statusAilments: p.statusAilments || [],
+      activeEffects: p.activeEffects || []
     }));
 
     // ターン開始時の状態異常処理
@@ -1174,6 +1271,11 @@ function handleDefend(roomId, socket, word) {
       tickBuffEffects(room);
       room.turnIndex = (room.turnIndex + 1) % room.players.length;
     }
+
+    // ★ ターン終了プレイヤーの持続効果を減衰
+    const finishedIndex = (room.turnIndex - 1 + room.players.length) % room.players.length;
+    const finishedPlayerId = room.players[finishedIndex]?.id;
+    const effectsExpired = tickActiveEffects(room, finishedPlayerId);
 
     io.to(roomId).emit('turnResolved', {
       attackerId: attacker.id,
@@ -1191,7 +1293,8 @@ function handleDefend(roomId, socket, word) {
       statusTick,
       fieldEffect: room.fieldEffect,
       nextTurn: winnerId ? null : room.players[room.turnIndex].id,
-      winnerId
+      winnerId,
+      effectsExpired
     });
 
     console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex].id, appliedStatus });
@@ -1209,7 +1312,8 @@ function handleDefend(roomId, socket, word) {
         activePlayer: nextPlayer.id,
         activePlayerName: nextPlayer.name,
         turnIndex: room.turnIndex,
-        players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
+        players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, activeEffects: p.activeEffects || [] })),
+        effectsExpired
       });
     }
     })
@@ -2028,6 +2132,15 @@ io.on('connection', (socket) => {
             element: fieldElementName,
             remainingTurns: persistedTurns
           };
+          // ★ 新フィールド状態（AI創造的効果対応）を保存
+          room.fieldState = {
+            element: fieldElementName,
+            multiplier: fieldMult,
+            turns: fieldTurns,
+            mechanicType: card.mechanicType || 'field_change',
+            targetStat: card.targetStat || 'field_element',
+            duration: card.duration || fieldTurns
+          };
           
           console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${fieldElem}属性 x${fieldMult} (${fieldTurns}ターン継続)`);
           io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
@@ -2037,6 +2150,26 @@ io.on('connection', (socket) => {
           // 未知の supportType → ロギングのみ
           console.log(`⚠️ ${player.name}: 未知のサポートタイプ [${supportTypeRaw}] → ${supportMessage}`);
         }
+      }
+
+      // ★【持続効果の保存】AIのmechanicType/durationがあればactiveEffectsに登録
+      try {
+        const effectName = card.effectName || card.specialEffect || '効果';
+        const mechanicType = card.mechanicType || null;
+        const durationVal = Number.isFinite(Number(card.duration)) ? Math.max(0, Math.round(Number(card.duration))) : 0;
+        if (mechanicType && durationVal > 0) {
+          const effectObj = { name: effectName, duration: durationVal, type: mechanicType };
+          // 対象プレイヤー推定：デバフ系は相手、それ以外は自分
+          const goesToOpponent = ['poison','burn','debuff'].includes(supportTypeRaw);
+          const targetPlayer = goesToOpponent ? opponent : player;
+          if (targetPlayer) {
+            if (!Array.isArray(targetPlayer.activeEffects)) targetPlayer.activeEffects = [];
+            targetPlayer.activeEffects.push(effectObj);
+            console.log(`📌 activeEffects 追加: ${targetPlayer.name} ← ${effectName} (${durationVal}ターン, ${mechanicType})`);
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ activeEffects 登録に失敗:', e);
       }
 
       // フィールド効果更新
@@ -2073,7 +2206,8 @@ io.on('connection', (socket) => {
         name: p.name,
         hp: p.hp,
         maxHp: p.maxHp || STARTING_HP,
-        statusAilments: p.statusAilments || []
+        statusAilments: p.statusAilments || [],
+        activeEffects: p.activeEffects || []
       }));
 
       let winnerId = null;
@@ -2090,18 +2224,19 @@ io.on('connection', (socket) => {
       }
 
       // サポートカード情報を構造化（supportMessage の確実な伝送 + 統一フィールド付与）
+      // ★ finalValue は「効果量」や「回復量」として扱う（攻撃力ではない）
       const targetMap = {
         'heal': 'player_hp',
         'hpmaxup': 'player_hp',
         'staminarecover': 'player_hp',
         'magicrecover': 'player_hp',
-        'defensebuff': 'player_attack',
-        'poison': 'enemy_attack',
-        'burn': 'enemy_attack',
-        'allstatbuff': 'player_attack',
-        'debuff': 'enemy_attack',
+        'defensebuff': 'player_def',
+        'poison': 'enemy_atk',
+        'burn': 'enemy_atk',
+        'allstatbuff': 'player_atk',
+        'debuff': 'enemy_atk',
         'cleanse': 'player_hp',
-        'counter': 'player_attack',
+        'counter': 'player_atk',
         'fieldchange': 'player_attack'
       };
       const effectTargetUnified = targetMap[supportTypeRaw] || 'player_hp';
@@ -2114,17 +2249,22 @@ io.on('connection', (socket) => {
         supportType: card.supportType || '',
         specialEffect: card.specialEffect || '',
         role: card.role || '',
-        // ★ 新フォーマット（常に含める）
+        // ★ 新フォーマット（常に含める）- type は必ず 'support' 、finalValue は効果量
         type: 'support',
-        finalValue: finalValueUnified,
+        finalValue: finalValueUnified,  // ★ 攻撃力ではなく、効果量・回復量
         effectTarget: effectTargetUnified,
         specialEffectName: card.specialEffect || '',
         specialEffectDescription: card.supportMessage || ''
       };
 
-      // バトルログに サポート発動記録を追加
-      const supportLog = `✨ 【${card.word}】: ${card.supportMessage || '効果を発動'}`;
+      // バトルログに サポート発動記録を追加（★ 攻撃ではなく「効果」と表現）
+      const supportLog = `✨ 【${card.word}】: ${card.supportMessage || '効果を発動'} (効果量: ${finalValueUnified})`;
       console.log(`📋 バトルログ: ${supportLog}`);
+      console.log(`★ type=support であるため、攻撃処理は実行されません。finalValue=${finalValueUnified} は回復量/強化量です。`);
+
+      // ターン終了側（このサポートを使ったプレイヤー）の持続効果を減衰
+      const finishedPlayerId = player.id;
+      const effectsExpired = tickActiveEffects(room, finishedPlayerId);
 
       io.to(roomId).emit('supportUsed', {
         playerId: player.id,
@@ -2136,7 +2276,9 @@ io.on('connection', (socket) => {
         nextTurn: winnerId ? null : room.players[room.turnIndex].id,
         appliedStatus,
         fieldEffect: room.fieldEffect,
-        statusTick
+        fieldState: room.fieldState,
+        statusTick,
+        effectsExpired
       });
 
       if (winnerId) {
@@ -2153,7 +2295,8 @@ io.on('connection', (socket) => {
           activePlayer: nextPlayer.id,
           activePlayerName: nextPlayer.name,
           turnIndex: room.turnIndex,
-          players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
+          players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, activeEffects: p.activeEffects || [] })),
+          effectsExpired
         });
       }
     } catch (error) {

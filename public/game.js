@@ -255,12 +255,12 @@ function showCutin(card, duration = 2500, extraComment = '') {
 
     const statsFragment = document.createDocumentFragment();
 
-    // 攻撃力（Attackロールのみ）
+    // 攻撃値（Attackロールのみ）
     const hasAttack = card.attack !== undefined && card.attack !== null && role === 'attack';
     if (hasAttack) {
       const atkEl = document.createElement('div');
       atkEl.className = 'stat-pill attack-pill';
-      atkEl.textContent = `攻撃力: ${card.attack}`;
+      atkEl.textContent = `攻撃値: ${card.attack}`;
       statsFragment.appendChild(atkEl);
     }
 
@@ -462,7 +462,7 @@ function showCenterCard(card) {
   
   if (role === 'attack') {
     const atk = Number(card.attack) || 0;
-    // 攻撃時は攻撃力のみを中央表示
+    // 攻撃時は攻撃値のみを中央表示
     cardEl.innerHTML = `
       ${elementBadge}
       <div class="role-icon">${sword}</div>
@@ -479,14 +479,21 @@ function showCenterCard(card) {
       ${safeEffect ? `<div class="role-extra">${safeEffect}</div>` : ''}
     `;
   } else if (role === 'support') {
-    const msg = card.supportMessage || '効果を発動！';
+    // ★ サポートカード専用表示：effectName と属性を中央に大きく表示、攻撃関連要素は完全に非表示
+    const effectName = card.specialEffectName || card.specialEffect || 'サポート効果';
+    const effectValue = Number.isFinite(Number(card.finalValue)) ? Number(card.finalValue) : 0;
+    const elementDisplay = card.element || card.attribute || '無属性';
+    const attributeLabel = `${elementDisplay}属性効果`;
+    
     // Supportの場合は背景を暗くしてネオン効果を強調
     cardEl.style.background = 'linear-gradient(145deg, #0a1628, #1a2b3f)';
     cardEl.style.borderColor = '#00d4ff';
     cardEl.innerHTML = `
       ${elementBadge}
-      <div class="role-icon">${supportEmoji}</div>
-      <div class="role-message role-message-large">${msg}</div>
+      <div class="role-icon" style="font-size: 3rem; margin: 20px 0;">${supportEmoji}</div>
+      <div class="effect-name" style="font-size: 2.5rem; font-weight: 900; color: #00d4ff; text-shadow: 0 0 20px rgba(0, 212, 255, 0.8); margin: 10px 0;">${effectName}</div>
+      <div class="attribute-label" style="font-size: 1.8rem; font-weight: 700; color: #ffeb3b; text-shadow: 0 0 15px rgba(255, 235, 59, 0.6); margin: 10px 0;">${attributeLabel}</div>
+      <div class="effect-value" style="font-size: 2rem; font-weight: 800; color: #4caf50; margin: 15px 0;">効果値: ${effectValue}</div>
     `;
   } else {
     // 未定義ロールのフォールバック
@@ -702,6 +709,13 @@ function syncTurnState({ activePlayer, nextTurn, hp, players }) {
   const myTurn = currentTurn === playerId;
   updateTurnIndicator(myTurn);
   toggleInputs(myTurn);
+
+  // ★ 現在発動中の効果リストを更新
+  if (players && Array.isArray(players)) {
+    players.forEach(p => {
+      updateActiveEffectsList(p.id, p.activeEffects || []);
+    });
+  }
 }
 
 function showSection(id) {
@@ -736,6 +750,34 @@ function updateStatusBadges(playerId, statusAilments) {
     badge.className = `status-badge ${ailment.effectType}`;
     badge.textContent = `${ailment.name} (${ailment.turns})`;
     badgesContainer.appendChild(badge);
+  });
+}
+
+// ★ 持続効果（activeEffects）リストを表示
+function updateActiveEffectsList(playerId, activeEffects) {
+  const containerId = playerId === socket.id ? 'myActiveEffects' : 'opActiveEffects';
+  let container = document.getElementById(containerId);
+  if (!container) {
+    container = document.createElement('div');
+    container.id = containerId;
+    container.className = 'active-effects';
+    const parent = playerId === socket.id ? document.getElementById('myStatusBadges') : document.getElementById('opStatusBadges');
+    if (parent && parent.parentElement) {
+      parent.parentElement.appendChild(container);
+    } else {
+      // フォールバック: battleSection直下
+      const battleArena = document.querySelector('.battle-arena');
+      if (battleArena) battleArena.appendChild(container);
+    }
+  }
+  container.innerHTML = '';
+  activeEffects.forEach(e => {
+    const item = document.createElement('div');
+    item.className = 'active-effect-item';
+    const icon = (e.type === 'stat_boost') ? '📈' : (e.type === 'status_ailment') ? '☠️' : (e.type === 'field_change') ? '🌍' : (e.type === 'turn_manipulation') ? '⏰' : '✨';
+    const turns = (typeof e.duration === 'number' && e.duration >= 0) ? e.duration : '?';
+    item.textContent = `${icon} ${e.name} (あと${turns}ターン)`;
+    container.appendChild(item);
   });
 }
 
@@ -945,24 +987,71 @@ function showSupportOverlay(supportCard, duration = 3000) {
     const safeWord = supportCard.word || 'サポート';
     supportNameEl.textContent = safeWord;
 
-    // サポートメッセージを表示するエレメント
-    const supportMessageEl = document.createElement('div');
-    supportMessageEl.style.cssText = `
-      font-size: 1.8em;
+    // ★【AI創造的効果名】effectName を大きく表示
+    const effectNameEl = document.createElement('div');
+    effectNameEl.style.cssText = `
+      font-size: 2.5em;
+      font-weight: 900;
+      color: #00d4ff;
+      text-shadow:
+        0 0 20px rgba(0, 212, 255, 0.9),
+        0 0 40px rgba(0, 212, 255, 0.6),
+        0 4px 8px rgba(0, 0, 0, 0.8),
+        2px 2px 0px rgba(0, 0, 0, 0.5);
+      text-align: center;
+      max-width: 85vw;
+      margin: 15px 0;
+      letter-spacing: 4px;
+      animation: supportEffectNamePulse 1.5s ease-in-out infinite;
+      word-wrap: break-word;
+    `;
+    const effectName = supportCard.effectName || supportCard.specialEffect || '【特殊効果】';
+    effectNameEl.textContent = effectName;
+
+    // ★【AI創造的効果説明】creativeDescription を派手に表示
+    const creativeDescEl = document.createElement('div');
+    creativeDescEl.style.cssText = `
+      font-size: 1.6em;
       font-weight: 500;
       color: #ffffff;
       text-shadow:
         0 2px 4px rgba(0, 0, 0, 0.4),
         0 4px 8px rgba(0, 0, 0, 0.5),
-        1px 1px 0px rgba(0, 0, 0, 0.6);
+        1px 1px 0px rgba(0, 0, 0, 0.6),
+        0 0 15px rgba(255, 255, 255, 0.3);
       text-align: center;
       max-width: 80vw;
       line-height: 1.8;
       letter-spacing: 1px;
       animation: supportMessageSlide 0.9s ease-out 0.2s both;
-      padding: 0 20px;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 15px;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      margin-top: 10px;
     `;
-    supportMessageEl.textContent = supportCard.supportMessage || '効果を発動！';
+    const creativeDesc = supportCard.creativeDescription || supportCard.supportMessage || '効果を発動！';
+    creativeDescEl.textContent = creativeDesc;
+
+    // サポートメッセージを表示するエレメント（後方互換）
+    const supportMessageEl = document.createElement('div');
+    supportMessageEl.style.cssText = `
+      font-size: 1.3em;
+      font-weight: 400;
+      color: #e0e0e0;
+      text-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        0 4px 8px rgba(0, 0, 0, 0.5),
+        1px 1px 0px rgba(0, 0, 0, 0.6);
+      text-align: center;
+      max-width: 75vw;
+      line-height: 1.6;
+      letter-spacing: 0.5px;
+      animation: supportMessageSlide 1.0s ease-out 0.3s both;
+      padding: 10px 20px;
+      margin-top: 8px;
+    `;
+    supportMessageEl.textContent = supportCard.supportMessage || '';
 
     // 特殊効果を表示するエレメント
     const specialEl = document.createElement('div');
@@ -984,8 +1073,12 @@ function showSupportOverlay(supportCard, duration = 3000) {
 
     overlay.appendChild(iconEl);
     overlay.appendChild(supportNameEl);
-    overlay.appendChild(supportMessageEl);
-    if (specialEl.textContent) {
+    overlay.appendChild(effectNameEl); // ★ effectName を追加
+    overlay.appendChild(creativeDescEl); // ★ creativeDescription を追加
+    if (supportMessageEl.textContent) {
+      overlay.appendChild(supportMessageEl);
+    }
+    if (specialEl.textContent && specialEl.textContent !== effectName) {
       overlay.appendChild(specialEl);
     }
 
@@ -1080,6 +1173,34 @@ function showSupportOverlay(supportCard, duration = 3000) {
             transform: scale(1) translateY(0);
             opacity: 1;
           }
+        }
+
+        @keyframes supportEffectNamePulse {
+          0% {
+            transform: scale(1);
+            text-shadow:
+              0 0 20px rgba(0, 212, 255, 0.9),
+              0 0 40px rgba(0, 212, 255, 0.6),
+              0 4px 8px rgba(0, 0, 0, 0.8),
+              2px 2px 0px rgba(0, 0, 0, 0.5);
+          }
+          50% {
+            transform: scale(1.08);
+            text-shadow:
+              0 0 30px rgba(0, 212, 255, 1),
+              0 0 60px rgba(0, 212, 255, 0.8),
+              0 6px 12px rgba(0, 0, 0, 0.9),
+              3px 3px 0px rgba(0, 0, 0, 0.6);
+          }
+          100% {
+            transform: scale(1);
+            text-shadow:
+              0 0 20px rgba(0, 212, 255, 0.9),
+              0 0 40px rgba(0, 212, 255, 0.6),
+              0 4px 8px rgba(0, 0, 0, 0.8),
+              2px 2px 0px rgba(0, 0, 0, 0.5);
+          }
+        }
         }
 
         @media (max-width: 768px) {
@@ -1252,7 +1373,7 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, statusTick, hp, players, nextTurn, winnerId, defenseFailed, affinity }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, statusTick, hp, players, nextTurn, winnerId, defenseFailed, affinity, effectsExpired }) => {
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
 
@@ -1391,6 +1512,13 @@ function initSocket() {
 
     // 演出後でも必ずターン同期
     syncTurnState({ nextTurn, hp, players });
+    // ★ 期限切れ効果の通知
+    if (Array.isArray(effectsExpired)) {
+      effectsExpired.forEach(exp => {
+        const toMe = exp.playerId === socket.id;
+        (exp.expired || []).forEach(name => appendLog(`⏳ ${toMe ? 'あなた' : '相手'} の「${name}」の効果が切れた`, 'info'));
+      });
+    }
     // nextTurn が存在する場合は確実に currentTurn を更新
     if (nextTurn) {
       currentTurn = nextTurn;
@@ -1398,7 +1526,7 @@ function initSocket() {
     setStatus(currentTurn === playerId ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
   });
 
-  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, statusTick, appliedStatus, fieldEffect, players }) => {
+  socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, statusTick, appliedStatus, fieldEffect, fieldState, players, effectsExpired }) => {
     // ターン開始時の状態異常処理
     if (statusTick) {
       appendLog('⏰ ターン開始: 状態異常を処理中...', 'info');
@@ -1494,9 +1622,9 @@ function initSocket() {
       appendLog(`  詳細: ${card.word || 'サポート'}が効果を発動した`, 'buff');
     }
 
-    // ★ UI調整: 攻撃力表示を隠し、効果情報バナーを表示
+    // ★ UI調整: 攻撃関連表示を完全に隠し、効果情報バナーを表示
     try {
-      // 攻撃力テキストを非表示（存在する場合のみ）
+      // 攻撃値テキストを完全非表示（存在する場合のみ）
       const atkEl = document.querySelector('.role-value.attack');
       if (atkEl) atkEl.style.display = 'none';
 
@@ -1577,24 +1705,80 @@ function initSocket() {
     try {
       const effectTarget = (card.effectTarget || '').toString();
       const value = Number.isFinite(Number(card.finalValue)) ? Number(card.finalValue) : 0;
-      if (effectTarget && value) {
-        switch (effectTarget) {
-          case 'player_hp':
-            if (isMe) {
-              showHealAnimation('my', value);
-            } else {
-              showHealAnimation('op', value);
+      const effectName = card.effectName || card.specialEffectName || card.specialEffect || 'サポート効果';
+      const mechanicType = (card.mechanicType || '').toString() || 'special';
+      const targetStat = (card.targetStat || '').toString();
+      
+      // ★ mechanicType に応じた分岐（UI表示と演出）
+      switch (mechanicType) {
+        case 'stat_boost': {
+          if (effectTarget && value) {
+            switch (effectTarget) {
+              case 'player_hp':
+                if (isMe) {
+                  showHealAnimation('my', value);
+                  appendLog(`💚 ${effectName}により${value}の回復効果が発動！`, 'buff');
+                } else {
+                  showHealAnimation('op', value);
+                  appendLog(`💚 相手に${effectName}により${value}の回復効果が発動`, 'buff');
+                }
+                break;
+              case 'player_atk':
+              case 'player_light_atk':
+              case 'player_fire_atk':
+              case 'player_water_atk':
+              case 'player_thunder_atk':
+                appendLog(`⚡ ${effectName}により${value}の強化効果が発動！`, 'buff');
+                break;
+              case 'player_def':
+              case 'player_spd':
+                appendLog(`🛡️ ${effectName}により${value}の効果が発動！`, 'buff');
+                break;
+              case 'enemy_atk':
+              case 'enemy_def':
+                appendLog(`💢 ${effectName}により相手に${value}の効果が発動！`, 'debuff');
+                break;
+              default:
+                appendLog(`ℹ️ ${effectName}により${value}の効果が適用されました`, 'info');
             }
-            break;
-          case 'player_attack':
-          case 'enemy_attack':
-          case 'player_speed':
-          case 'player_defense':
-            appendLog(`📈 ステータス変化: ${effectTarget} が ${value} 変化`, 'buff');
-            break;
-          default:
-            // 不明ターゲットはログのみ
-            appendLog(`ℹ️ 効果適用: target=${effectTarget} value=${value}`, 'info');
+          }
+          break;
+        }
+        case 'field_change': {
+          // フィールド変化：背景やバッジを更新
+          const name = (fieldEffect && fieldEffect.name) || card.fieldEffect || card.element || card.attribute || '環境';
+          const turns = (fieldEffect && fieldEffect.turns) || card.fieldTurns || card.duration || 3;
+          const mult = (fieldEffect && fieldEffect.multiplier) || card.fieldMultiplier || 1.5;
+          const pseudoField = typeof name === 'object' ? name : { name, turns, originalTurns: turns, multiplier: mult, visual: card.visual || '' };
+          showFieldEffect(pseudoField);
+          updateFieldEffectBadge(pseudoField);
+          appendLog(`🌍 ${effectName}により${pseudoField.name}属性が${mult}倍に強化！（残り${turns}ターン）`, 'buff');
+          break;
+        }
+        case 'status_ailment': {
+          appendLog(`☠️ ${effectName}により状態異常効果が発動！`, 'debuff');
+          break;
+        }
+        case 'turn_manipulation': {
+          appendLog(`⏰ ${effectName}によりターン操作が発動！`, 'info');
+          break;
+        }
+        case 'special':
+        default: {
+          appendLog(`✨ ${effectName}により特殊効果が発動中...`, 'info');
+          // 特殊効果フラグをローカルストレージに保存
+          try {
+            const specialEffectFlag = {
+              effectName: effectName,
+              creativeDescription: card.creativeDescription || '',
+              duration: card.duration || 3,
+              timestamp: Date.now()
+            };
+            localStorage.setItem('activeSpecialEffect', JSON.stringify(specialEffectFlag));
+          } catch (storageError) {
+            console.warn('⚠️ 特殊効果フラグの保存に失敗:', storageError);
+          }
+          break;
         }
       }
     } catch (stError) {
@@ -1639,6 +1823,13 @@ function initSocket() {
     
     // syncTurnState でサーバー状態と完全同期
     syncTurnState({ activePlayer: nextTurn, nextTurn, hp, players });
+    // ★ 期限切れ効果の通知
+    if (Array.isArray(effectsExpired)) {
+      effectsExpired.forEach(exp => {
+        const toMe = exp.playerId === playerId;
+        (exp.expired || []).forEach(name => appendLog(`⏳ ${toMe ? 'あなた' : '相手'} の「${name}」の効果が切れた`, 'info'));
+      });
+    }
     
     // UIを更新してターン表示を確実に反映
     const isMyTurn = currentTurn === playerId;
@@ -1662,7 +1853,7 @@ function initSocket() {
   socket.on('status', ({ message }) => setStatus(message));
 
   // 【完全同期】ターン更新イベントを受け取り UI を同期
-  socket.on('turnUpdate', ({ activePlayer, activePlayerName, turnIndex, players }) => {
+  socket.on('turnUpdate', ({ activePlayer, activePlayerName, turnIndex, players, effectsExpired }) => {
     console.log(`📢 turnUpdate受信: アクティブプレイヤー=${activePlayerName}, turnIndex=${turnIndex}`);
     
     currentTurn = activePlayer;
@@ -1670,6 +1861,14 @@ function initSocket() {
 
     // サーバー状態で必ず同期
     syncTurnState({ activePlayer, players });
+
+    // ★ 期限切れ効果の通知
+    if (Array.isArray(effectsExpired)) {
+      effectsExpired.forEach(exp => {
+        const toMe = exp.playerId === socket.id;
+        (exp.expired || []).forEach(name => appendLog(`⏳ ${toMe ? 'あなた' : '相手'} の「${name}」の効果が切れた`, 'info'));
+      });
+    }
 
     const myTurn = activePlayer === socket.id;
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : `${activePlayerName} のターン進行中`);
