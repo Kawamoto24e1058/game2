@@ -1887,14 +1887,20 @@ function initSocket() {
     console.log('🔄 nextTurn 同期', { active, nextTurn });
   });
 
-  socket.on('fieldEffectUpdate', ({ fieldEffect }) => {
+  socket.on('fieldEffectUpdate', ({ fieldEffect, currentFieldElement }) => {
     if (fieldEffect && fieldEffect.name) {
       showFieldEffect(fieldEffect);
       updateFieldEffectBadge(fieldEffect);
+      // ★ 属性に応じた背景クラスを適用
+      if (currentFieldElement && currentFieldElement !== 'neutral') {
+        document.body.className = currentFieldElement;
+        console.log(`🎨 背景更新: ${currentFieldElement}`);
+      }
     } else {
       // フィールド効果が消えた場合
       currentFieldEffect = null;
       document.body.style.background = '';
+      document.body.className = 'neutral';
       updateFieldEffectBadge(null);
       appendLog('🌐 環境効果が消滅した', 'info');
     }

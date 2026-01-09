@@ -23,6 +23,47 @@ body {
   min-height: 100vh;
   padding: 24px;
   color: var(--text);
+  transition: background 0.8s ease-in-out;
+}
+
+/* ★ フィールド属性別背景 */
+body.neutral {
+  background: linear-gradient(135deg, #e0f4ff 0%, #b6e3ff 40%, #e6f8ff 100%);
+}
+
+body.fire {
+  background: linear-gradient(135deg, #3a0000 0%, #6b1818 50%, #8b2e2e 100%);
+  color: #ffffe0;
+}
+
+body.water {
+  background: linear-gradient(135deg, #001a4a 0%, #003a7a 50%, #0052aa 100%);
+  color: #b6e3ff;
+}
+
+body.wind {
+  background: linear-gradient(135deg, #003a2e 0%, #007a5a 50%, #00aa8a 100%);
+  color: #90ee90;
+}
+
+body.earth {
+  background: linear-gradient(135deg, #3a2e00 0%, #6b5a1a 50%, #8b7a2a 100%);
+  color: #ffff99;
+}
+
+body.thunder {
+  background: linear-gradient(135deg, #3a3a00 0%, #6b6b1a 50%, #8b8b2a 100%);
+  color: #ffff00;
+}
+
+body.light {
+  background: linear-gradient(135deg, #ffffe0 0%, #ffffa0 50%, #ffffcc 100%);
+  color: #333333;
+}
+
+body.dark {
+  background: linear-gradient(135deg, #0a0a1a 0%, #1a0a3a 50%, #0a0a0a 100%);
+  color: #e0e0ff;
 }
 
 .container {

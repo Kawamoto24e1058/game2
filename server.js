@@ -33,6 +33,9 @@ const waitingPlayers = [];
 const passwordRooms = new Map(); // password -> roomId
 const rooms = new Map(); // roomId -> room state
 
+// ★ グローバルフィールド属性管理
+let currentFieldElement = 'neutral'; // 'neutral', 'fire', 'water', 'wind', 'earth', 'thunder', 'light', 'dark' など
+
 // 属性相性（5すくみ + 光/闇相互弱点）
 function getAffinity(attackerAttr, defenderAttr) {
   const strongAgainst = {
@@ -2110,6 +2113,15 @@ io.on('connection', (socket) => {
           const persistedTurns = Number.isFinite(Number(fieldTurns)) ? Math.max(1, Math.round(Number(fieldTurns))) : (Math.random() < 0.5 ? 3 : 5);
           const fieldElementName = (fieldElem && typeof fieldElem === 'object') ? (fieldElem.name || fieldElem.element || null) : fieldElem;
           
+          // ★ グローバルフィールド属性を更新（背景ビジュアル切り替え用）
+          const elementMap = {
+            '火': 'fire', '水': 'water', '風': 'wind', '土': 'earth', '雷': 'thunder',
+            'fire': 'fire', 'water': 'water', 'wind': 'wind', 'earth': 'earth', 'thunder': 'thunder',
+            '光': 'light', '闇': 'dark', 'light': 'light', 'dark': 'dark'
+          };
+          currentFieldElement = elementMap[fieldElementName] || 'neutral';
+          console.log(`🎨 currentFieldElement 更新: ${currentFieldElement}`);
+          
           // 旧フィールド効果（互換性）
           room.fieldEffect = {
             name: fieldElementName,
@@ -2143,7 +2155,7 @@ io.on('connection', (socket) => {
           };
           
           console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${fieldElem}属性 x${fieldMult} (${fieldTurns}ターン継続)`);
-          io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
+          io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect, currentFieldElement });
           break;
         }
         default: {
