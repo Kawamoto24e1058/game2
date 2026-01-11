@@ -71,6 +71,120 @@ function deriveRankFromValue(val) {
   return 'E';
 }
 
+// ターンスキップを考慮した次アクティブプレイヤー決定
+function advanceTurnIndexWithSkips(room) {
+  if (!room || !room.players || room.players.length === 0) return null;
+  let safety = room.players.length;
+  while (safety > 0) {
+    room.turnIndex = (room.turnIndex + 1) % room.players.length;
+    const candidate = room.players[room.turnIndex];
+    if (!candidate) break;
+
+    if (candidate.skipTurns && candidate.skipTurns > 0) {
+      candidate.skipTurns = Math.max(0, candidate.skipTurns - 1);
+      candidate.canAction = candidate.skipTurns <= 0;
+      console.log(`⏭️ ${candidate.name} のターンをスキップ (残り${candidate.skipTurns}ターン)`);
+      safety--;
+      continue;
+    }
+
+    candidate.canAction = true;
+    return candidate.id;
+  }
+  return room.players[room.turnIndex]?.id || null;
+}
+
+// AI設計図ベースの効果適用
+function applyAiEffect(player, enemy, logic, meta = {}) {
+  if (!logic || typeof logic !== 'object') return { message: '', appliedStatus: [], activeEffects: [] };
+  const effectName = meta.effectName || '効果';
+  const description = meta.description || '';
+  const targetSide = (logic.target || 'player').toLowerCase();
+  const target = targetSide === 'enemy' ? enemy : player;
+  if (!target) return { message: '', appliedStatus: [], activeEffects: [] };
+
+  const actionType = (logic.actionType || '').toLowerCase();
+  const targetStat = (logic.targetStat || 'hp').toLowerCase();
+  const value = Math.max(0, Math.round(Number(logic.value) || 0));
+  const duration = Math.max(0, Math.min(3, Math.round(Number(logic.duration) || 0)));
+  const appliedStatus = [];
+  const activeEffects = [];
+  let message = '';
+
+  const clampMultiplier = (val) => Math.max(0.2, Math.min(3.0, val));
+
+  switch (actionType) {
+    case 'heal': {
+      const maxHp = target.maxHp || STARTING_HP;
+      const healAmount = Math.min(value, Math.max(0, maxHp - target.hp));
+      target.hp = Math.min(maxHp, (target.hp || 0) + healAmount);
+      message = `🏥 ${effectName} で ${healAmount} 回復 (${target.hp}/${maxHp})`;
+      break;
+    }
+    case 'buff':
+    case 'debuff': {
+      const sign = actionType === 'buff' ? 1 : -1;
+      const deltaRatio = (value || 0) / 100 * sign;
+      if (targetStat === 'atk') {
+        target.atkMultiplier = clampMultiplier((target.atkMultiplier || 1.0) + deltaRatio);
+        message = `${effectName}: 攻撃倍率 ${target.atkMultiplier.toFixed(2)}x`;
+      } else if (targetStat === 'def') {
+        target.defMultiplier = clampMultiplier((target.defMultiplier || 1.0) + deltaRatio);
+        message = `${effectName}: 防御倍率 ${target.defMultiplier.toFixed(2)}x`;
+      } else if (targetStat === 'spd') {
+        target.speed = (target.speed || 0) + (value * sign);
+        message = `${effectName}: 速度 ${target.speed}`;
+      } else if (targetStat === 'hp') {
+        const maxHp = target.maxHp || STARTING_HP;
+        const healAmount = Math.min(value * Math.max(sign, 0), Math.max(0, maxHp - target.hp));
+        target.hp = Math.min(maxHp, (target.hp || 0) + healAmount);
+        message = `${effectName}: HP 調整 (${target.hp}/${maxHp})`;
+      }
+
+      if (duration > 0) {
+        activeEffects.push({
+          name: effectName,
+          duration,
+          type: actionType,
+          stat: targetStat,
+          delta: deltaRatio,
+          description
+        });
+        if (!Array.isArray(target.activeEffects)) target.activeEffects = [];
+        target.activeEffects.push(...activeEffects);
+      }
+      break;
+    }
+    case 'skip_turn': {
+      const turns = duration || 1;
+      target.skipTurns = Math.max(target.skipTurns || 0, turns);
+      target.canAction = false;
+      activeEffects.push({ name: effectName, duration: turns, type: 'turn_skip', description });
+      if (!Array.isArray(target.activeEffects)) target.activeEffects = [];
+      target.activeEffects.push(...activeEffects);
+      message = `⏭️ ${target.name || '相手'} の行動を ${turns} ターン封じた`;
+      break;
+    }
+    case 'dot': {
+      const dotVal = Math.max(1, value || 1);
+      const dotDuration = duration || 3;
+      if (!Array.isArray(target.statusAilments)) target.statusAilments = [];
+      target.statusAilments.push({ name: effectName, turns: dotDuration, effectType: 'dot', value: dotVal });
+      appliedStatus.push({ targetId: target.id, name: effectName, turns: dotDuration, effectType: 'dot', value: dotVal });
+      activeEffects.push({ name: effectName, duration: dotDuration, type: 'dot', value: dotVal, description });
+      if (!Array.isArray(target.activeEffects)) target.activeEffects = [];
+      target.activeEffects.push(...activeEffects);
+      message = `☠️ ${effectName}: ${dotDuration}ターンの継続ダメージ (${dotVal}/ターン)`;
+      break;
+    }
+    default: {
+      message = `${effectName}: 未定義の効果 (${actionType || 'none'})`;
+    }
+  }
+
+  return { message, appliedStatus, activeEffects };
+}
+
 // =====================================
 // 属性ユーティリティと相性ロジック（刷新）
 // =====================================
@@ -380,7 +494,16 @@ async function generateCard(word, intent = 'neutral') {
   "fieldTurns": 3-5（fieldChange時は必ず3, 4, 5 などの不規則な値を設定、他は省略可）,
   "specialEffect": "【独自効果名】具体的な効果文",
   "judgeComment": "言葉の背景分析（150字程度）",
-  "visual": "CSS gradient または色コード"
+  "visual": "CSS gradient または色コード",
+  "logic": {
+    "target": "player" | "enemy",
+    "actionType": "heal" | "buff" | "debuff" | "skip_turn" | "dot",
+    "targetStat": "hp" | "atk" | "def" | "spd",
+    "value": 数値（0〜100）,
+    "duration": 持続ターン数（0〜3）
+  },
+  "effectName": "AIが決めた効果名",
+  "creativeDescription": "効果の詳細説明文"
 }
 \`\`\`
 
@@ -425,6 +548,23 @@ async function generateCard(word, intent = 'neutral') {
    - fieldEffect: 強化される属性名（火/水/風/土/雷/光/闇/草 または カスタム属性名）を必ず設定
    - fieldMultiplier: 1.5 を推奨（省略禁止）
    - fieldTurns: 3, 4, 5 などの不規則な値を必ず設定（省略禁止）
+11. **【超重要：AI効果設計図（logic）】Support 生成時には必ず logic オブジェクトを含めよ：**
+   - **target**: "player" または "enemy"（効果対象）を必ず指定
+   - **actionType**: "heal" | "buff" | "debuff" | "skip_turn" | "dot"（5種から必ず1つ選択）
+   - **targetStat**: "hp" | "atk" | "def" | "spd"（影響するステータス）
+   - **value**: 0〜100 の数値（効果の強度）
+   - **duration**: 0〜3 のターン数（0=即座、1=1ターン等）
+   - **例：「猛毒」** → logic: { target: "enemy", actionType: "dot", targetStat: "hp", value: 15, duration: 3 }
+   - **例：「時止め」** → logic: { target: "enemy", actionType: "skip_turn", targetStat: "spd", value: 100, duration: 1 }
+   - **例：「鉄壁」** → logic: { target: "player", actionType: "buff", targetStat: "def", value: 50, duration: 2 }
+12. **【AI創造的効果名】Support カード生成時には以下を必ず含めよ：**
+   - **effectName**: カード名から独自の効果名をAIが創造（既存概念にとらわれるな）
+     例：「光」→ 「【聖域光臨】」、「量子」→ 「【確率収束制御】」、「雨」→ 「【水流治癒波】」
+   - **creativeDescription**: AIが考えた効果の詳細説明（100-200字、具体的な効果メカニズムを含む）
+     例：「対象の全ステータスを量子的に再構成し、3ターンの間、被ダメージを43%軽減する」
+   - **mechanicType**: プログラム処理用分類（stat_boost | status_ailment | field_change | turn_manipulation | special）
+   - **targetStat**: 影響を与えるステータス（hp | atk | def | spd | field_element | turn_count | special）
+   - **duration**: 効果持続ターン数（2, 3, 4, 5 など意味のある不規則な値）
 8. 属性判断は言葉の本質から自由に決定せよ（既存の枠に囚われるな）
    - 「霧」→ 水属性、「朝焼け」→ 火属性、「極寒」→ 水属性、「砂嵐」→ 土または風属性
    - その言葉が最も強く連想させる属性を選べ
@@ -815,8 +955,11 @@ function createRoom(players, mode, password) {
       buffs: {                         // バフ管理
         atkUp: 0,                       // ターン数
         defUp: 0,
-        allStatUp: 0
-      }
+        allStatUp: 0,
+        counterUp: 0
+      },
+      skipTurns: 0,
+      canAction: true
     })),
     hostId: players[0].socket.id,
     started: false,
@@ -1942,12 +2085,23 @@ io.on('connection', (socket) => {
           socketId: socket.id,
           hp: STARTING_HP,
           maxHp: STARTING_HP,
+          stamina: 100,
+          maxStamina: 100,
+          mp: 50,
+          maxMp: 50,
           usedWords: new Set(),
           isHost: false,
           supportUsed: 0,
           attackBoost: 0,
           defenseBoost: 0,
-          statusAilments: []
+          atkMultiplier: 1.0,
+          defMultiplier: 1.0,
+          reservedDefense: 0,
+          statusAilments: [],
+          activeEffects: [],
+          buffs: { atkUp: 0, defUp: 0, allStatUp: 0, counterUp: 0 },
+          skipTurns: 0,
+          canAction: true
         });
         socket.join(room.id);
         socket.data.roomId = room.id;
@@ -2147,6 +2301,15 @@ io.on('connection', (socket) => {
         const match = text.match(/(\d+)/);
         return match ? parseInt(match[1], 10) : defaultVal;
       };
+
+      // ★【AI効果設計図の実行】logic オブジェクトがあれば、それをベースに効果を実行
+      let aiEffectResult = { message: '', appliedStatus: [], activeEffects: [] };
+      if (card.logic && typeof card.logic === 'object') {
+        const meta = { effectName: card.effectName || card.specialEffect || 'AI効果', description: card.creativeDescription || '' };
+        aiEffectResult = applyAiEffect(player, opponent, card.logic, meta);
+        console.log(`🎲 AI効果設計図実行: ${meta.effectName}`, aiEffectResult.message);
+        appliedStatus.push(...aiEffectResult.appliedStatus);
+      }
 
       // 【各サポートタイプの処理】
       switch (supportTypeRaw) {
@@ -2441,7 +2604,14 @@ io.on('connection', (socket) => {
         finalValue: finalValueUnified,  // ★ 攻撃力ではなく、効果量・回復量
         effectTarget: effectTargetUnified,
         specialEffectName: card.specialEffect || '',
-        specialEffectDescription: card.supportMessage || ''
+        specialEffectDescription: card.supportMessage || '',
+        // ★ AI効果設計図フィールド（クライアント表示用）
+        logic: card.logic || {},
+        effectName: card.effectName || card.specialEffect || '効果',
+        creativeDescription: card.creativeDescription || card.supportMessage || '効果を発動',
+        mechanicType: card.mechanicType || 'special',
+        targetStat: card.targetStat || 'hp',
+        duration: card.duration || 0
       };
 
       // バトルログに サポート発動記録を追加（★ 攻撃ではなく「効果」と表現）
