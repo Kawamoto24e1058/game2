@@ -36,6 +36,38 @@ function deriveRankFromValue(baseValue) {
   return 'E';
 }
 
+// ★ フォールバック: 最低限のサポートカードを生成
+function createBasicSupportFallback(word = 'サポート') {
+  return {
+    word,
+    name: '予備サポート',
+    cardName: '予備サポート',
+    rank: 'E',
+    attribute: 'light',
+    element: '光',
+    // 旧/新判定に両対応
+    role: 'support',
+    effect: 'support',
+    type: 'heal',
+    cardType: 'heal',
+    supportType: 'heal',
+    supportMessage: 'AI失敗: HPを30回復',
+    specialEffect: '緊急手当',
+    effectName: '緊急手当',
+    description: 'AIの生成に失敗したため、基本的な手当を行います。',
+    creativeDescription: 'AI失敗時の緊急処置。即時にHPを30回復する。',
+    mechanicType: 'stat_boost',
+    targetStat: 'hp',
+    duration: 0,
+    logic: { target: 'player', actionType: 'heal', value: 30, duration: 0 },
+    // 後続処理のための数値類
+    baseValue: 30,
+    finalValue: 30,
+    hitRate: 100,
+    cost: 0
+  };
+}
+
 // カード生成タイムアウト付きラッパー
 async function generateCardWithTimeout(original, role, fallback, timeout = 8000) {
   try {
@@ -44,43 +76,46 @@ async function generateCardWithTimeout(original, role, fallback, timeout = 8000)
       new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
     ]);
     
-    // ★【重要：サポートモード時の強制上書き処理】
+    // ★【重要：サポートモードの厳格フォールバック/整形】
     if (role === 'support') {
-      console.log(`⚠️ サポートモード検出: 入力="${original}" → typeを強制上書き`);
-      
-      // AIが何を返してきても、サポート効果に変換する
-      if (result.cardType && result.cardType !== 'heal' && result.cardType !== 'buff' && result.cardType !== 'enchant' && result.cardType !== 'support') {
-        console.log(`   AIが返したtype="${result.cardType}" → 強制的に"buff"に上書き`);
-        result.cardType = 'buff';
-        result.type = 'buff';
+      const isSupportLike = (c) => {
+        const t = (c?.cardType || c?.type || '').toLowerCase();
+        const r = (c?.role || '').toLowerCase();
+        return r === 'support' || t === 'heal' || t === 'buff' || t === 'enchant' || !!c?.supportType;
+      };
+      if (!isSupportLike(result)) {
+        console.warn(`⚠️ AI結果がサポート非適合のため置換: role=${result?.role}, type=${result?.type}`);
+        return createBasicSupportFallback(original);
       }
-      if (result.role && result.role !== 'support') {
-        console.log(`   AIが返したrole="${result.role}" → 強制的に"support"に上書き`);
-        result.role = 'support';
-        result.effect = 'support';
+      // 役割・型の整合性を補正し、最低限のフィールドを保証
+      result.role = 'support';
+      result.effect = 'support';
+      if (!result.cardType && result.type) result.cardType = result.type;
+      if (!result.type) result.type = result.cardType || 'heal';
+      if (!result.supportType) result.supportType = (result.cardType || result.type || 'heal').toLowerCase();
+      if (!result.supportMessage && result.supportType === 'heal') {
+        result.supportMessage = '基本サポート: HPを30回復';
+        if (!result.logic) result.logic = { target: 'player', actionType: 'heal', value: 30, duration: 0 };
       }
-      
-      // 異常なpower値をfallbackに読み替え
-      if (result.power > 100) {
-        console.log(`   AIが返したpower=${result.power} → 効果量として読み替え`);
+      if (!result.effectName && result.specialEffect) result.effectName = result.specialEffect;
+      if (!result.effectName) result.effectName = '基本サポート';
+      if (typeof result.finalValue !== 'number' || !Number.isFinite(result.finalValue)) {
+        result.finalValue = 30;
       }
+      if (typeof result.baseValue !== 'number' || !Number.isFinite(result.baseValue)) {
+        result.baseValue = result.finalValue;
+      }
+      return result;
     }
     
     return result;
   } catch (e) {
     console.warn(`⚠️ カード生成失敗（${original}）、フォールバック使用:`, e.message);
-    let fb = fallback || generateCardFallback(original);
-    
-    // ★【フォールバック時もサポートモード強制】
+    // ★ 役割別の確実なフォールバック
     if (role === 'support') {
-      console.log(`⚠️ サポートモード（フォールバック）: 生成されたカードをサポート型に強制変換`);
-      fb.cardType = 'buff';
-      fb.type = 'buff';
-      fb.role = 'support';
-      fb.effect = 'support';
+      return createBasicSupportFallback(original);
     }
-    
-    return fb;
+    return fallback || generateCardFallback(original);
   }
 }
 
