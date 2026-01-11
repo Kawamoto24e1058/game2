@@ -33,16 +33,67 @@ async function generateCardWithTimeout(original, role, fallback, timeout = 8000)
       generateCard(original, role),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
     ]);
+    
+    // ★【重要：サポートモード時の強制上書き処理】
+    if (role === 'support') {
+      console.log(`⚠️ サポートモード検出: 入力="${original}" → typeを強制上書き`);
+      
+      // AIが何を返してきても、サポート効果に変換する
+      if (result.cardType && result.cardType !== 'heal' && result.cardType !== 'buff' && result.cardType !== 'enchant' && result.cardType !== 'support') {
+        console.log(`   AIが返したtype="${result.cardType}" → 強制的に"buff"に上書き`);
+        result.cardType = 'buff';
+        result.type = 'buff';
+      }
+      if (result.role && result.role !== 'support') {
+        console.log(`   AIが返したrole="${result.role}" → 強制的に"support"に上書き`);
+        result.role = 'support';
+        result.effect = 'support';
+      }
+      
+      // 異常なpower値をfallbackに読み替え
+      if (result.power > 100) {
+        console.log(`   AIが返したpower=${result.power} → 効果量として読み替え`);
+      }
+    }
+    
     return result;
   } catch (e) {
     console.warn(`⚠️ カード生成失敗（${original}）、フォールバック使用:`, e.message);
-    return fallback || generateCardFallback(original);
+    let fb = fallback || generateCardFallback(original);
+    
+    // ★【フォールバック時もサポートモード強制】
+    if (role === 'support') {
+      console.log(`⚠️ サポートモード（フォールバック）: 生成されたカードをサポート型に強制変換`);
+      fb.cardType = 'buff';
+      fb.type = 'buff';
+      fb.role = 'support';
+      fb.effect = 'support';
+    }
+    
+    return fb;
   }
 }
 
 // ★【AI創作呪文】Gemini APIによる高度なカード生成
 async function generateCard(original, role = 'attack') {
   const intentNote = role === 'attack' ? '攻撃カードを生成せよ。' : role === 'defense' ? '防御カードを生成せよ。' : 'サポートカードを生成せよ。';
+  
+  // ★【重要：サポートモード時の厳格な指示】
+  const supportModeNote = role === 'support' ? `
+【★重大指示★】
+ユーザーは『サポートモード』を選択しました。入力された言葉（例：嵐、剣、爆発）がどれほど攻撃的であっても、直接攻撃ではなく『バフ・デバフ・フィールド効果・回復・強化・弱体化』のいずれかに変換して解釈してください。絶対に「attack」「magic」「summon」を返してはいけません。
+
+【例】
+- 『嵐』→ 攻撃ではなく「フィールドを風属性に変える」「相手の命中率を下げる」「自分の素早さを上げる」
+- 『剣』→ 攻撃ではなく「自分の攻撃力を上げるバフ効果」
+- 『爆発』→ 攻撃ではなく「相手にデバフを付与する」「フィールド効果を発動」
+- 『愛』→「回復効果」「全体バフ」「状態異常を治す」
+
+【必須】
+- role は必ず "Support" に設定すること
+- type は必ず "heal" または "buff" または "enchant" のいずれかに設定すること
+- 絶対に "attack", "magic", "summon" を返さないこと
+` : '';
   
   const prompt = `【あなたの役割】
 あなたはベテランのファンタジーRPGゲームデザイナーです。
@@ -53,6 +104,8 @@ async function generateCard(original, role = 'attack') {
 2. 「ただのパンチ」なら → 威力10、cost=0、hitRate=100、属性physics（物理）
 3. 「愛」なら → 威力0、type=heal（回復）、属性light
 4. 言葉が持つ「代償」を必ず考慮せよ。タダで最強の力は手に入らない。
+
+${supportModeNote}
 
 【入力された言葉】
 "${original}"
@@ -2068,6 +2121,19 @@ io.on('connection', (socket) => {
         const card = await generateCardWithTimeout(cleanWord, 'support', generateCardFallback(cleanWord));
         if (card.baseValue && !Number.isFinite(card.baseValue)) { card.baseValue = 50; }
 
+        // ★【重要：サポートモード確認】
+        console.log(`🎯 supportAction実行: word="${cleanWord}", card.type="${card.cardType || card.type}", card.role="${card.role}"`);
+        
+        // ★【強制確認】サポートモード時はHP削減を絶対に禁止
+        const isSupportMode = card.role === 'support' || (card.cardType || card.type) === 'heal' || (card.cardType || card.type) === 'buff' || (card.cardType || card.type) === 'enchant';
+        if (!isSupportMode) {
+          console.error(`⚠️ サポートモード異常: card.type="${card.cardType || card.type}" はサポートではありません。強制的にsupport型に変換します`);
+          card.role = 'support';
+          card.effect = 'support';
+          card.cardType = 'buff';
+          card.type = 'buff';
+        }
+
         room.usedWordsGlobal.add(lower);
         player.usedWords.add(lower);
         player.supportUsed++;
@@ -2075,6 +2141,10 @@ io.on('connection', (socket) => {
         const opponent = getOpponent(room, socket.id);
         const appliedStatus = [];
         const maxHp = player.maxHp || STARTING_HP;
+        
+        // ★【HP操作ガード：プレイヤーのHP初期値をバックアップ】
+        const playerHpBeforeSupport = player.hp;
+        const opponentHpBeforeSupport = opponent?.hp || 0;
 
         const extractNumber = (text, defaultVal = 0) => {
           if (!text || typeof text !== 'string') return defaultVal;
@@ -2218,6 +2288,24 @@ io.on('connection', (socket) => {
 
         const hp = {}; room.players.forEach(p => { hp[p.id] = p.hp; });
         const players = room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, statusAilments: p.statusAilments || [], activeEffects: p.activeEffects || [] }));
+
+        // ★【重要：HP保全チェック】サポート使用中はプレイヤーのHP減少を禁止
+        // AIが誤った計算をしている場合、HPを強制的に復元
+        if (player.hp < playerHpBeforeSupport) {
+          console.warn(`⚠️ サポート使用中にプレイヤーHPが低下: ${playerHpBeforeSupport} → ${player.hp} (HP削減禁止)`);
+          player.hp = playerHpBeforeSupport;
+          hp[player.id] = playerHpBeforeSupport;
+          const playerIdx = players.findIndex(p => p.id === player.id);
+          if (playerIdx >= 0) players[playerIdx].hp = playerHpBeforeSupport;
+        }
+        
+        // 相手へのHP操作は許可（デバフなど）するが、念のためサニタイズ
+        if (opponent && opponent.hp < 0) {
+          opponent.hp = 0;
+          hp[opponent.id] = 0;
+          const opponentIdx = players.findIndex(p => p.id === opponent.id);
+          if (opponentIdx >= 0) players[opponentIdx].hp = 0;
+        }
 
         let winnerId = null;
         if (room.players.some(p => p.hp <= 0)) {
