@@ -205,6 +205,7 @@ ${supportModeNote}
 
 ${intentNote}`;
 
+  let responseText = '';
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
     const result = await model.generateContent({
@@ -212,25 +213,48 @@ ${intentNote}`;
       generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
     });
     
-    let responseText = result.response.text().trim();
+    // 生テキスト（デバッグ用に保持）
+    responseText = (result?.response?.text?.() || '').trim();
     responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     
     if (!responseText.startsWith('{')) {
-      throw new Error('Invalid JSON format');
+      throw new Error('Invalid JSON format: not starting with "{"');
     }
     
-    const cardData = JSON.parse(responseText);
+    let cardData;
+    try {
+      cardData = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.error('❌ JSON.parse 失敗 (generateCard):', parseErr.message);
+      console.error('   ↳ Raw AI text:', responseText);
+      // 二重try-catchの内側で失敗: 役割別フォールバック
+      if (role === 'support') return createBasicSupportFallback(original);
+      return {
+        word: original,
+        name: original,
+        role: 'attack',
+        effect: 'attack',
+        cardType: 'attack',
+        attribute: 'earth',
+        element: '土',
+        baseValue: 10,
+        finalValue: 10,
+        attack: 10,
+        specialEffect: '【基本攻撃】入力単語からの標準攻撃',
+        judgeComment: 'AIパース失敗のため最低攻撃値を使用'
+      };
+    }
     
     // ★【AI創作呪文パラメータ受け取り】
-    const cardName = cardData.cardName || original;
-    const rank = (cardData.rank || 'C').toString().toUpperCase();
-    const element = cardData.element || 'earth';
-    const type = cardData.type || 'attack';
-    const power = Math.max(0, Math.min(999, parseInt(cardData.power) || 50));
-    const cost = Math.max(0, Math.min(100, parseInt(cardData.cost) || 0));
-    const hitRate = Math.max(0, Math.min(100, parseInt(cardData.hitRate) || 95));
-    const flavorText = cardData.flavorText || '【呪文】未知の力';
-    const isForbidden = cardData.isForbidden === true || rank === 'EX';
+    const cardName = cardData?.cardName || original;
+    const rank = (cardData?.rank || 'C').toString().toUpperCase();
+    const element = cardData?.element || 'earth';
+    const type = cardData?.type || 'attack';
+    const power = Math.max(0, Math.min(999, parseInt(cardData?.power) || 50));
+    const cost = Math.max(0, Math.min(100, parseInt(cardData?.cost) || 0));
+    const hitRate = Math.max(0, Math.min(100, parseInt(cardData?.hitRate) || 95));
+    const flavorText = cardData?.flavorText || '【呪文】未知の力';
+    const isForbidden = cardData?.isForbidden === true || rank === 'EX';
     
     console.log(`🎴 AI創作カード生成: ${cardName} | Rank ${rank} | Power ${power} | Cost ${cost} | Hit ${hitRate}%`);
     console.log(`   → Element: ${element}, Type: ${type}, Flavor: ${flavorText}`);
@@ -258,7 +282,7 @@ ${intentNote}`;
     if (!Number.isFinite(finalValue)) finalValue = 50;
     
     // 役割判定（後方互換性のため）
-    const cardRole = (cardData.role || type).toLowerCase();
+    const cardRole = (cardData?.role || type).toLowerCase();
     const isAttack = cardRole.includes('attack') || type === 'attack' || type === 'magic' || type === 'summon';
     const isDefense = cardRole.includes('defense') || type === 'defense';
     const isSupport = cardRole.includes('support') || type === 'heal' || type === 'buff' || type === 'enchant';
@@ -303,8 +327,24 @@ ${intentNote}`;
       description: `${elementJP} [${type}] Power:${finalValue} Cost:${cost} Hit:${adjustedHitRate}% / ${flavorText}`
     };
   } catch (error) {
-    console.error('❌ Gemini API エラー:', error);
-    return generateCardFallback(original);
+    console.error('❌ Gemini API/解析 エラー:', error.message);
+    console.error('   ↳ Raw AI text (generateCard):', responseText);
+    // 外側try-catchで失敗: 役割別フォールバック
+    if (role === 'support') return createBasicSupportFallback(original);
+    return {
+      word: original,
+      name: original,
+      role: 'attack',
+      effect: 'attack',
+      cardType: 'attack',
+      attribute: 'earth',
+      element: '土',
+      baseValue: 10,
+      finalValue: 10,
+      attack: 10,
+      specialEffect: '【基本攻撃】入力単語からの標準攻撃',
+      judgeComment: 'AI失敗のため最低攻撃値を使用'
+    };
   }
 }
 
@@ -2198,14 +2238,18 @@ io.on('connection', (socket) => {
         };
 
         let aiEffectResult = { message: '', appliedStatus: [], activeEffects: [] };
-        if (card.logic && typeof card.logic === 'object') {
-          const meta = { effectName: card.effectName || card.specialEffect || 'AI効果', description: card.creativeDescription || '' };
-          aiEffectResult = applyAiEffect(player, opponent, card.logic, meta);
-          appliedStatus.push(...aiEffectResult.appliedStatus);
+        if (card?.logic && typeof card.logic === 'object') {
+          const meta = { effectName: card?.effectName || card?.specialEffect || 'AI効果', description: card?.creativeDescription || '' };
+          try {
+            aiEffectResult = applyAiEffect(player, opponent, card.logic, meta);
+            appliedStatus.push(...(aiEffectResult?.appliedStatus || []));
+          } catch (e) {
+            console.error('❌ applyAiEffect 実行エラー:', e.message);
+          }
         }
 
-        const supportTypeRaw = (card.supportType || '').toLowerCase();
-        const supportMessage = card.supportMessage || '';
+        const supportTypeRaw = (card?.supportType || '').toLowerCase();
+        const supportMessage = card?.supportMessage || '';
 
         switch (supportTypeRaw) {
           case 'heal': {
@@ -2379,9 +2423,9 @@ io.on('connection', (socket) => {
           io.to(roomId).emit('turnUpdate', { activePlayer: nextPlayer.id, activePlayerName: nextPlayer.name, turnIndex: room.turnIndex, players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, activeEffects: p.activeEffects || [] })), effectsExpired });
         }
       } catch (error) {
-        console.error('❌ サポート処理エラー:', error);
+        console.error('❌ サポート処理エラー:', error?.message || error);
+        io.to(roomId).emit('log', { message: `⚠️ サポート処理でエラー: ${error?.message || '詳細不明'}`, type: 'error' });
         socket.emit('errorMessage', { message: 'エネルギーが暴走して不発になった！（エラー）' });
-        io.to(roomId).emit('log', { message: '⚠️ サポート処理でエラーが発生しました。ターンを進行します。', type: 'error' });
         room.usedWordsGlobal.add(lower);
         player.usedWords.add(lower);
         player.supportUsed++;
