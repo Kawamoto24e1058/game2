@@ -15,6 +15,13 @@ const io = new Server(server, { cors: { origin: '*' } });
 // ★【環境変数を優先】Render、Heroku、Vercel対応
 const PORT = process.env.PORT || 3000;
 
+// ★ グローバル状態（マッチング・ルーム・初期値）
+const waitingQueue = [];
+const rooms = new Map();
+const passwordRooms = new Map();
+const STARTING_HP = 100;
+const GEMINI_TIMEOUT_MS = 8000;
+
 const API_KEY = process.env.GEMINI_API_KEY || 'YOUR_API_KEY_HERE';
 const genAI = new GoogleGenerativeAI(API_KEY);
 
@@ -1528,9 +1535,9 @@ function handleDefend(roomId, socket, word) {
 
 function removeFromWaiting(socketId) {
   // 待機プレイヤーリストから削除
-  const idx = waitingPlayers.findIndex(p => p.socket.id === socketId);
+  const idx = waitingQueue.findIndex(p => p.socket.id === socketId);
   if (idx >= 0) {
-    const removed = waitingPlayers.splice(idx, 1)[0];
+    const removed = waitingQueue.splice(idx, 1)[0];
     console.log(`✅ プレイヤー ${removed.name} (${socketId}) を待機リストから削除しました`);
   }
 
@@ -1625,11 +1632,11 @@ function handleCancelMatch(socket) {
 
 function broadcastWaitingQueue() {
   const payload = {
-    players: waitingPlayers.map(p => ({ id: p.socket.id, name: p.name })),
+    players: waitingQueue.map(p => ({ id: p.socket.id, name: p.name })),
     canStart: false,
     hostId: null
   };
-  waitingPlayers.forEach(p => p.socket.emit('waitingUpdate', payload));
+  waitingQueue.forEach(p => p.socket.emit('waitingUpdate', payload));
 }
 
 // =====================================
@@ -1980,11 +1987,11 @@ io.on('connection', (socket) => {
     }
 
     // デフォルトはランダムマッチ
-    if (waitingPlayers.length > 0) {
-      const opponent = waitingPlayers.shift();
+    if (waitingQueue.length > 0) {
+      const opponent = waitingQueue.shift();
       createRoom([opponent, playerEntry], 'random', null);
     } else {
-      waitingPlayers.push(playerEntry);
+      waitingQueue.push(playerEntry);
       broadcastWaitingQueue();
     }
   });
