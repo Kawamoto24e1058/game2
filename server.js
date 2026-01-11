@@ -987,6 +987,8 @@ function handlePlayWord(roomId, socket, word) {
           attacker.usedWords.add(lower);
           room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
           room.phase = 'defense';
+          // ★【フラグ設定】防御待機中なので、攻撃後のターン交代は「実行しない」
+          room.isWaitingForDefense = true;
 
           io.to(roomId).emit('attackDeclared', {
             attackerId: attacker.id,
@@ -998,7 +1000,19 @@ function handlePlayWord(roomId, socket, word) {
           console.error('❌ attackDeclared処理中エラー:', innerError);
           // 内部エラーでも強制的にターン進行
           socket.emit('errorMessage', { message: 'エネルギーが暴走して不発になった！（エラー）' });
-          switchTurn(room, roomId);
+          
+          // エラー時は強制的にターンを進行
+          if (room && room.turnIndex !== undefined) {
+            room.turnIndex = (room.turnIndex + 1) % room.players.length;
+            const nextPlayer = room.players[room.turnIndex];
+            room.phase = 'playing';
+            updateStatus(roomId, `${nextPlayer?.name || '次のプレイヤー'} のターンです。`);
+            io.to(roomId).emit('turnChanged', {
+              playerId: nextPlayer?.id,
+              playerName: nextPlayer?.name,
+              turnIndex: room.turnIndex
+            });
+          }
         }
       })
       .catch(error => {
@@ -1350,7 +1364,6 @@ function handleDefend(roomId, socket, word) {
         }
 
         room.pendingAttack = null;
-        room.turnIndex = (room.turnIndex + 1) % room.players.length;
 
         const hp = {};
         room.players.forEach(p => { hp[p.id] = p.hp; });
@@ -1367,13 +1380,25 @@ function handleDefend(roomId, socket, word) {
         // ターン開始時の状態異常処理
         const statusTick = tickStatusEffects(room);
 
-        // ターン終了時のバフ減衰処理
+        // ★【修正】防御完了後のターン交代処理
         if (!winnerId) {
           tickBuffEffects(room);
-          room.turnIndex = (room.turnIndex + 1) % room.players.length;
+          
+          // ★【重要】防御側が次の攻撃者になるようターン交代
+          // 防御側のインデックスを新しいターンインデックスとする
+          room.turnIndex = room.players.findIndex(p => p.id === defender.id);
+          room.phase = 'playing';
+          
+          // 現在のターン開始プレイヤーの持続効果を減衰
+          const effectsExpired = tickActiveEffects(room, defender.id);
+          
+          console.log(`🔄 防御完了後のターン交代: 次は ${room.players[room.turnIndex].name} (防御側) のターン`);
+          
+          // ★【フラグクリア】防御待機終了
+          room.isWaitingForDefense = false;
         }
 
-        // ★ ターン終了プレイヤーの持続効果を減衰
+        // ★ finishedIndex計算（ターン交代後）
         const finishedIndex = (room.turnIndex - 1 + room.players.length) % room.players.length;
         const finishedPlayerId = room.players[finishedIndex]?.id;
         const effectsExpired = tickActiveEffects(room, finishedPlayerId);
@@ -1399,7 +1424,31 @@ function handleDefend(roomId, socket, word) {
           hitLog: attackCard.hitLog || hitLog || ''
         });
 
-        console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex].id, appliedStatus });
+        console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex]?.id, appliedStatus });
+        
+        // ★【必須】ゲーム継続中の場合、turnChangedイベントを送信してUIを更新（ターン交代を確実に反映）
+        if (!winnerId) {
+          const nextPlayer = room.players[room.turnIndex];
+          const logMsg = `${nextPlayer.name} のターンです。`;
+          updateStatus(roomId, logMsg);
+          
+          // ★【重要】全プレイヤーに対してターン更新を通知
+          io.to(roomId).emit('turnUpdate', {
+            playerId: nextPlayer.id,
+            playerName: nextPlayer.name,
+            turnIndex: room.turnIndex,
+            message: logMsg
+          });
+          
+          // 後方互換性のため turnChanged も送信
+          io.to(roomId).emit('turnChanged', {
+            playerId: nextPlayer.id,
+            playerName: nextPlayer.name,
+            turnIndex: room.turnIndex
+          });
+          
+          console.log(`📢 turnUpdate イベント送信: 次ターンプレイヤー = ${nextPlayer.name} (ID: ${nextPlayer.id}, Index: ${room.turnIndex})`);
+        }
       } catch (innerError) {
         console.error('❌ 防御処理中エラー:', innerError);
         // ★【エラー時のクライアント通知＆強制進行】

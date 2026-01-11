@@ -1947,14 +1947,19 @@ function initSocket() {
   socket.on('status', ({ message }) => setStatus(message));
 
   // 【完全同期】ターン更新イベントを受け取り UI を同期
-  socket.on('turnUpdate', ({ activePlayer, activePlayerName, turnIndex, players, effectsExpired }) => {
-    console.log(`📢 turnUpdate受信: アクティブプレイヤー=${activePlayerName}, turnIndex=${turnIndex}`);
+  // ★【新形式のturnUpdateを受け取る】防御完了後のターン交代を反映
+  socket.on('turnUpdate', ({ activePlayer, activePlayerName, turnIndex, players, effectsExpired, playerId, playerName, message }) => {
+    // ★【新形式対応】playerId/playerNameがあればそちらを優先
+    const effectivePlayerId = playerId || activePlayer;
+    const effectivePlayerName = playerName || activePlayerName;
     
-    currentTurn = activePlayer;
+    console.log(`📢 turnUpdate受信: アクティブプレイヤー=${effectivePlayerName}, turnIndex=${turnIndex}, message=${message}`);
+    
+    currentTurn = effectivePlayerId;
     currentTurnIndex = turnIndex;
 
     // サーバー状態で必ず同期
-    syncTurnState({ activePlayer, players });
+    syncTurnState({ activePlayer: effectivePlayerId, players });
 
     // ★ 期限切れ効果の通知
     if (Array.isArray(effectsExpired)) {
@@ -1964,9 +1969,10 @@ function initSocket() {
       });
     }
 
-    const myTurn = activePlayer === socket.id;
-    setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : `${activePlayerName} のターン進行中`);
-    console.log(`✅ ターン同期完了: ${myTurn ? 'あなたが' : activePlayerName + 'が'}プレイ中`);
+    const myTurn = effectivePlayerId === socket.id;
+    const statusMsg = message || (myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : `${effectivePlayerName} のターン進行中`);
+    setStatus(statusMsg);
+    console.log(`✅ ターン同期完了: ${myTurn ? 'あなたが' : effectivePlayerName + 'が'}プレイ中`);
   });
 
   // 追加の同期イベント（nextTurn）を受信した場合も確実にターンを更新
