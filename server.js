@@ -10,509 +10,20 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-  }
-});
+const io = new Server(server, { cors: { origin: '*' } });
 
-const PORT = process.env.PORT || 3000;
-const STARTING_HP = 120;
-// Gemini 応答待ちの最大時間（ms）
-const GEMINI_TIMEOUT_MS = 7000;
-
-// Gemini API初期化
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  console.error('⚠️ GEMINI_API_KEY が設定されていません');
-  process.exit(1);
-}
-const genAI = new GoogleGenerativeAI(apiKey);
-
-const waitingPlayers = [];
-const passwordRooms = new Map(); // password -> roomId
-const rooms = new Map(); // roomId -> room state
-
-// ★ グローバルフィールド属性管理
-let currentFieldElement = 'neutral'; // 'neutral', 'fire', 'water', 'wind', 'earth', 'thunder', 'light', 'dark' など
-
-// 属性相性（5すくみ + 光/闇相互弱点）
-function getAffinity(attackerAttr, defenderAttr) {
-  const strongAgainst = {
-    fire: 'earth',
-    earth: 'wind',
-    wind: 'thunder',
-    thunder: 'water',
-    water: 'fire',
-    light: 'dark',
-    dark: 'light'
-  };
-
-  const atk = (attackerAttr || '').toLowerCase();
-  const def = (defenderAttr || '').toLowerCase();
-
-  if (strongAgainst[atk] === def) {
-    return { multiplier: 2.0, relation: 'advantage', isEffective: true };
-  }
-  if (strongAgainst[def] === atk) {
-    return { multiplier: 0.5, relation: 'disadvantage', isEffective: false };
-  }
-  return { multiplier: 1.0, relation: 'neutral', isEffective: false };
-}
-
-// ランク推定（Sが最上位）
-function deriveRankFromValue(val) {
-  const score = Number(val) || 0;
-  if (score >= 96) return 'S';
-  if (score >= 86) return 'A';
-  if (score >= 61) return 'B';
-  if (score >= 31) return 'C';
-  if (score >= 11) return 'D';
-  return 'E';
-}
-
-// ターンスキップを考慮した次アクティブプレイヤー決定
-function advanceTurnIndexWithSkips(room) {
-  if (!room || !room.players || room.players.length === 0) return null;
-  let safety = room.players.length;
-  while (safety > 0) {
-    room.turnIndex = (room.turnIndex + 1) % room.players.length;
-    const candidate = room.players[room.turnIndex];
-    if (!candidate) break;
-
-    if (candidate.skipTurns && candidate.skipTurns > 0) {
-      candidate.skipTurns = Math.max(0, candidate.skipTurns - 1);
-      candidate.canAction = candidate.skipTurns <= 0;
-      console.log(`⏭️ ${candidate.name} のターンをスキップ (残り${candidate.skipTurns}ターン)`);
-      safety--;
-      continue;
-    }
-
-    candidate.canAction = true;
-    return candidate.id;
-  }
-  return room.players[room.turnIndex]?.id || null;
-}
-
-// AI設計図ベースの効果適用
-function applyAiEffect(player, enemy, logic, meta = {}) {
-  if (!logic || typeof logic !== 'object') return { message: '', appliedStatus: [], activeEffects: [] };
-  const effectName = meta.effectName || '効果';
-  const description = meta.description || '';
-  const targetSide = (logic.target || 'player').toLowerCase();
-  const target = targetSide === 'enemy' ? enemy : player;
-  if (!target) return { message: '', appliedStatus: [], activeEffects: [] };
-
-  const actionType = (logic.actionType || '').toLowerCase();
-  const targetStat = (logic.targetStat || 'hp').toLowerCase();
-  const value = Math.max(0, Math.round(Number(logic.value) || 0));
-  const duration = Math.max(0, Math.min(3, Math.round(Number(logic.duration) || 0)));
-  const appliedStatus = [];
-  const activeEffects = [];
-  let message = '';
-
-  const clampMultiplier = (val) => Math.max(0.2, Math.min(3.0, val));
-
-  switch (actionType) {
-    case 'heal': {
-      const maxHp = target.maxHp || STARTING_HP;
-      const healAmount = Math.min(value, Math.max(0, maxHp - target.hp));
-      target.hp = Math.min(maxHp, (target.hp || 0) + healAmount);
-      message = `🏥 ${effectName} で ${healAmount} 回復 (${target.hp}/${maxHp})`;
-      break;
-    }
-    case 'buff':
-    case 'debuff': {
-      const sign = actionType === 'buff' ? 1 : -1;
-      const deltaRatio = (value || 0) / 100 * sign;
-      if (targetStat === 'atk') {
-        target.atkMultiplier = clampMultiplier((target.atkMultiplier || 1.0) + deltaRatio);
-        message = `${effectName}: 攻撃倍率 ${target.atkMultiplier.toFixed(2)}x`;
-      } else if (targetStat === 'def') {
-        target.defMultiplier = clampMultiplier((target.defMultiplier || 1.0) + deltaRatio);
-        message = `${effectName}: 防御倍率 ${target.defMultiplier.toFixed(2)}x`;
-      } else if (targetStat === 'spd') {
-        target.speed = (target.speed || 0) + (value * sign);
-        message = `${effectName}: 速度 ${target.speed}`;
-      } else if (targetStat === 'hp') {
-        const maxHp = target.maxHp || STARTING_HP;
-        const healAmount = Math.min(value * Math.max(sign, 0), Math.max(0, maxHp - target.hp));
-        target.hp = Math.min(maxHp, (target.hp || 0) + healAmount);
-        message = `${effectName}: HP 調整 (${target.hp}/${maxHp})`;
-      }
-
-      if (duration > 0) {
-        activeEffects.push({
-          name: effectName,
-          duration,
-          type: actionType,
-          stat: targetStat,
-          delta: deltaRatio,
-          description
-        });
-        if (!Array.isArray(target.activeEffects)) target.activeEffects = [];
-        target.activeEffects.push(...activeEffects);
-      }
-      break;
-    }
-    case 'skip_turn': {
-      const turns = duration || 1;
-      target.skipTurns = Math.max(target.skipTurns || 0, turns);
-      target.canAction = false;
-      activeEffects.push({ name: effectName, duration: turns, type: 'turn_skip', description });
-      if (!Array.isArray(target.activeEffects)) target.activeEffects = [];
-      target.activeEffects.push(...activeEffects);
-      message = `⏭️ ${target.name || '相手'} の行動を ${turns} ターン封じた`;
-      break;
-    }
-    case 'dot': {
-      const dotVal = Math.max(1, value || 1);
-      const dotDuration = duration || 3;
-      if (!Array.isArray(target.statusAilments)) target.statusAilments = [];
-      target.statusAilments.push({ name: effectName, turns: dotDuration, effectType: 'dot', value: dotVal });
-      appliedStatus.push({ targetId: target.id, name: effectName, turns: dotDuration, effectType: 'dot', value: dotVal });
-      activeEffects.push({ name: effectName, duration: dotDuration, type: 'dot', value: dotVal, description });
-      if (!Array.isArray(target.activeEffects)) target.activeEffects = [];
-      target.activeEffects.push(...activeEffects);
-      message = `☠️ ${effectName}: ${dotDuration}ターンの継続ダメージ (${dotVal}/ターン)`;
-      break;
-    }
-    default: {
-      message = `${effectName}: 未定義の効果 (${actionType || 'none'})`;
-    }
-  }
-
-  return { message, appliedStatus, activeEffects };
-}
-
-// =====================================
-// 属性ユーティリティと相性ロジック（刷新）
-// =====================================
-function attributeToElementJP(attr) {
-  switch ((attr || '').toLowerCase()) {
-    case 'fire': return '火';
-    case 'water': return '水';
-    case 'wind': return '風';
-    case 'earth': return '土';
-    case 'thunder': return '雷';
-    case 'light': return '光';
-    case 'dark': return '闇';
-    default: return null;
-  }
-}
-
-function getAffinityByElement(attackerElem, defenderElem) {
-  const beats = { '火': '草', '草': '土', '土': '雷', '雷': '水', '水': '火' };
-  const atk = attackerElem || null;
-  const def = defenderElem || null;
-  
-  // カスタム属性（金/魂/夢/虚無 等）や未定義の属性は等倍（1.0）として処理
-  if (!atk || !def) return { multiplier: 1.0, relation: 'neutral', isEffective: false };
-
-  // 既存の属性相性計算に該当しない場合も等倍（1.0）
-  const knownAttributes = ['火', '水', '風', '土', '雷', '光', '闇', '草'];
-  if (!knownAttributes.includes(atk) || !knownAttributes.includes(def)) {
-    return { multiplier: 1.0, relation: 'neutral', isEffective: false };
-  }
-
-  // 光⇄闇 は互いに弱点
-  if ((atk === '光' && def === '闇') || (atk === '闇' && def === '光')) {
-    return { multiplier: 0.75, relation: 'disadvantage', isEffective: false };
-  }
-
-  // 有利（1.5倍）/ 不利（0.75倍）/ 中立（1.0倍）
-  if (beats[atk] === def) {
-    return { multiplier: 1.5, relation: 'advantage', isEffective: true };
-  }
-  if (beats[def] === atk) {
-    return { multiplier: 0.75, relation: 'disadvantage', isEffective: false };
-  }
-  return { multiplier: 1.0, relation: 'neutral', isEffective: false };
-}
-
-// =====================================
-// フォールバックカードとタイムアウト保護
-// =====================================
-function createDefaultAttackCard(word = '通常攻撃') {
-  const baseWord = word && word.trim() ? word.trim() : '通常攻撃';
-  const baseAttack = 52;
-  return {
-    role: 'Attack',
-    word: baseWord,
-    name: baseWord,
-    attribute: 'earth',
-    element: '土',
-    baseValue: baseAttack,
-    finalValue: baseAttack,
-    attack: baseAttack,
-    rank: deriveRankFromValue(baseAttack),
-    defense: 0,
-    specialEffect: '【基本攻撃】AI遅延時の代替攻撃',
-    judgeComment: 'Gemini応答遅延/エラー時のデフォルト攻撃カード',
-    description: `EARTH [ATTACK] ATK:52 DEF:0 / 【基本攻撃】AI遅延時の代替攻撃`
-  };
-}
-
-async function generateCardWithTimeout(word, intent = 'attack', fallbackCard) {
-  const fallback = fallbackCard || (intent === 'attack' ? createDefaultAttackCard(word) : generateCardFallback(word));
+// 安全なカード生成ラッパー（現状はフォールバック優先）
+async function generateCardWithTimeout(original, role, fallback) {
   try {
-    const card = await Promise.race([
-      generateCard(word, intent),
-      new Promise(resolve => setTimeout(() => {
-        console.warn(`⏱️ Gemini応答タイムアウト: intent=${intent}, word=${word}`);
-        resolve(fallback);
-      }, GEMINI_TIMEOUT_MS))
-    ]);
-    return card || fallback;
-  } catch (error) {
-    console.error(`❌ generateCardWithTimeout エラー intent=${intent}`, error);
-    return fallback;
+    return fallback || generateCardFallback(original);
+  } catch (e) {
+    return generateCardFallback(original);
   }
 }
-
-// =====================================
-// ダメージ計算関数（刷新相性ロジック対応）
-// =====================================
-function calculateDamage(attackCard, defenseCard, attacker, defender, defenseFailed = false, room = null) {
-
-  // 攻撃力（未定義は0）
-  const baseAttack = Number(attackCard?.attack) || 0;
-  let finalAttack = baseAttack;
-  
-  // 古い attackBoost システムを継続サポート
-  const attackBoost = Number(attacker?.attackBoost) || 0;
-  if (attackBoost > 0) {
-    finalAttack = Math.round(finalAttack * (1 + attackBoost / 100));
-    attacker.attackBoost = 0;
-  }
-  
-  // 新しい atkMultiplier システム（バフ優先）
-  const atkMultiplier = Number(attacker?.atkMultiplier) || 1.0;
-  if (atkMultiplier !== 1.0) {
-    finalAttack = Math.round(finalAttack * atkMultiplier);
-  }
-
-  // 属性相性補正
-  const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
-  const defElem = (defenseCard && defenseCard.element) || attributeToElementJP(defenseCard?.attribute);
-  const affinity = getAffinityByElement(atkElem, defElem);
-  let affinityMultiplier = affinity.multiplier || 1.0;
-  finalAttack = Math.round(finalAttack * affinityMultiplier);
-
-  // フィールド効果補正（永続フィールドを最優先）
-  // Damage = Math.max(0, (Attack * Affinity * (FieldMatch ? 1.5 : 1.0)) - Defense)
-  let fieldMultiplier = 1.0;
-  if (room && room.field && room.field.element && room.field.remainingTurns > 0) {
-    // 永続フィールド: element が一致すれば 1.5 倍
-    if (atkElem === room.field.element) {
-      fieldMultiplier = 1.5;
-      console.log(`🌍 フィールドバフ適用: ${atkElem} === ${room.field.element} → x1.5 (残り${room.field.remainingTurns}ターン)`);
-    }
-  } else if (room && room.currentField && room.currentField.name && room.currentField.turns > 0) {
-    // 互換性: currentField が有効な場合
-    if (atkElem === room.currentField.name) {
-      fieldMultiplier = room.currentField.multiplier || 1.5;
-    }
-  } else if (room && room.fieldEffect && room.fieldEffect.name) {
-    // 互換性: 旧 fieldEffect が有効な場合
-    if (atkElem === room.fieldEffect.name) {
-      fieldMultiplier = room.fieldEffect.multiplier || 1.5;
-    }
-  }
-  finalAttack = Math.round(finalAttack * fieldMultiplier);
-
-  // ダメージ計算式: Damage = max(0, (Attack × Affinity × FieldMultiplier) - Defense)
-  // ※ Affinity と FieldMultiplier は既に finalAttack に乗算済み
-  let damage = 0;
-  // 防御値（未定義は0）
-  let finalDefense = Number(defenseCard?.defense) || 0;
-  // 防御補正（ブースト + 乗数）
-  if (finalDefense > 0) {
-    const defenseBoost = Number(defender?.defenseBoost) || 0;
-    const defMultiplier = Number(defender?.defMultiplier) || 1.0;
-    finalDefense = Math.round(finalDefense * (1 + defenseBoost / 100) * defMultiplier);
-    // ブーストは使用時に消費
-    if (defenseBoost > 0) defender.defenseBoost = 0;
-  }
-
-  // 予約防御（前ターンのDefense適用）
-  const reservedDefense = Number(defender?.reservedDefense) || 0;
-  let totalDefense = finalDefense + reservedDefense;
-
-  if (defenseFailed) {
-    // 防御失敗でも予約防御は確実に差し引く
-    damage = Math.max(0, finalAttack - reservedDefense);
-  } else {
-    // 新式: (Attack × Affinity × FieldMultiplier) - Defense
-    damage = Math.max(0, finalAttack - totalDefense);
-  }
-  // 予約防御は消費
-  if (reservedDefense > 0) defender.reservedDefense = 0;
-
-  return Math.floor(damage);
-}
-
-// =====================================
-// Gemini APIを使ったカード生成（非同期）
-// =====================================
-async function generateCard(word, intent = 'neutral') {
-  const original = word;
-  const intentNote = intent === 'defense'
-    ? '現在は防御フェーズ。プレイヤーは防御目的で入力している。以下の基準で判定せよ：\n' +
-      '【防御として扱う】攻撃的要素があっても、守る・防ぐ・耐える・遮る目的の語、または防御物質（盾/壁/鎧/バリア/シールド等）は必ず role: "defense" とする。\n' +
-      '  例: スパイクシールド、炎の壁、爆発する盾、トゲの鎧、電撃バリア、溶岩の門、氷の壁、毒の盾 → 全て defense\n' +
-      '【防御失敗】明らかに攻撃・破壊のみを目的とし、防御機能が一切ない語のみ role: "attack" とする。\n' +
-      '  例: 核爆弾、斬撃、隕石落下、一刀両断、爆破、暗殺、破壊光線 → attack（防御失敗）\n' +
-      '判断に迷ったら defense を優先せよ。'
-    : intent === 'attack'
-      ? '現在は攻撃フェーズ。破壊・加害を主目的とするロールを優先せよ。'
-      : intent === 'support'
-        ? '現在はサポート用途。回復・強化・弱体化・環境変化を優先ロールとせよ。'
-        : '通常査定。文脈から最適な役割を選べ。';
-  
-  const prompt = `あなたは博学なゲームマスターです。入力された言葉を深く分析し、歴史・科学・文化的背景から本質を抽出し、固定観念にとらわれない独創的なカードデータをJSON形式で生成してください。
-
-【概念深層分析ロジック】
-
-1. **固定観念の破壊：属性を言葉の本質から決定（属性誤認を徹底防止）**
-   - 【超重要】入力されたカード名に最も近い属性や概念を、言葉に忠実に判定せよ
-   - 【厳格ルール】属性の混同は絶対禁止：「光」なら必ず「光属性」とし、「火」と混同するな
-   - 【厳格ルール】「雷」なら必ず「雷属性」、「水」なら必ず「水属性」として扱え
-   - 【超重要：光と火の明確区別】「光」は聖なる力・希望・知識を象徴し、「火」は燃える破壊力・熱を象徴する。カード名に「光」が含まれる場合は**必ず光属性（light）**とし、火属性（fire）と混同するな。例：「光の矢」→ light, 「光の加護」→ light, 「火の矢」→ fire（区別を厳守せよ）
-   - 「火/水/風/土/雷/光/闇/草」の8属性に縛られず、言葉の本質的性質から最も近い属性を選ぶ
-   - 例：「インフレ」→ 経済膨張 → 風（拡散）または火（熱）
-   - 例：「AI」→ 思考の抽象化 → 光（知）または闇（不可視性）
-   - 例：「原爆」→ 核分裂エネルギー → 火（破壊熱）
-   - 例：「光」→ 必ず光属性（「火」と混同しない）
-   - 例：「雷」→ 必ず雷属性（「火」「光」と混同しない）
-   - カスタム属性も許可：「金」「魂」「夢」「虚無」などを element に設定可能（attribute は既存8種から選択）
-
-2. **動的エフェクト生成：既存リストから選ばず、言葉の特徴から創造**
-   - specialEffect は既存の効果名をコピーせず、言葉固有の現象を表現
-   - 例：「GPS」→【測地座標拘束】相手の次行動を89%予測し、回避率を向上させる
-   - 例：「ペニシリン」→【抗菌連鎖】HP を61回復し、状態異常を無効化（3ターン）
-   - 例：「ストライキ」→【労働停止】相手の次ターン攻撃力を-47、防御力を-39
-
-3. **数値のセマンティック生成：意味のある不規則な数値**
-   - 歴史的年代、科学的定数、文化的数値から導出
-   - 例：「原爆」→ 1945年 → attack: 54（45の逆数＋9）、防御無視率19%（1945末尾）
-   - 例：「フランス革命」→ 1789年 → attack: 89、defense: 17（年代分解）
-   - 例：「絶対零度」→ -273.15℃ → defense: 73、冷凍持続ターン: 3
-   - 例：「π」→ 3.14159... → attack: 31, 特殊効果で41%の追加ダメージ
-   - **禁止数値**：10, 20, 30, 40, 50, 60, 70, 80, 90, 100（キリの良い数字は意味が薄い）
-   - **推奨数値**：13, 27, 34, 46, 58, 61, 73, 82, 89, 91, 97
-   - **厳守**：数値は13, 27, 46, 82など、言葉の意味に基づく不規則な値にせよ。5の倍数や10の倍数は原則使用禁止
-
-4. **役割判定の柔軟性**
-   - Attack：破壊・加害・侵略・爆発・斬撃・撃破
-   - Defense：防御・保護・耐久・遮蔽・反射・吸収
-   - Support：治療・強化・弱体化・環境変化・状態操作
-   - 天候・環境ワード（晴れ/雨/嵐/砂漠/雷雲/月光 等）は必ず role: "Support", supportType: "fieldChange"
-   - 【重要：溶岩・砂嵐などの自然現象は環境変化優先】「溶岩」「砂嵐」「極寒」など、一見攻撃的に聞こえても自然現象・環境の変化を指す言葉は、**直接的な攻撃ではなく、フィールドに影響を与える Support タイプとして優先的に判定せよ**。例：「溶岩」→ supportType: "fieldChange", fieldEffect: "火"（火属性フィールド強化）
-   
-   **【Support の effectTarget 厳格化】**
-   - サポートカードの effectTarget は以下の具体的かつ適切なものから選べ：
-     * player_hp: プレイヤーのHP回復・増加
-     * player_atk: プレイヤーの攻撃力強化
-     * player_def: プレイヤーの防御力強化
-     * player_spd: プレイヤーの速度強化
-     * player_light_atk: プレイヤーの光属性攻撃力強化（属性強化の場合）
-     * player_fire_atk: プレイヤーの火属性攻撃力強化
-     * player_water_atk: プレイヤーの水属性攻撃力強化
-     * player_thunder_atk: プレイヤーの雷属性攻撃力強化
-     * enemy_atk: 敵の攻撃力低下（デバフ）
-     * enemy_def: 敵の防御力低下
-   - 【重要】属性強化の場合、effectTarget に必ずその属性名を含めること（例：player_light_atk）
-   - 【重要】単なる "player_attack" ではなく、より具体的なターゲットを選ぶこと
-   
-   **【重要：fieldChange の厳格ルール】**
-   - 環境・気象・地形・状態に関する言葉（例：「晴れ」「雨」「嵐」「砂嵐」「月光」「朝焼け」「極寒」「灼熱」「干ばつ」等）は必ず supportType: "fieldChange" とせよ
-   - fieldChange 生成時は以下を **絶対に省略するな**：
-     * supportMessage（必須）: 「日差しが強まり火属性が1.5倍になる！（4ターン）」のように、どの属性がどう強化されるかを明示
-     * fieldEffect（必須）: 強化される属性名（火/水/風/土/雷/光/闇/草 または カスタム属性）
-     * fieldMultiplier（必須）: 1.5 を推奨（1.3～1.5 の範囲で設定可）
-     * fieldTurns（必須）: 3, 4, 5 などの不規則な値（3～5ターンを推奨）
-   - 言葉の本質から属性を自由に判断せよ：
-     * 「朝焼け」→ 火属性（光と熱の融合）
-     * 「霧」→ 水属性（水蒸気）
-     * 「極寒」→ 水属性（凍結イメージ）
-     * 「砂嵐」→ 土属性または風属性（砂と風の複合）
-     * 「月光」→ 光属性（柔らかな光）
-     * 既存の枠に囚われず、その言葉が最も強く連想させる属性を選べ
-
-5. **視覚的表現：visual フィールド追加**
-   - 各カードに視覚的な CSS gradient や色コードを付与
-   - 例：「原爆」→ visual: "linear-gradient(135deg, #ff4500, #ffd700, #8b0000)"
-   - 例：「深海」→ visual: "radial-gradient(circle, #001f3f, #003366)"
-   - 例：「虹」→ visual: "linear-gradient(90deg, red, orange, yellow, green, blue, indigo, violet)"
-
----
-
-【出力形式】
-
-**Attack の場合：**
-\`\`\`json
-{
+/*
   "role": "Attack",
   "name": "カード名（30字以内）",
-  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム（例："金", "魂", "虚無"）,
-  "attack": （意味のある不規則な数値、1-99、10の倍数禁止）,
-  "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "specialEffect": "【独自効果名】具体的な効果文（既存テンプレート禁止）",
-  "judgeComment": "言葉の歴史的・科学的・文化的背景分析（150字程度、数値の根拠を自然に含めてもよい）",
-  "visual": "CSS gradient または色コード"
-}
-\`\`\`
-
-**Defense の場合：**
-\`\`\`json
-{
-  "role": "Defense",
-  "name": "カード名（30字以内）",
-  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム,
-  "defense": （意味のある不規則な数値、1-99、10の倍数禁止）,
-  "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "supportMessage": "防御効果の説明（軽減率、持続ターン等、具体的数値を含む）",
-  "specialEffect": "【独自効果名】具体的な効果文",
-  "judgeComment": "言葉の背景分析（150字程度）",
-  "visual": "CSS gradient または色コード"
-}
-\`\`\`
-
-**Support の場合：**
-\`\`\`json
-{
-  "role": "Support",
-  "name": "カード名（30字以内）",
-  "rank": "S/A/B/C/D/E",
-  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム,
-  "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange" | カスタム,
-  "supportMessage": "効果説明（具体的数値必須、意味のある不規則な値）【fieldChange時は「○○属性が1.5倍になる！（Xターン）」形式を厳守】",
-  "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "fieldEffect": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム属性名 | null（fieldChange時は必ず設定せよ、他はnull）,
-  "fieldMultiplier": 1.3-1.5（fieldChange時は必ず1.5を推奨、他は省略可）,
-  "fieldTurns": 3-5（fieldChange時は必ず3, 4, 5 などの不規則な値を設定、他は省略可）,
-  "specialEffect": "【独自効果名】具体的な効果文",
-  "judgeComment": "言葉の背景分析（150字程度）",
-  "visual": "CSS gradient または色コード",
-  "logic": {
-    "target": "player" | "enemy",
-    "actionType": "heal" | "buff" | "debuff" | "skip_turn" | "dot",
-    "targetStat": "hp" | "atk" | "def" | "spd",
-    "value": 数値（0〜100）,
-    "duration": 持続ターン数（0〜3）
-  },
-  "effectName": "AIが決めた効果名",
-  "creativeDescription": "効果の詳細説明文"
-}
-\`\`\`
-
----
-
-【厳守事項】
-1. **【属性の厳格定義】** 以下の定義を絶対に守れ：
-  - light（光）：聖なる回復・浄化・希望・知識の力。属性判定で火と混同するな
-  - fire（火）：破壊・爆発・熱による加害の力。光と区別せよ
+ 
   - water（水）：妨害・浄化・流動・緩和の力。障害を与える効果に使う
   - earth（土）：堅牢・固定・安定。防御や基盤系の属性
   - thunder（雷）：速度・迅速・電撃。スピード感のある効果
@@ -647,6 +158,18 @@ ${intentNote}`;
     if (finalValue < 1) finalValue = 1;
     if (finalValue > 100) finalValue = 100;
 
+    // ★【超重要：finalValue 異常値ガード】NaN, Infinity, undefined, null を検知して修正
+    if (!Number.isFinite(finalValue) || finalValue === null || finalValue === undefined) {
+      console.log(`⚠️ 異常な finalValue を検知: ${finalValue} (baseValue: ${baseValue}) → デフォルト値50に修正します`);
+      finalValue = 50;
+    }
+    // baseValue の異常チェック（念のため）
+    if (!Number.isFinite(baseValue) || baseValue === null || baseValue === undefined) {
+      console.log(`⚠️ 異常な baseValue を検知: ${baseValue} → デフォルト値50に修正します`);
+      baseValue = 50;
+      finalValue = 50;
+    }
+
     // ★ ランク決定（AIが返したrank/tierがあれば優先、無ければbaseValueから判定）
     const aiRank = (cardData.rank || cardData.tier || deriveRankFromValue(baseValue)).toString().toUpperCase();
     const cardName = original || cardData.name || cardData.word || 'unknown';
@@ -722,6 +245,7 @@ ${intentNote}`;
     return generateCardFallback(original);
   }
 }
+*/
 function generateCardFallback(word) {
   const lower = word.toLowerCase();
   
@@ -1252,36 +776,53 @@ function handlePlayWord(roomId, socket, word) {
     const defender = getOpponent(room, socket.id);
     if (!attacker || !defender) return;
 
-    // 非同期でカード生成（エラー/タイムアウト時はフォールバック使用）
+    // ★【非同期でカード生成＆エラー時強制進行】
     generateCardWithTimeout(cleanWord, 'attack', createDefaultAttackCard(cleanWord))
       .then(card => {
-        room.usedWordsGlobal.add(lower);
-        attacker.usedWords.add(lower);
-        room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
-        room.phase = 'defense';
+        try {
+          // ★【finalValue の最終チェック】
+          if (!Number.isFinite(card.finalValue) || card.finalValue === null || card.finalValue === undefined) {
+            console.log(`⚠️ 攻撃カードの finalValue が異常: ${card.finalValue} → 修正します`);
+            card.finalValue = card.baseValue || 50;
+          }
+          if (card.finalValue > 100) card.finalValue = 100;
+          if (card.finalValue < 1) card.finalValue = 1;
+          
+          room.usedWordsGlobal.add(lower);
+          attacker.usedWords.add(lower);
+          room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
+          room.phase = 'defense';
 
-        io.to(roomId).emit('attackDeclared', {
-          attackerId: attacker.id,
-          defenderId: defender.id,
-          card
-        });
-        updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
+          io.to(roomId).emit('attackDeclared', {
+            attackerId: attacker.id,
+            defenderId: defender.id,
+            card
+          });
+          updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
+        } catch (innerError) {
+          console.error('❌ attackDeclared処理中エラー:', innerError);
+          // 内部エラーでも強制的にターン進行
+          socket.emit('errorMessage', { message: 'エネルギーが暴走して不発になった！（エラー）' });
+          switchTurn(room, roomId);
+        }
       })
       .catch(error => {
         console.error('❌ handlePlayWord 内部エラー:', error);
-        // エラー時もデフォルトカードで続行
-        const defaultCard = createDefaultAttackCard(cleanWord);
-        room.usedWordsGlobal.add(lower);
-        attacker.usedWords.add(lower);
-        room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card: defaultCard };
-        room.phase = 'defense';
-
-        io.to(roomId).emit('attackDeclared', {
-          attackerId: attacker.id,
-          defenderId: defender.id,
-          card: defaultCard
-        });
-        updateStatus(roomId, `${attacker.name} の攻撃！ 防御の言葉を入力してください。`);
+        // ★【エラー時のクライアント通知＆強制進行】
+        socket.emit('errorMessage', { message: 'エネルギーが暴走して不発になった！（エラー）' });
+        io.to(roomId).emit('log', { message: '⚠️ エラーが発生しました。ターンを進行します。', type: 'error' });
+        
+        // エラー時は強制的にターンを進行（相手のターンへ）
+        if (room && room.turnIndex !== undefined) {
+          advanceTurnIndexWithSkips(room);
+          const nextPlayer = room.players[room.turnIndex];
+          room.phase = 'playing';
+          updateStatus(roomId, `${nextPlayer?.name || '次のプレイヤー'} のターンです。`);
+          io.to(roomId).emit('turnChanged', {
+            playerId: nextPlayer?.id,
+            playerName: nextPlayer?.name
+          });
+        }
       });
   } catch (error) {
     console.error('❌ handlePlayWord エラー:', error);
@@ -1383,284 +924,244 @@ function handleDefend(roomId, socket, word) {
     return { dot };
   };
   
-  // 非同期で防御カードを生成（エラー時はフォールバック使用）
+  // ★【非同期で防御カード生成＆エラー時強制進行】
   generateCardWithTimeout(cleanWord, 'defense', generateCardFallback(cleanWord))
     .then(defenseCard => {
-      console.log('🛡️ 防御カード生成完了:', defenseCard);
-      room.usedWordsGlobal.add(lower);
-      defender.usedWords.add(lower);
+      try {
+        console.log('🛡️ 防御カード生成完了:', defenseCard);
+        
+        // ★【防御カードの finalValue チェック】
+        if (!Number.isFinite(defenseCard.finalValue) || defenseCard.finalValue === null || defenseCard.finalValue === undefined) {
+          console.log(`⚠️ 防御カードの finalValue が異常: ${defenseCard.finalValue} → 修正します`);
+          defenseCard.finalValue = defenseCard.baseValue || 50;
+        }
+        if (defenseCard.finalValue > 100) defenseCard.finalValue = 100;
+        if (defenseCard.finalValue < 1) defenseCard.finalValue = 1;
 
-    // 【役割別バトルロジック】 - 文字列ベースの役割判定
-    const attackRole = (attackCard.role || '').toLowerCase();
-    const defenseRole = (defenseCard.role || '').toLowerCase();
-    
-    let damage = 0;
-    let counterDamage = 0;
-    let dotDamage = 0;
-    let defenseFailed = false;
-    const appliedStatus = [];
-    const attackerMaxHp = attacker.maxHp || STARTING_HP;
-    const defenderMaxHp = defender.maxHp || STARTING_HP;
-    
-    // 属性相性計算（element優先）
-    const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
-    const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
-    const affinity = getAffinityByElement(atkElem, defElem);
+        room.usedWordsGlobal.add(lower);
+        defender.usedWords.add(lower);
 
-    // 命中・クリティカル判定（ランク別リスク/リターン）
-    let hitLog = attackCard.hitLog || '';
-    const normalizedRank = String(attackCard.rank || attackCard.tier || 'C').toUpperCase();
-    const hitRateMap = { S: 0.6, A: 0.6, B: 0.8, C: 0.95, D: 1.0, E: 1.0 };
-    const critRateMap = { S: 0.1, A: 0.1, B: 0.1, C: 0.1, D: 0.3, E: 0.3 };
-    const hitRate = hitRateMap[normalizedRank] ?? hitRateMap.C;
-    const critRate = critRateMap[normalizedRank] ?? 0.1;
+        // 【役割別バトルロジック】 - 文字列ベースの役割判定
+        const attackRole = (attackCard.role || '').toLowerCase();
+        const defenseRole = (defenseCard.role || '').toLowerCase();
+        
+        let damage = 0;
+        let counterDamage = 0;
+        let dotDamage = 0;
+        let defenseFailed = false;
+        const appliedStatus = [];
+        const attackerMaxHp = attacker.maxHp || STARTING_HP;
+        const defenderMaxHp = defender.maxHp || STARTING_HP;
+        
+        // 属性相性計算（element優先）
+        const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
+        const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
+        const affinity = getAffinityByElement(atkElem, defElem);
 
-    if (attackRole === 'attack') {
-      const baseAttackVal = Number(attackCard.finalValue ?? attackCard.attack ?? 0);
-      const hitRoll = Math.random();
-      const didHit = hitRoll < hitRate;
+        // 命中・クリティカル判定（ランク別リスク/リターン）
+        let hitLog = attackCard.hitLog || '';
+        const normalizedRank = String(attackCard.rank || attackCard.tier || 'C').toUpperCase();
+        const hitRateMap = { S: 0.6, A: 0.6, B: 0.8, C: 0.95, D: 1.0, E: 1.0 };
+        const critRateMap = { S: 0.1, A: 0.1, B: 0.1, C: 0.1, D: 0.3, E: 0.3 };
+        const hitRate = hitRateMap[normalizedRank] ?? hitRateMap.C;
+        const critRate = critRateMap[normalizedRank] ?? 0.1;
 
-      if (!didHit) {
-        attackCard.finalValue = 0;
-        attackCard.attack = 0;
-        hitLog = 'ミス！攻撃が当たらなかった！';
-      } else {
-        const critRoll = Math.random();
-        const isCrit = critRoll < critRate;
-        if (isCrit) {
-          const boosted = Math.round(baseAttackVal * 1.5);
-          const clamped = Math.min(100, Math.max(0, boosted));
-          attackCard.finalValue = clamped;
-          attackCard.attack = clamped;
-          hitLog = 'クリティカルヒット！';
-        } else {
-          attackCard.finalValue = baseAttackVal;
-          attackCard.attack = baseAttackVal;
-          hitLog = 'ヒット';
+        if (attackRole === 'attack') {
+          const baseAttackVal = Number(attackCard.finalValue ?? attackCard.attack ?? 0);
+          const hitRoll = Math.random();
+          const didHit = hitRoll < hitRate;
+
+          if (!didHit) {
+            attackCard.finalValue = 0;
+            attackCard.attack = 0;
+            hitLog = 'ミス！攻撃が当たらなかった！';
+          } else {
+            const critRoll = Math.random();
+            const isCrit = critRoll < critRate;
+            if (isCrit) {
+              const boosted = Math.round(baseAttackVal * 1.5);
+              const clamped = Math.min(100, Math.max(0, boosted));
+              attackCard.finalValue = clamped;
+              attackCard.attack = clamped;
+              hitLog = 'クリティカルヒット！';
+            } else {
+              attackCard.finalValue = baseAttackVal;
+              attackCard.attack = baseAttackVal;
+              hitLog = 'ヒット';
+            }
+          }
+
+          attackCard.hitRate = hitRate;
+          attackCard.critRate = critRate;
+          attackCard.hitLog = hitLog;
+          console.log('🎯 命中判定', { rank: normalizedRank, hitRate, critRate, hitRoll, hitLog, finalValue: attackCard.finalValue });
+        }
+
+        // === Attack vs Defense 標準バトル ===
+        if (attackRole === 'attack' && defenseRole === 'defense') {
+          console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
+          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          // 次ターン用の防御予約（前ターンに確実適用）
+          defender.reservedDefense = Number(defenseCard?.defense) || 0;
+          defender.hp = Math.max(0, defender.hp - damage);
+        }
+        
+        // === Attack vs Attack 衝突 ===
+        else if (attackRole === 'attack' && defenseRole === 'attack') {
+          console.log('⚔️ 【衝突】Attack vs Attack: 双方ダメージ');
+          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false, room);
+          defender.hp = Math.max(0, defender.hp - damage);
+          attacker.hp = Math.max(0, attacker.hp - counterDamage);
+        }
+        
+        // === Attack vs Support: 攻撃がサポートを突破 ===
+        else if (attackRole === 'attack' && defenseRole === 'support') {
+          console.log('📦 【サポート突破】Attack が Support を突破: ダメージなし、サポート効果なし');
+          damage = 0;
+          // サポート効果は無視（攻撃で完全に遮断）
+        }
+        
+        // === Defense vs Attack: 防御態勢フェーズ ===
+        else if (attackRole === 'defense' && defenseRole === 'attack') {
+          console.log('🛡️ 【防御態勢】Defense が攻撃判定をスキップ: 防御力を適用');
+          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          // Defense ロール（攻撃側）のdifference フィールドは攻撃力がないため最小ダメージ
+          defenseRole === 'attack' && 
+            ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room)));
+          attacker.hp = Math.max(0, attacker.hp - counterDamage);
+        }
+        
+        // === Defense vs Defense: 両防御 ===
+        else if (attackRole === 'defense' && defenseRole === 'defense') {
+          console.log('🛡️ 【両防御】Defense vs Defense: ダメージなし');
+          damage = 0;
+          counterDamage = 0;
+          // 双方、次ターンに防御値を予約
+          attacker.reservedDefense = Number(attackCard?.defense) || 0;
+          defender.reservedDefense = Number(defenseCard?.defense) || 0;
+        }
+        
+        // === Defense vs Support: 防御フェーズ ===
+        else if (attackRole === 'defense' && defenseRole === 'support') {
+          console.log('📦 【防御+サポート】Defense vs Support: ダメージなし');
+          damage = 0;
+          // サポート効果も無視
+        }
+        
+        // === Support vs Attack: サポート対攻撃 ===
+        else if (attackRole === 'support' && defenseRole === 'attack') {
+          console.log('📦 【サポート対攻撃】Support vs Attack: 攻撃がサポートを押し通す');
+          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          defender.hp = Math.max(0, defender.hp - damage);
+        }
+        
+        // === Support vs Defense: 防御態勢 ===
+        else if (attackRole === 'support' && defenseRole === 'defense') {
+          console.log('🛡️ 【防御態勢】Support vs Defense: 防御力適用、サポートなし');
+          damage = 0;
+          // 防御カードの値を次ターンに予約
+          defender.reservedDefense = Number(defenseCard?.defense) || 0;
+        }
+        
+        // === Support vs Support: 両者サポート ===
+        else if (attackRole === 'support' && defenseRole === 'support') {
+          console.log('📦 【相互サポート】Support vs Support: ダメージなし');
+          damage = 0;
+        }
+        
+        // === デフォルト（未想定） ===
+        else {
+          console.log(`⚠️ 未想定の役割組み合わせ: Attack[${attackRole}] vs Defense[${defenseRole}]`);
+          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          defender.hp = Math.max(0, defender.hp - damage);
+        }
+
+        // 状態異常付与と即時DoT適用
+        const res1 = applyStatus(attackCard, defender, appliedStatus); dotDamage += res1.dot;
+        const res2 = applyStatus(defenseCard, attacker, appliedStatus); dotDamage += res2.dot;
+        if (dotDamage > 0) {
+          defender.hp = Math.max(0, defender.hp - res1.dot);
+          attacker.hp = Math.max(0, attacker.hp - res2.dot);
+        }
+
+        let winnerId = null;
+        if (defender.hp <= 0) {
+          winnerId = attacker.id;
+        } else if (attacker.hp <= 0) {
+          winnerId = defender.id;
+        }
+
+        room.pendingAttack = null;
+        room.turnIndex = (room.turnIndex + 1) % room.players.length;
+
+        const hp = {};
+        room.players.forEach(p => { hp[p.id] = p.hp; });
+
+        const players = room.players.map(p => ({
+          id: p.id,
+          name: p.name,
+          hp: p.hp,
+          maxHp: p.maxHp || STARTING_HP,
+          statusAilments: p.statusAilments || [],
+          activeEffects: p.activeEffects || []
+        }));
+
+        // ターン開始時の状態異常処理
+        const statusTick = tickStatusEffects(room);
+
+        // ターン終了時のバフ減衰処理
+        if (!winnerId) {
+          tickBuffEffects(room);
+          room.turnIndex = (room.turnIndex + 1) % room.players.length;
+        }
+
+        // ★ ターン終了プレイヤーの持続効果を減衰
+        const finishedIndex = (room.turnIndex - 1 + room.players.length) % room.players.length;
+        const finishedPlayerId = room.players[finishedIndex]?.id;
+        const effectsExpired = tickActiveEffects(room, finishedPlayerId);
+
+        io.to(roomId).emit('turnResolved', {
+          attackerId: attacker.id,
+          defenderId: defender.id,
+          attackCard,
+          defenseCard,
+          damage,
+          counterDamage,
+          dotDamage,
+          affinity,
+          hp,
+          players,
+          defenseFailed,
+          appliedStatus,
+          statusTick,
+          fieldEffect: room.fieldEffect,
+          nextTurn: winnerId ? null : room.players[room.turnIndex].id,
+          winnerId,
+          effectsExpired,
+          hitLog: attackCard.hitLog || hitLog || ''
+        });
+
+        console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex].id, appliedStatus });
+      } catch (innerError) {
+        console.error('❌ 防御処理中エラー:', innerError);
+        // ★【エラー時のクライアント通知＆強制進行】
+        socket.emit('errorMessage', { message: 'エネルギーが暴走して不発になった！（エラー）' });
+        io.to(roomId).emit('log', { message: '⚠️ 防御処理でエラーが発生しました。ターンを進行します。', type: 'error' });
+        
+        // エラー時は強制的にターンを進行（相手のターンへ）
+        if (room && room.turnIndex !== undefined) {
+          advanceTurnIndexWithSkips(room);
+          const nextPlayer = room.players[room.turnIndex];
+          room.phase = 'playing';
+          updateStatus(roomId, `${nextPlayer?.name || '次のプレイヤー'} のターンです。`);
+          io.to(roomId).emit('turnChanged', {
+            playerId: nextPlayer?.id,
+            playerName: nextPlayer?.name
+          });
         }
       }
-
-      attackCard.hitRate = hitRate;
-      attackCard.critRate = critRate;
-      attackCard.hitLog = hitLog;
-      console.log('🎯 命中判定', { rank: normalizedRank, hitRate, critRate, hitRoll, hitLog, finalValue: attackCard.finalValue });
-    }
-
-    // === Attack vs Defense 標準バトル ===
-    if (attackRole === 'attack' && defenseRole === 'defense') {
-      console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
-      // 次ターン用の防御予約（前ターンに確実適用）
-      defender.reservedDefense = Number(defenseCard?.defense) || 0;
-      defender.hp = Math.max(0, defender.hp - damage);
-    }
-    
-    // === Attack vs Attack 衝突 ===
-    else if (attackRole === 'attack' && defenseRole === 'attack') {
-      console.log('⚔️ 【衝突】Attack vs Attack: 双方ダメージ');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
-      counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false, room);
-      defender.hp = Math.max(0, defender.hp - damage);
-      attacker.hp = Math.max(0, attacker.hp - counterDamage);
-    }
-    
-    // === Attack vs Support: 攻撃がサポートを突破 ===
-    else if (attackRole === 'attack' && defenseRole === 'support') {
-      console.log('📦 【サポート突破】Attack が Support を突破: ダメージなし、サポート効果なし');
-      damage = 0;
-      // サポート効果は無視（攻撃で完全に遮断）
-    }
-    
-    // === Defense vs Attack: 防御態勢フェーズ ===
-    else if (attackRole === 'defense' && defenseRole === 'attack') {
-      console.log('🛡️ 【防御態勢】Defense が攻撃判定をスキップ: 防御力を適用');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
-      // Defense ロール（攻撃側）のdifference フィールドは攻撃力がないため最小ダメージ
-      defenseRole === 'attack' && 
-        ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room)));
-      attacker.hp = Math.max(0, attacker.hp - counterDamage);
-    }
-    
-    // === Defense vs Defense: 両防御 ===
-    else if (attackRole === 'defense' && defenseRole === 'defense') {
-      console.log('🛡️ 【両防御】Defense vs Defense: ダメージなし');
-      damage = 0;
-      counterDamage = 0;
-      // 双方、次ターンに防御値を予約
-      attacker.reservedDefense = Number(attackCard?.defense) || 0;
-      defender.reservedDefense = Number(defenseCard?.defense) || 0;
-    }
-    
-    // === Defense vs Support: 防御フェーズ ===
-    else if (attackRole === 'defense' && defenseRole === 'support') {
-      console.log('📦 【防御+サポート】Defense vs Support: ダメージなし');
-      damage = 0;
-      // サポート効果も無視
-    }
-    
-    // === Support vs Attack: サポート対攻撃 ===
-    else if (attackRole === 'support' && defenseRole === 'attack') {
-      console.log('📦 【サポート対攻撃】Support vs Attack: 攻撃がサポートを押し通す');
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
-      defender.hp = Math.max(0, defender.hp - damage);
-    }
-    
-    // === Support vs Defense: 防御態勢 ===
-    else if (attackRole === 'support' && defenseRole === 'defense') {
-      console.log('🛡️ 【防御態勢】Support vs Defense: 防御力適用、サポートなし');
-      damage = 0;
-      // 防御カードの値を次ターンに予約
-      defender.reservedDefense = Number(defenseCard?.defense) || 0;
-    }
-    
-    // === Support vs Support: 両者サポート ===
-    else if (attackRole === 'support' && defenseRole === 'support') {
-      console.log('📦 【相互サポート】Support vs Support: ダメージなし');
-      damage = 0;
-    }
-    
-    // === デフォルト（未想定） ===
-    else {
-      console.log(`⚠️ 未想定の役割組み合わせ: Attack[${attackRole}] vs Defense[${defenseRole}]`);
-      damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
-      defender.hp = Math.max(0, defender.hp - damage);
-    }
-
-    // 状態異常付与と即時DoT適用
-    const res1 = applyStatus(attackCard, defender, appliedStatus); dotDamage += res1.dot;
-    const res2 = applyStatus(defenseCard, attacker, appliedStatus); dotDamage += res2.dot;
-    if (dotDamage > 0) {
-      defender.hp = Math.max(0, defender.hp - res1.dot);
-      attacker.hp = Math.max(0, attacker.hp - res2.dot);
-    }
-
-    let winnerId = null;
-    if (defender.hp <= 0) {
-      winnerId = attacker.id;
-    } else if (attacker.hp <= 0) {
-      winnerId = defender.id;
-    }
-
-    room.pendingAttack = null;
-    room.turnIndex = (room.turnIndex + 1) % room.players.length;
-
-    const hp = {};
-    room.players.forEach(p => { hp[p.id] = p.hp; });
-
-    const players = room.players.map(p => ({
-      id: p.id,
-      name: p.name,
-      hp: p.hp,
-      maxHp: p.maxHp || STARTING_HP,
-      statusAilments: p.statusAilments || [],
-      activeEffects: p.activeEffects || []
-    }));
-
-    // ターン開始時の状態異常処理
-    const statusTick = tickStatusEffects(room);
-
-    // ターン終了時のバフ減衰処理
-    if (!winnerId) {
-      tickBuffEffects(room);
-      room.turnIndex = (room.turnIndex + 1) % room.players.length;
-    }
-
-    // ★ ターン終了プレイヤーの持続効果を減衰
-    const finishedIndex = (room.turnIndex - 1 + room.players.length) % room.players.length;
-    const finishedPlayerId = room.players[finishedIndex]?.id;
-    const effectsExpired = tickActiveEffects(room, finishedPlayerId);
-
-    io.to(roomId).emit('turnResolved', {
-      attackerId: attacker.id,
-      defenderId: defender.id,
-      attackCard,
-      defenseCard,
-      damage,
-      counterDamage,
-      dotDamage,
-      affinity,
-      hp,
-      players,
-      defenseFailed,
-      appliedStatus,
-      statusTick,
-      fieldEffect: room.fieldEffect,
-      nextTurn: winnerId ? null : room.players[room.turnIndex].id,
-      winnerId,
-      effectsExpired,
-      hitLog: attackCard.hitLog || hitLog || ''
-    });
-
-    console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex].id, appliedStatus });
-
-    if (winnerId) {
-      updateStatus(roomId, `${attacker.name} の勝利！`);
-    } else {
-      updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
-    }
-
-    // 【完全同期】ターン交代と turnUpdate emit を確約
-    if (!winnerId) {
-      const nextPlayer = room.players[room.turnIndex];
-      io.to(roomId).emit('turnUpdate', {
-        activePlayer: nextPlayer.id,
-        activePlayerName: nextPlayer.name,
-        turnIndex: room.turnIndex,
-        players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, activeEffects: p.activeEffects || [] })),
-        effectsExpired
-      });
-    }
     })
-    .catch(error => {
-      console.error('❌ 防御カード生成エラー（フォールバック利用）:', error);
-      // エラー時もターン交代を実行してゲームを進行させる
-      room.usedWordsGlobal.add(lower);
-      defender.usedWords.add(lower);
-      
-      // フォールバック防御カード
-      const fallbackDefenseCard = generateCardFallback(cleanWord);
-      console.log('🛡️ フォールバック防御カード使用:', fallbackDefenseCard);
-      
-      // 簡易ダメージ計算（フォールバック時）
-      const fallbackDamage = 10; // 基本ダメージ
-      defender.hp = Math.max(0, defender.hp - fallbackDamage);
-      
-      room.pendingAttack = null;
-      room.turnIndex = (room.turnIndex + 1) % room.players.length;
-      
-      const hp = {};
-      room.players.forEach(p => { hp[p.id] = p.hp; });
-
-      io.to(roomId).emit('turnResolved', {
-        attackerId: attacker.id,
-        defenderId: defender.id,
-        attackCard: attackCard,
-        defenseCard: fallbackDefenseCard,
-        damage: fallbackDamage,
-        counterDamage: 0,
-        dotDamage: 0,
-        affinity: null,
-        hp,
-        defenseFailed: true,
-        appliedStatus: [],
-        statusTick: tickStatusEffects(room),
-        fieldEffect: room.fieldEffect,
-        nextTurn: room.players[room.turnIndex].id,
-        winnerId: null,
-        hitLog: ''
-      });
-
-      // 【完全同期】フォールバック時もターン交代と turnUpdate を emit
-      const nextPlayer = room.players[room.turnIndex];
-      io.to(roomId).emit('turnUpdate', {
-        activePlayer: nextPlayer.id,
-        activePlayerName: nextPlayer.name,
-        turnIndex: room.turnIndex,
-        players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
-      });
-      
-      updateStatus(roomId, `${nextPlayer.name} のターンです（カード生成エラーで処理スキップ）`);
-    });
 }
 
 function removeFromWaiting(socketId) {
@@ -2236,453 +1737,225 @@ io.on('connection', (socket) => {
         return;
       }
 
-    const player = findPlayer(room, socket.id);
-    if (!player) return;
+      const player = findPlayer(room, socket.id);
+      if (!player) return;
 
-    // ターン開始時の状態異常処理
-    const statusTick = tickStatusEffects(room);
-    const tickWinner = room.players.find(p => p.hp <= 0);
-    if (tickWinner) {
-      const survivor = room.players.find(p => p.hp > 0);
-      const hpTick = {}; room.players.forEach(p => { hpTick[p.id] = p.hp; });
-      io.to(roomId).emit('supportUsed', {
-        playerId: player.id,
-        card: null,
-        hp: hpTick,
-        supportRemaining: 3 - player.supportUsed,
-        winnerId: survivor?.id || null,
-        nextTurn: null,
-        appliedStatus: [],
-        fieldEffect: room.fieldEffect,
-        statusTick
-      });
-      updateStatus(roomId, `${room.players.find(p => p.id === (survivor?.id || tickWinner.id))?.name || 'プレイヤー'} の勝利！`);
-      return;
-    }
-
-    if (player.supportUsed >= 3) {
-      socket.emit('errorMessage', { message: 'サポートは1試合に3回までです' });
-      return;
-    }
-
-    const cleanWord = (word || '').trim();
-    if (!cleanWord) {
-      socket.emit('errorMessage', { message: '言葉を入力してください' });
-      return;
-    }
-
-    const lower = cleanWord.toLowerCase();
-    if (room.usedWordsGlobal.has(lower)) {
-      socket.emit('errorMessage', { message: 'その言葉は既に使用されています' });
-      return;
-    }
-
-    try {
-      const card = await generateCardWithTimeout(cleanWord, 'support', generateCardFallback(cleanWord));
-      room.usedWordsGlobal.add(lower);
-      player.usedWords.add(lower);
-      player.supportUsed++;
-
-      // 【サポート効果の物理的反映】
-      // AIが生成した supportType に基づいて、プレイヤーのステータスを実際に変更
-      const supportTypeRaw = (card.supportType || '').toLowerCase();
-      const supportMessage = card.supportMessage || '';
-      const maxHp = player.maxHp || STARTING_HP;
-      const opponent = getOpponent(room, socket.id);
-      const appliedStatus = [];
-
-      // ★【fieldEffect の安全な初期化】
-      let fieldEffect = card.fieldEffect || '';
-      let fieldMultiplier = card.fieldMultiplier || 1.0;
-      let fieldTurns = card.fieldTurns || 0;
-       
-      // supportMessage から数値を抽出するヘルパー関数
-      const extractNumber = (text, defaultVal = 0) => {
-        const match = text.match(/(\d+)/);
-        return match ? parseInt(match[1], 10) : defaultVal;
-      };
-
-      // ★【AI効果設計図の実行】logic オブジェクトがあれば、それをベースに効果を実行
-      let aiEffectResult = { message: '', appliedStatus: [], activeEffects: [] };
-      if (card.logic && typeof card.logic === 'object') {
-        const meta = { effectName: card.effectName || card.specialEffect || 'AI効果', description: card.creativeDescription || '' };
-        aiEffectResult = applyAiEffect(player, opponent, card.logic, meta);
-        console.log(`🎲 AI効果設計図実行: ${meta.effectName}`, aiEffectResult.message);
-        appliedStatus.push(...aiEffectResult.appliedStatus);
-      }
-
-      // 【各サポートタイプの処理】
-      switch (supportTypeRaw) {
-        case 'heal': {
-          // heal: HP即座回復
-          const healAmount = extractNumber(supportMessage, 25);
-          const actualHeal = Math.min(maxHp - player.hp, healAmount);
-          player.hp = Math.min(maxHp, player.hp + healAmount);
-          console.log(`🏥 ${player.name}: heal 発動 → HP +${actualHeal} (${player.hp}/${maxHp})`);
-          break;
-        }
-        case 'hpmaxup': {
-          // hpMaxUp: 最大HP永続増加
-          const gain = extractNumber(supportMessage, 20);
-          player.maxHp = Math.min(999, player.maxHp + gain);
-          player.hp = Math.min(player.maxHp, player.hp + gain); // 即座にHP回復も
-          console.log(`💪 ${player.name}: hpMaxUp 発動 → 最大HP +${gain} (${player.maxHp}), HP +${gain}`);
-          break;
-        }
-        case 'staminarecover': {
-          // staminaRecover: スタミナ即座回復
-          if (!player.stamina) player.stamina = 0;
-          if (!player.maxStamina) player.maxStamina = 100;
-          const staminaGain = extractNumber(supportMessage, 37);
-          const oldStamina = player.stamina;
-          player.stamina = Math.min(player.maxStamina, player.stamina + staminaGain);
-          console.log(`⚡ ${player.name}: staminaRecover 発動 → ST +${player.stamina - oldStamina} (${player.stamina}/${player.maxStamina})`);
-          break;
-        }
-        case 'magicrecover': {
-          // magicRecover: 魔力即座回復
-          if (!player.mp) player.mp = 0;
-          if (!player.maxMp) player.maxMp = 100;
-          const mpGain = extractNumber(supportMessage, 29);
-          const oldMp = player.mp;
-          player.mp = Math.min(player.maxMp, player.mp + mpGain);
-          console.log(`✨ ${player.name}: magicRecover 発動 → MP +${player.mp - oldMp} (${player.mp}/${player.maxMp})`);
-          break;
-        }
-        case 'defensebuff': {
-          // defenseBuff: 防御力強化（次ターン被ダメージ軽減）
-          const defIncrease = extractNumber(supportMessage, 34);
-          player.defenseBoost = Math.max(player.defenseBoost || 0, defIncrease);
-          player.defMultiplier = Math.min(2.0, (player.defMultiplier || 1.0) + (defIncrease / 100));
-          if (!player.buffs) player.buffs = {};
-          player.buffs.defUp = 2; // 2ターン有効
-          console.log(`🛡️ ${player.name}: defenseBuff 発動 → 防御力 +${defIncrease}%, defMultiplier: ${player.defMultiplier.toFixed(2)}x, 2ターン有効`);
-          break;
-        }
-        case 'poison': {
-          // poison: 相手へ継続ダメージ毒付与
-          if (opponent && opponent.statusAilments) {
-            if (opponent.statusAilments.length < 3) {
-              const dotValue = extractNumber(supportMessage, 3);
-              opponent.statusAilments.push({
-                name: '毒',
-                turns: 3,
-                effectType: 'dot',
-                value: dotValue
-              });
-              appliedStatus.push({
-                targetId: opponent.id,
-                name: '毒',
-                turns: 3,
-                effectType: 'dot',
-                value: dotValue
-              });
-              console.log(`☠️ ${opponent.name}: poison 適用 → 毒付与 (3ターン継続, ${dotValue}ダメージ/ターン)`);
-            }
-          }
-          break;
-        }
-        case 'burn': {
-          // burn: 相手へ継続ダメージ焼け付与
-          if (opponent && opponent.statusAilments) {
-            if (opponent.statusAilments.length < 3) {
-              const dotValue = extractNumber(supportMessage, 3);
-              opponent.statusAilments.push({
-                name: '焼け',
-                turns: 3,
-                effectType: 'dot',
-                value: dotValue
-              });
-              appliedStatus.push({
-                targetId: opponent.id,
-                name: '焼け',
-                turns: 3,
-                effectType: 'dot',
-                value: dotValue
-              });
-              console.log(`🔥 ${opponent.name}: burn 適用 → 焼け付与 (3ターン継続, ${dotValue}ダメージ/ターン)`);
-            }
-          }
-          break;
-        }
-        case 'allstatbuff': {
-          // allStatBuff: 全ステータス微増（英雄・偉人効果）
-          const boost = extractNumber(supportMessage, 19);
-          player.atkMultiplier = Math.min(2.0, (player.atkMultiplier || 1.0) + (boost / 100));
-          player.defMultiplier = Math.min(2.0, (player.defMultiplier || 1.0) + (boost / 100));
-          const healBonus = Math.round(boost * 1.5);
-          player.hp = Math.min(maxHp, player.hp + healBonus);
-          if (!player.buffs) player.buffs = {};
-          player.buffs.allStatUp = 3; // 3ターン有効
-          console.log(`👑 ${player.name}: allStatBuff 発動 → 攻撃/防御 +${boost}%, HP +${healBonus}, atkMultiplier: ${player.atkMultiplier.toFixed(2)}x, defMultiplier: ${player.defMultiplier.toFixed(2)}x, 3ターン有効`);
-          break;
-        }
-        case 'debuff': {
-          // debuff: 相手の攻撃力/防御力を弱体化
-          if (opponent) {
-            const debuffAmount = extractNumber(supportMessage, 25);
-            opponent.atkMultiplier = Math.max(0.5, (opponent.atkMultiplier || 1.0) - (debuffAmount / 100));
-            opponent.defMultiplier = Math.max(0.5, (opponent.defMultiplier || 1.0) - (debuffAmount / 100));
-            console.log(`📉 ${opponent.name}: debuff 適用 → 攻撃/防御 -${debuffAmount}% (atkMultiplier: ${opponent.atkMultiplier.toFixed(2)}x, defMultiplier: ${opponent.defMultiplier.toFixed(2)}x)`);
-          }
-          break;
-        }
-        case 'cleanse': {
-          // cleanse: 自身の状態異常をすべてクリア
-          if (!player.statusAilments) player.statusAilments = [];
-          const cleansedCount = player.statusAilments.length;
-          player.statusAilments = [];
-          console.log(`💧 ${player.name}: cleanse 発動 → 状態異常クリア (${cleansedCount}個削除)`);
-          break;
-        }
-        case 'counter': {
-          // counter: 反撃・カウンター効果
-          player.counterActive = true;
-          if (!player.buffs) player.buffs = {};
-          player.buffs.counterUp = 2; // 2ターン有効
-          console.log(`⚔️ ${player.name}: counter 発動 → カウンター効果有効 (2ターン)`);
-          break;
-        }
-        case 'fieldchange': {
-          // fieldChange: 天候や地形の変化
-          const fieldElem = card.fieldEffect || '火'; // 属性を抽出（デフォルト火）
-          const fieldMult = card.fieldMultiplier || 1.5; // 倍率（デフォルト1.5）
-          const fieldTurns = card.fieldTurns || 3; // ターン数（デフォルト3）
-          const persistedTurns = Number.isFinite(Number(fieldTurns)) ? Math.max(1, Math.round(Number(fieldTurns))) : (Math.random() < 0.5 ? 3 : 5);
-          const fieldElementName = (fieldElem && typeof fieldElem === 'object') ? (fieldElem.name || fieldElem.element || null) : fieldElem;
-          
-          // ★ グローバルフィールド属性を更新（背景ビジュアル切り替え用）
-          const elementMap = {
-            '火': 'fire', '水': 'water', '風': 'wind', '土': 'earth', '雷': 'thunder',
-            'fire': 'fire', 'water': 'water', 'wind': 'wind', 'earth': 'earth', 'thunder': 'thunder',
-            '光': 'light', '闇': 'dark', 'light': 'light', 'dark': 'dark'
-          };
-          currentFieldElement = elementMap[fieldElementName] || 'neutral';
-          console.log(`🎨 currentFieldElement 更新: ${currentFieldElement}`);
-          
-          // 旧フィールド効果（互換性）
-          room.fieldEffect = {
-            name: fieldElementName,
-            multiplier: fieldMult,
-            turns: fieldTurns,
-            originalTurns: fieldTurns,
-            visual: `linear-gradient(135deg, rgba(200, 100, 100, 0.4), rgba(100, 100, 200, 0.4))`
-          };
-          
-          // 新しい環境管理オブジェクト
-          room.currentField = {
-            name: fieldElementName,
-            multiplier: fieldMult,
-            turns: fieldTurns,
-            originalTurns: fieldTurns
-          };
-
-          // 永続フィールド情報に保存
-          room.field = {
-            element: fieldElementName,
-            remainingTurns: persistedTurns
-          };
-          // ★ 新フィールド状態（AI創造的効果対応）を保存
-          room.fieldState = {
-            element: fieldElementName,
-            multiplier: fieldMult,
-            turns: fieldTurns,
-            mechanicType: card.mechanicType || 'field_change',
-            targetStat: card.targetStat || 'field_element',
-            duration: card.duration || fieldTurns
-          };
-          
-          console.log(`🌍 ${player.name}: fieldChange 発動 → フィールド効果発動: ${fieldElem}属性 x${fieldMult} (${fieldTurns}ターン継続)`);
-          io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect, currentFieldElement });
-          break;
-        }
-        default: {
-          // 未知の supportType → ロギングのみ
-          console.log(`⚠️ ${player.name}: 未知のサポートタイプ [${supportTypeRaw}] → ${supportMessage}`);
-        }
-      }
-
-      // ★【持続効果の保存】AIのmechanicType/durationがあればactiveEffectsに登録
-      try {
-        const effectName = card.effectName || card.specialEffect || '効果';
-        const mechanicType = card.mechanicType || null;
-        const durationVal = Number.isFinite(Number(card.duration)) ? Math.max(0, Math.round(Number(card.duration))) : 0;
-        if (mechanicType && durationVal > 0) {
-          const effectObj = { name: effectName, duration: durationVal, type: mechanicType };
-          // 対象プレイヤー推定：デバフ系は相手、それ以外は自分
-          const goesToOpponent = ['poison','burn','debuff'].includes(supportTypeRaw);
-          const targetPlayer = goesToOpponent ? opponent : player;
-          if (targetPlayer) {
-            if (!Array.isArray(targetPlayer.activeEffects)) targetPlayer.activeEffects = [];
-            targetPlayer.activeEffects.push(effectObj);
-            console.log(`📌 activeEffects 追加: ${targetPlayer.name} ← ${effectName} (${durationVal}ターン, ${mechanicType})`);
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ activeEffects 登録に失敗:', e);
-      }
-
-      // フィールド効果更新
-      if (card.fieldEffect && card.fieldEffect.name) {
-        room.fieldEffect = card.fieldEffect;
-        const persistedTurns = Number.isFinite(Number(card.fieldEffect.fieldTurns || card.fieldTurns))
-          ? Math.max(1, Math.round(Number(card.fieldEffect.fieldTurns || card.fieldTurns)))
-          : (Math.random() < 0.5 ? 3 : 5);
-        const persistedElement = card.fieldEffect.name || card.fieldEffect.element || card.fieldEffect;
-        room.field = { element: persistedElement, remainingTurns: persistedTurns };
-               // ★【安全な fieldEffect チェック】card.fieldEffect が存在し、かつ文字列か name プロパティを持つ場合のみ適用
-               if (supportTypeRaw === 'fieldchange' && (card.fieldEffect || fieldEffect)) {
-                 const safeFieldEffect = card.fieldEffect || fieldEffect;
-                 const safeFieldMult = card.fieldMultiplier || fieldMultiplier || 1.5;
-                 const safeTurns = card.fieldTurns || fieldTurns || 3;
-         
-                 room.fieldEffect = {
-                   name: typeof safeFieldEffect === 'object' ? safeFieldEffect.name : safeFieldEffect,
-                   multiplier: safeFieldMult,
-                   turns: safeTurns,
-                   originalTurns: safeTurns,
-                   visual: `linear-gradient(135deg, rgba(200, 100, 100, 0.4), rgba(100, 100, 200, 0.4))`
-                 };
-                 io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
-               }
-        io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect });
-      }
-
-      const hp = {};
-      room.players.forEach(p => { hp[p.id] = p.hp; });
-
-      const players = room.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        hp: p.hp,
-        maxHp: p.maxHp || STARTING_HP,
-        statusAilments: p.statusAilments || [],
-        activeEffects: p.activeEffects || []
-      }));
-
-      let winnerId = null;
-      if (room.players.some(p => p.hp <= 0)) {
-        const defeated = room.players.find(p => p.hp <= 0);
+      const statusTick = tickStatusEffects(room);
+      const tickWinner = room.players.find(p => p.hp <= 0);
+      if (tickWinner) {
         const survivor = room.players.find(p => p.hp > 0);
-        winnerId = survivor?.id || null;
+        const hpTick = {}; room.players.forEach(p => { hpTick[p.id] = p.hp; });
+        const playersTick = room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, statusAilments: p.statusAilments || [], activeEffects: p.activeEffects || [] }));
+        io.to(roomId).emit('supportUsed', { playerId: player.id, card: null, hp: hpTick, players: playersTick, supportRemaining: 3 - player.supportUsed, winnerId: survivor?.id || null, nextTurn: null, appliedStatus: [], fieldEffect: room.fieldEffect, fieldState: room.fieldState, statusTick, effectsExpired: [] });
+        updateStatus(roomId, `${(survivor?.name || tickWinner.name)} の勝利！`);
+        return;
       }
 
-      if (!winnerId) {
-        // ターン終了時のバフ減衰処理
-        tickBuffEffects(room);
-        room.turnIndex = (room.turnIndex + 1) % room.players.length;
+      if (player.supportUsed >= 3) { socket.emit('errorMessage', { message: 'サポートは1試合に3回までです' }); return; }
+
+      const cleanWord = (word || '').trim();
+      if (!cleanWord) { socket.emit('errorMessage', { message: '言葉を入力してください' }); return; }
+      const lower = cleanWord.toLowerCase();
+      if (room.usedWordsGlobal.has(lower) || player.usedWords.has(lower)) { socket.emit('errorMessage', { message: 'その言葉は既に使用されています' }); return; }
+
+      try {
+        const card = await generateCardWithTimeout(cleanWord, 'support', generateCardFallback(cleanWord));
+        if (card.baseValue && !Number.isFinite(card.baseValue)) { card.baseValue = 50; }
+
+        room.usedWordsGlobal.add(lower);
+        player.usedWords.add(lower);
+        player.supportUsed++;
+
+        const opponent = getOpponent(room, socket.id);
+        const appliedStatus = [];
+        const maxHp = player.maxHp || STARTING_HP;
+
+        const extractNumber = (text, defaultVal = 0) => {
+          if (!text || typeof text !== 'string') return defaultVal;
+          const m = text.match(/(\d+)/);
+          return m ? parseInt(m[1], 10) : defaultVal;
+        };
+
+        let aiEffectResult = { message: '', appliedStatus: [], activeEffects: [] };
+        if (card.logic && typeof card.logic === 'object') {
+          const meta = { effectName: card.effectName || card.specialEffect || 'AI効果', description: card.creativeDescription || '' };
+          aiEffectResult = applyAiEffect(player, opponent, card.logic, meta);
+          appliedStatus.push(...aiEffectResult.appliedStatus);
+        }
+
+        const supportTypeRaw = (card.supportType || '').toLowerCase();
+        const supportMessage = card.supportMessage || '';
+
+        switch (supportTypeRaw) {
+          case 'heal': {
+            const healAmount = extractNumber(supportMessage, 25);
+            const actualHeal = Math.min(maxHp - player.hp, healAmount);
+            player.hp = Math.min(maxHp, player.hp + healAmount);
+            break;
+          }
+          case 'hpmaxup': {
+            const gain = extractNumber(supportMessage, 20);
+            player.maxHp = Math.min(999, player.maxHp + gain);
+            player.hp = Math.min(player.maxHp, player.hp + gain);
+            break;
+          }
+          case 'staminarecover': {
+            if (!player.stamina) player.stamina = 0;
+            if (!player.maxStamina) player.maxStamina = 100;
+            const staminaGain = extractNumber(supportMessage, 37);
+            const oldStamina = player.stamina;
+            player.stamina = Math.min(player.maxStamina, player.stamina + staminaGain);
+            break;
+          }
+          case 'magicrecover': {
+            if (!player.mp) player.mp = 0;
+            if (!player.maxMp) player.maxMp = 100;
+            const mpGain = extractNumber(supportMessage, 29);
+            const oldMp = player.mp;
+            player.mp = Math.min(player.maxMp, player.mp + mpGain);
+            break;
+          }
+          case 'defensebuff': {
+            const defIncrease = extractNumber(supportMessage, 34);
+            player.defenseBoost = Math.max(player.defenseBoost || 0, defIncrease);
+            player.defMultiplier = Math.min(2.0, (player.defMultiplier || 1.0) + (defIncrease / 100));
+            if (!player.buffs) player.buffs = {};
+            player.buffs.defUp = 2;
+            break;
+          }
+          case 'poison': {
+            if (opponent && opponent.statusAilments) {
+              if (opponent.statusAilments.length < 3) {
+                const dotValue = extractNumber(supportMessage, 3);
+                opponent.statusAilments.push({ name: '毒', turns: 3, effectType: 'dot', value: dotValue });
+                appliedStatus.push({ targetId: opponent.id, name: '毒', turns: 3, effectType: 'dot', value: dotValue });
+              }
+            }
+            break;
+          }
+          case 'burn': {
+            if (opponent && opponent.statusAilments) {
+              if (opponent.statusAilments.length < 3) {
+                const dotValue = extractNumber(supportMessage, 3);
+                opponent.statusAilments.push({ name: '焼け', turns: 3, effectType: 'dot', value: dotValue });
+                appliedStatus.push({ targetId: opponent.id, name: '焼け', turns: 3, effectType: 'dot', value: dotValue });
+              }
+            }
+            break;
+          }
+          case 'allstatbuff': {
+            const boost = extractNumber(supportMessage, 19);
+            player.atkMultiplier = Math.min(2.0, (player.atkMultiplier || 1.0) + (boost / 100));
+            player.defMultiplier = Math.min(2.0, (player.defMultiplier || 1.0) + (boost / 100));
+            const healBonus = Math.round(boost * 1.5);
+            player.hp = Math.min(maxHp, player.hp + healBonus);
+            if (!player.buffs) player.buffs = {};
+            player.buffs.allStatUp = 3;
+            break;
+          }
+          case 'debuff': {
+            if (opponent) {
+              const debuffAmount = extractNumber(supportMessage, 25);
+              opponent.atkMultiplier = Math.max(0.5, (opponent.atkMultiplier || 1.0) - (debuffAmount / 100));
+              opponent.defMultiplier = Math.max(0.5, (opponent.defMultiplier || 1.0) - (debuffAmount / 100));
+            }
+            break;
+          }
+          case 'cleanse': {
+            if (!player.statusAilments) player.statusAilments = [];
+            const cleansedCount = player.statusAilments.length;
+            player.statusAilments = [];
+            break;
+          }
+          case 'counter': {
+            player.counterActive = true;
+            if (!player.buffs) player.buffs = {};
+            player.buffs.counterUp = 2;
+            break;
+          }
+          case 'fieldchange': {
+            const fieldElem = card.fieldEffect || '火';
+            const fieldMult = card.fieldMultiplier || 1.5;
+            const fieldTurns = card.fieldTurns || 3;
+            const persistedTurns = Number.isFinite(Number(fieldTurns)) ? Math.max(1, Math.round(Number(fieldTurns))) : (Math.random() < 0.5 ? 3 : 5);
+            const fieldElementName = (fieldElem && typeof fieldElem === 'object') ? (fieldElem.name || fieldElem.element || null) : fieldElem;
+            const elementMap = { '火': 'fire', '水': 'water', '風': 'wind', '土': 'earth', '雷': 'thunder', 'fire': 'fire', 'water': 'water', 'wind': 'wind', 'earth': 'earth', 'thunder': 'thunder', '光': 'light', '闇': 'dark', 'light': 'light', 'dark': 'dark' };
+            currentFieldElement = elementMap[fieldElementName] || 'neutral';
+            room.fieldEffect = { name: fieldElementName, multiplier: fieldMult, turns: fieldTurns, originalTurns: fieldTurns, visual: `linear-gradient(135deg, rgba(200, 100, 100, 0.4), rgba(100, 100, 200, 0.4))` };
+            room.currentField = { name: fieldElementName, multiplier: fieldMult, turns: fieldTurns, originalTurns: fieldTurns };
+            room.field = { element: fieldElementName, remainingTurns: persistedTurns };
+            room.fieldState = { element: fieldElementName, multiplier: fieldMult, turns: fieldTurns, mechanicType: card.mechanicType || 'field_change', targetStat: card.targetStat || 'field_element', duration: card.duration || fieldTurns };
+            io.to(roomId).emit('fieldEffectUpdate', { fieldEffect: room.fieldEffect, currentFieldElement });
+            break;
+          }
+          default: {
+            console.log(`⚠️ ${player.name}: 未知のサポートタイプ [${supportTypeRaw}] → ${supportMessage}`);
+          }
+        }
+
+        try {
+          const effectName = card.effectName || card.specialEffect || '効果';
+          const mechanicType = card.mechanicType || null;
+          const durationVal = Number.isFinite(Number(card.duration)) ? Math.max(0, Math.round(Number(card.duration))) : 0;
+          if (mechanicType && durationVal > 0) {
+            const effectObj = { name: effectName, duration: durationVal, type: mechanicType };
+            const goesToOpponent = ['poison','burn','debuff'].includes(supportTypeRaw);
+            const targetPlayer = goesToOpponent ? opponent : player;
+            if (targetPlayer) {
+              if (!Array.isArray(targetPlayer.activeEffects)) targetPlayer.activeEffects = [];
+              targetPlayer.activeEffects.push(effectObj);
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ activeEffects 登録に失敗:', e);
+        }
+
+        const hp = {}; room.players.forEach(p => { hp[p.id] = p.hp; });
+        const players = room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, statusAilments: p.statusAilments || [], activeEffects: p.activeEffects || [] }));
+
+        let winnerId = null;
+        if (room.players.some(p => p.hp <= 0)) {
+          const survivor = room.players.find(p => p.hp > 0);
+          winnerId = survivor?.id || null;
+        }
+
+        if (!winnerId) { tickBuffEffects(room); room.turnIndex = (room.turnIndex + 1) % room.players.length; }
+
+        const targetMap = { 'heal': 'player_hp', 'hpmaxup': 'player_hp', 'staminarecover': 'player_hp', 'magicrecover': 'player_hp', 'defensebuff': 'player_def', 'poison': 'enemy_atk', 'burn': 'enemy_atk', 'allstatbuff': 'player_atk', 'debuff': 'enemy_atk', 'cleanse': 'player_hp', 'counter': 'player_atk', 'fieldchange': 'player_attack' };
+        const effectTargetUnified = targetMap[supportTypeRaw] || 'player_hp';
+        const finalValueUnified = extractNumber(supportMessage, 0);
+
+        const cardData = { ...card, supportMessage: card.supportMessage || '', word: card.word, supportType: card.supportType || '', specialEffect: card.specialEffect || '', role: card.role || '', type: 'support', finalValue: finalValueUnified, effectTarget: effectTargetUnified, specialEffectName: card.specialEffect || '', specialEffectDescription: card.supportMessage || '', logic: card.logic || {}, effectName: card.effectName || card.specialEffect || '効果', creativeDescription: card.creativeDescription || card.supportMessage || '効果を発動', mechanicType: card.mechanicType || 'special', targetStat: card.targetStat || 'hp', duration: card.duration || 0 };
+
+        const finishedPlayerId = player.id;
+        const effectsExpired = tickActiveEffects(room, finishedPlayerId);
+
+        io.to(roomId).emit('supportUsed', { playerId: player.id, card: cardData, hp, players, supportRemaining: 3 - player.supportUsed, winnerId, nextTurn: winnerId ? null : room.players[room.turnIndex].id, appliedStatus, fieldEffect: room.fieldEffect, fieldState: room.fieldState, statusTick, effectsExpired });
+
+        if (winnerId) { const winnerName = room.players.find(p => p.id === winnerId)?.name || 'プレイヤー'; updateStatus(roomId, `${winnerName} の勝利！`); }
+        else { updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`); }
+
+        if (!winnerId) {
+          const nextPlayer = room.players[room.turnIndex];
+          io.to(roomId).emit('turnUpdate', { activePlayer: nextPlayer.id, activePlayerName: nextPlayer.name, turnIndex: room.turnIndex, players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, activeEffects: p.activeEffects || [] })), effectsExpired });
+        }
+      } catch (error) {
+        console.error('❌ サポート処理エラー:', error);
+        socket.emit('errorMessage', { message: 'エネルギーが暴走して不発になった！（エラー）' });
+        io.to(roomId).emit('log', { message: '⚠️ サポート処理でエラーが発生しました。ターンを進行します。', type: 'error' });
+        room.usedWordsGlobal.add(lower);
+        player.usedWords.add(lower);
+        player.supportUsed++;
+        if (!room.players.some(p => p.hp <= 0)) {
+          room.turnIndex = (room.turnIndex + 1) % room.players.length;
+          const nextPlayer = room.players[room.turnIndex];
+          io.to(roomId).emit('turnUpdate', { activePlayer: nextPlayer.id, activePlayerName: nextPlayer.name, turnIndex: room.turnIndex, players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP })) });
+          updateStatus(roomId, `${nextPlayer.name} のターンです（エラーリカバリー）`);
+        }
       }
-
-      // サポートカード情報を構造化（supportMessage の確実な伝送 + 統一フィールド付与）
-      // ★ finalValue は「効果量」や「回復量」として扱う（攻撃力ではない）
-      const targetMap = {
-        'heal': 'player_hp',
-        'hpmaxup': 'player_hp',
-        'staminarecover': 'player_hp',
-        'magicrecover': 'player_hp',
-        'defensebuff': 'player_def',
-        'poison': 'enemy_atk',
-        'burn': 'enemy_atk',
-        'allstatbuff': 'player_atk',
-        'debuff': 'enemy_atk',
-        'cleanse': 'player_hp',
-        'counter': 'player_atk',
-        'fieldchange': 'player_attack'
-      };
-      const effectTargetUnified = targetMap[supportTypeRaw] || 'player_hp';
-      const finalValueUnified = extractNumber(supportMessage, 0);
-
-      const cardData = {
-        ...card,
-        supportMessage: card.supportMessage || '', // 明示的に含める
-        word: card.word,
-        supportType: card.supportType || '',
-        specialEffect: card.specialEffect || '',
-        role: card.role || '',
-        // ★ 新フォーマット（常に含める）- type は必ず 'support' 、finalValue は効果量
-        type: 'support',
-        finalValue: finalValueUnified,  // ★ 攻撃力ではなく、効果量・回復量
-        effectTarget: effectTargetUnified,
-        specialEffectName: card.specialEffect || '',
-        specialEffectDescription: card.supportMessage || '',
-        // ★ AI効果設計図フィールド（クライアント表示用）
-        logic: card.logic || {},
-        effectName: card.effectName || card.specialEffect || '効果',
-        creativeDescription: card.creativeDescription || card.supportMessage || '効果を発動',
-        mechanicType: card.mechanicType || 'special',
-        targetStat: card.targetStat || 'hp',
-        duration: card.duration || 0
-      };
-
-      // バトルログに サポート発動記録を追加（★ 攻撃ではなく「効果」と表現）
-      const supportLog = `✨ 【${card.word}】: ${card.supportMessage || '効果を発動'} (効果量: ${finalValueUnified})`;
-      console.log(`📋 バトルログ: ${supportLog}`);
-      console.log(`★ type=support であるため、攻撃処理は実行されません。finalValue=${finalValueUnified} は回復量/強化量です。`);
-
-      // ターン終了側（このサポートを使ったプレイヤー）の持続効果を減衰
-      const finishedPlayerId = player.id;
-      const effectsExpired = tickActiveEffects(room, finishedPlayerId);
-
-      io.to(roomId).emit('supportUsed', {
-        playerId: player.id,
-        card: cardData,
-        hp,
-        players,
-        supportRemaining: 3 - player.supportUsed,
-        winnerId,
-        nextTurn: winnerId ? null : room.players[room.turnIndex].id,
-        appliedStatus,
-        fieldEffect: room.fieldEffect,
-        fieldState: room.fieldState,
-        statusTick,
-        effectsExpired
-      });
-
-      if (winnerId) {
-        const winnerName = room.players.find(p => p.id === winnerId)?.name || 'プレイヤー';
-        updateStatus(roomId, `${winnerName} の勝利！`);
-      } else {
-        updateStatus(roomId, `${room.players[room.turnIndex].name} のターンです`);
-      }
-
-      // 【完全同期】supportAction 後も必ずターン交代と turnUpdate を emit
-      if (!winnerId) {
-        const nextPlayer = room.players[room.turnIndex];
-        io.to(roomId).emit('turnUpdate', {
-          activePlayer: nextPlayer.id,
-          activePlayerName: nextPlayer.name,
-          turnIndex: room.turnIndex,
-          players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP, activeEffects: p.activeEffects || [] })),
-          effectsExpired
-        });
-      }
-    } catch (error) {
-      console.error('❌ サポートカード生成エラー:', error);
-      // エラー時もターン交代を実行（フロントエンド同期のため）
-      const fallbackCard = generateCardFallback(cleanWord);
-      room.usedWordsGlobal.add(lower);
-      player.usedWords.add(lower);
-      player.supportUsed++;
-
-      console.log(`⚠️ サポート処理: フォールバックカード使用`);
-      socket.emit('errorMessage', { message: 'サポート効果を発動しました（カード生成エラー時の代替）' });
-
-      // 【完全同期】エラー時もターン交代と turnUpdate を emit
-      if (!room.players.some(p => p.hp <= 0)) { // 誰も倒れていない場合のみ
-        room.turnIndex = (room.turnIndex + 1) % room.players.length;
-        const nextPlayer = room.players[room.turnIndex];
-        io.to(roomId).emit('turnUpdate', {
-          activePlayer: nextPlayer.id,
-          activePlayerName: nextPlayer.name,
-          turnIndex: room.turnIndex,
-          players: room.players.map(p => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp || STARTING_HP }))
-        });
-        updateStatus(roomId, `${nextPlayer.name} のターンです（サポート生成エラー）`);
-      }
-    }
     } catch (outerError) {
       console.error('❌ supportAction 外部エラー:', outerError);
-      socket.emit('errorMessage', { message: 'エラーが発生しました。' });
+      socket.emit('errorMessage', { message: 'エネルギーが暴走して不発になった！（エラー）' });
     }
   });
 

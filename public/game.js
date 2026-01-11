@@ -1383,6 +1383,23 @@ function initSocket() {
   });
 
   socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, statusTick, hp, players, nextTurn, winnerId, defenseFailed, affinity, effectsExpired }) => {
+    // ★【超重要：finalValue 未定義ガード】サーバーからの数値チェック
+    if (attackCard) {
+      if (attackCard.finalValue === undefined || attackCard.finalValue === null) {
+        console.warn('⚠️ クライアント受信: attackCard.finalValue が undefined → 0に修正');
+        attackCard.finalValue = 0;
+      }
+      // finalValue を Number で強制変換（文字列の場合対応）
+      attackCard.finalValue = Number(attackCard.finalValue) || 0;
+    }
+    if (defenseCard) {
+      if (defenseCard.finalValue === undefined || defenseCard.finalValue === null) {
+        console.warn('⚠️ クライアント受信: defenseCard.finalValue が undefined → 0に修正');
+        defenseCard.finalValue = 0;
+      }
+      defenseCard.finalValue = Number(defenseCard.finalValue) || 0;
+    }
+
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
 
@@ -1538,6 +1555,22 @@ function initSocket() {
   });
 
   socket.on('supportUsed', async ({ playerId: supportPlayerId, card, hp, supportRemaining: newRemaining, winnerId, nextTurn, statusTick, appliedStatus, fieldEffect, fieldState, players, effectsExpired }) => {
+    // ★【超重要：サポートカード finalValue ガード】
+    if (card) {
+      if (card.finalValue === undefined || card.finalValue === null) {
+        console.warn('⚠️ クライアント受信: supportCard.finalValue が undefined → 0に修正');
+        card.finalValue = 0;
+      }
+      // finalValue を Number で強制変換
+      card.finalValue = Number(card.finalValue) || 0;
+      
+      // baseValue チェック（念のため）
+      if (card.baseValue !== undefined && (isNaN(card.baseValue) || !isFinite(card.baseValue))) {
+        console.warn('⚠️ クライアント受信: supportCard.baseValue が異常 → 修正');
+        card.baseValue = 50;
+      }
+    }
+
     // ターン開始時の状態異常処理
     if (statusTick) {
       appendLog('⏰ ターン開始: 状態異常を処理中...', 'info');
@@ -1559,7 +1592,9 @@ function initSocket() {
         });
       }
     }
-    
+
+    const cutinFlavor = buildCutinFlavor({ affinity: null, defenseCard: null, defenseFailed: false });
+
     // サポートカード判定：role が 'support' の場合は専用演出を使用
     const isSupport = (card.role || '').toLowerCase() === 'support';
     
