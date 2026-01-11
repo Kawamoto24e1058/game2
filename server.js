@@ -2027,6 +2027,92 @@ function getDefaultCardJudgement(cardName) {
   };
 }
 
+// =====================================
+// デフォルトカード生成ヘルパー関数
+// =====================================
+
+// 攻撃用のデフォルトカード生成
+function createDefaultAttackCard(word) {
+  return {
+    word: word || "ミス",
+    name: word || "ミス",
+    cardName: word || "ミス",
+    rank: "E",
+    element: "physics",
+    attribute: "earth",
+    type: "attack",
+    cardType: "attack",
+    role: "attack",
+    effect: "attack",
+    power: 10,
+    attack: 10,
+    baseValue: 10,
+    finalValue: 10,
+    cost: 0,
+    hitRate: 100,
+    flavorText: "解析不能により、弱々しい物理攻撃が発生した。",
+    specialEffect: "【基本攻撃】解析失敗時の最低攻撃",
+    judgeComment: "デフォルトカード: AI生成失敗のため最低値を使用",
+    logic: { target: "enemy", actionType: "attack" }
+  };
+}
+
+// 防御用のデフォルトカード生成
+function createDefaultDefenseCard(word) {
+  return {
+    word: word || "防御",
+    name: word || "防御",
+    cardName: word || "防御",
+    rank: "E",
+    element: "earth",
+    attribute: "earth",
+    type: "defense",
+    cardType: "defense",
+    role: "defense",
+    effect: "defense",
+    defense: 15,
+    baseValue: 15,
+    finalValue: 15,
+    cost: 0,
+    hitRate: 100,
+    flavorText: "解析不能により、弱々しい防御が発生した。",
+    specialEffect: "【基本防御】解析失敗時の最低防御",
+    supportMessage: "被ダメージを少し軽減",
+    judgeComment: "デフォルトカード: AI生成失敗のため最低値を使用"
+  };
+}
+
+// サポート用のデフォルトカード生成
+function createDefaultSupportCard(word) {
+  return {
+    word: word || "手当",
+    name: word || "手当",
+    cardName: word || "手当",
+    rank: "E",
+    element: "light",
+    attribute: "light",
+    type: "heal",
+    cardType: "heal",
+    role: "support",
+    effect: "support",
+    supportType: "heal",
+    supportMessage: "HPを30回復",
+    baseValue: 30,
+    finalValue: 30,
+    cost: 0,
+    hitRate: 100,
+    effectName: "応急処置",
+    specialEffect: "【基本回復】解析失敗時の最低回復",
+    flavorText: "解析不能により、最低限の回復を行います。",
+    creativeDescription: "AI失敗時の緊急処置。即時にHPを30回復する。",
+    mechanicType: "stat_boost",
+    targetStat: "hp",
+    duration: 0,
+    judgeComment: "デフォルトカード: AI生成失敗のため最低値を使用",
+    logic: { target: "player", actionType: "heal", value: 30, duration: 0 }
+  };
+}
+
 io.on('connection', (socket) => {
   socket.on('startMatching', ({ name, mode, password }) => {
     const playerName = (name || '').trim();
