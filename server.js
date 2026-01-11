@@ -249,6 +249,7 @@ async function generateCard(word, intent = 'neutral') {
    - 【超重要】入力されたカード名に最も近い属性や概念を、言葉に忠実に判定せよ
    - 【厳格ルール】属性の混同は絶対禁止：「光」なら必ず「光属性」とし、「火」と混同するな
    - 【厳格ルール】「雷」なら必ず「雷属性」、「水」なら必ず「水属性」として扱え
+   - 【超重要：光と火の明確区別】「光」は聖なる力・希望・知識を象徴し、「火」は燃える破壊力・熱を象徴する。カード名に「光」が含まれる場合は**必ず光属性（light）**とし、火属性（fire）と混同するな。例：「光の矢」→ light, 「光の加護」→ light, 「火の矢」→ fire（区別を厳守せよ）
    - 「火/水/風/土/雷/光/闇/草」の8属性に縛られず、言葉の本質的性質から最も近い属性を選ぶ
    - 例：「インフレ」→ 経済膨張 → 風（拡散）または火（熱）
    - 例：「AI」→ 思考の抽象化 → 光（知）または闇（不可視性）
@@ -278,6 +279,7 @@ async function generateCard(word, intent = 'neutral') {
    - Defense：防御・保護・耐久・遮蔽・反射・吸収
    - Support：治療・強化・弱体化・環境変化・状態操作
    - 天候・環境ワード（晴れ/雨/嵐/砂漠/雷雲/月光 等）は必ず role: "Support", supportType: "fieldChange"
+   - 【重要：溶岩・砂嵐などの自然現象は環境変化優先】「溶岩」「砂嵐」「極寒」など、一見攻撃的に聞こえても自然現象・環境の変化を指す言葉は、**直接的な攻撃ではなく、フィールドに影響を与える Support タイプとして優先的に判定せよ**。例：「溶岩」→ supportType: "fieldChange", fieldEffect: "火"（火属性フィールド強化）
    
    **【Support の effectTarget 厳格化】**
    - サポートカードの effectTarget は以下の具体的かつ適切なものから選べ：
@@ -369,13 +371,37 @@ async function generateCard(word, intent = 'neutral') {
 ---
 
 【厳守事項】
-1. 数値は言葉の意味から導出し、10の倍数や5の倍数は原則禁止
-2. specialEffect は既存のテンプレートをコピーせず、言葉の本質から創造
-3. element はカスタム属性も許可（「金」「魂」「夢」「虚無」等）
-4. judgeComment には歴史・科学・文化的背景を含める
-5. visual フィールドは必須（CSS gradient または色コード）
-6. 天候・環境ワードは必ず supportType: "fieldChange" に設定
-7. **【最重要】fieldChange 時は以下を絶対に省略するな：**
+1. **【属性の厳格定義】** 以下の定義を絶対に守れ：
+   - light（光）：聖なる回復・浄化・希望・知識の力。属性判定で火と混同するな
+   - fire（火）：破壊・爆発・熱による加害の力。光と区別せよ
+   - water（水）：妨害・浄化・流動・緩和の力。障害を与える効果に使う
+   - earth（土）：堅牢・固定・安定。防御や基盤系の属性
+   - thunder（雷）：速度・迅速・電撃。スピード感のある効果
+   - wind（風）：流動・拡散・疾風。広域効果や移動系に使う
+   - dark（闇）：非可視・呪い・影。デバフやネガティブ効果
+
+2. **【タイプ優先順位（絶対に守れ）】** 以下を優先順序で守れ：
+   - 「場所・環境・自然現象」を示す単語 → support（field_change）を最優先
+   - 「人物・英雄・偉人」 → support（stat_boost）を優先
+   - 「破壊・斬撃・爆発」を示す単語 → attack を最優先
+   - 「防御・盾・保護」を示す単語 → defense を最優先
+   例：『マグマ』→ support(field_change, 火属性), 『閃光』→ support(光属性目くらまし), 『斬撃』→ attack(無属性)
+
+3. **【baseValue のダイナミック決定】言葉の規模感に応じて 5～100 で変動させよ：**
+   - 小規模（軽い、小さい、微妙）：10～30
+   - 中規模（標準的、普通、通常）：35～65
+   - 大規模（強い、大きい、激しい）：70～90
+   - 超弩級（終極、究極、無限、絶対）：95～100
+   例：「そよ風」→ 15, 「台風」→ 75, 「微かな灯火」→ 12, 「太陽」→ 95
+   **【超重要】0.01単位の小数点まで含めて査定せよ。例：attack: 23.47, defense: 54.89**
+
+4. 数値は言葉の意味から導出し、10の倍数や5の倍数は原則禁止
+5. specialEffect は既存のテンプレートをコピーせず、言葉の本質から創造
+6. element はカスタム属性も許可（「金」「魂」「夢」「虚無」等）
+7. judgeComment には歴史・科学・文化的背景を含める
+8. visual フィールドは必須（CSS gradient または色コード）
+9. 天候・環境ワードは必ず supportType: "fieldChange" に設定
+10. **【最重要】fieldChange 時は以下を絶対に省略するな：**
    - supportMessage: 「日差しが強まり火属性が1.5倍になる！（4ターン）」のように属性名・倍率・ターン数を明示
    - fieldEffect: 強化される属性名（火/水/風/土/雷/光/闇/草 または カスタム属性名）を必ず設定
    - fieldMultiplier: 1.5 を推奨（省略禁止）
@@ -410,12 +436,24 @@ async function generateCard(word, intent = 'neutral') {
 ${intentNote}`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContent(prompt);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 2048
+      }
+    });
     let responseText = result.response.text().trim();
     
     // JSONマークダウン装飾を削除
     responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    // ★【JSON形式の厳密チェック】
+    if (!responseText.startsWith('{')) {
+      console.error('❌ JSON形式エラー: "{" で開始していません');
+      throw new Error('Invalid JSON format: response does not start with "{"');
+    }
     
     const cardData = JSON.parse(responseText);
 
@@ -438,8 +476,22 @@ ${intentNote}`;
       throw new Error(`不正な role: ${role}`);
     }
 
-    let attack = role === 'attack' ? Math.max(0, Math.min(99, Math.round(cardData.attack))) : 0;
-    let defense = role === 'defense' ? Math.max(0, Math.min(99, Math.round(cardData.defense))) : 0;
+    // ★【finalValue 動的計算】AI の baseValue に対して変動値を適用
+    // 【言葉の規模感に応じた動的 baseValue】：AI が 5～100 の範囲で設定した値を活かす
+    // ★【finalValue 動的計算】AI の baseValue に対して複合ランダム化を適用
+    // 【言葉の規模感に応じた動的 baseValue】：AI が 5～100 の範囲で設定した値を活かす（小数点含む）
+    let baseValue = role === 'attack' ? Math.max(5, Math.min(100, parseFloat(cardData.attack) || 50)) : role === 'defense' ? Math.max(5, Math.min(100, parseFloat(cardData.defense) || 50)) : 50;
+    
+    // ★【複合ランダム化】毎回異なる値を絶対に保証
+    const jitter = 0.8 + (Math.random() * 0.4); // 0.8 ～ 1.2のランダムな倍率
+    const timeSeed = (Date.now() % 10) / 100; // ミリ秒単位の時間をわずかに加算（隠し味）
+    let finalValue = Math.floor(baseValue * jitter + timeSeed);
+    
+    // 最小値保証
+    finalValue = Math.max(5, Math.min(100, finalValue));
+    
+    let attack = role === 'attack' ? finalValue : 0;
+    let defense = role === 'defense' ? finalValue : 0;
     
     const supportType = cardData.supportType || null;
     const supportMessage = cardData.supportMessage || '';
@@ -479,6 +531,8 @@ ${intentNote}`;
       element: elementJP || undefined,
       attack,
       defense,
+      baseValue,
+      finalValue,
       effect: role,
       tier: attack >= 70 || defense >= 70 ? 'mythical' : attack >= 40 || defense >= 40 ? 'weapon' : 'common',
       supportType,
@@ -511,40 +565,56 @@ function generateCardFallback(word) {
   let role = 'attack';
   if (/盾|shield|防|鎧|バリア|壁|要塞|城|砦|盔甲/.test(lower)) {
     role = 'defense';
-  } else if (/毒|poison|回復|heal|support|サポート|環境|field|薬|医|祈|呪|弱|焼|灼|光|神|英雄|偉人|修行|進化|癒/.test(lower)) {
+  } else if (/毒|poison|回復|heal|support|サポート|環境|field|薬|医|祈|呪|弱|焼|灼|光|神|英雄|偉人|修行|進化|癒|晴|雨|雷|風|雲|溶岩|マグマ|砂嵐|極寒|灼熱|干ばつ|朝焼け|月光/.test(lower)) {
     role = 'support';
   }
   
-  // 属性判定
+  // ★【属性判定】光と火を明確に区別
   let attribute = 'earth';
-  if (/fire|炎|爆|熱|マグマ|焼/.test(lower)) attribute = 'fire';
+  if (/light|光|聖|天使|希望|知|知恵/.test(lower)) attribute = 'light'; // 光を最優先
+  else if (/fire|炎|爆|熱|マグマ|焼|溶岩/.test(lower)) attribute = 'fire';
   else if (/water|水|海|氷|雨|波/.test(lower)) attribute = 'water';
   else if (/wind|風|竜巻|嵐|翼/.test(lower)) attribute = 'wind';
   else if (/thunder|雷|電|lightning|プラズマ/.test(lower)) attribute = 'thunder';
-  else if (/light|光|聖|天使|神/.test(lower)) attribute = 'light';
   else if (/dark|闇|死|呪|影/.test(lower)) attribute = 'dark';
   
   // 役割別フォールバック返却
   if (role === 'attack') {
+    // ★【デフォルト値の動的化】71固定を解消
+    const baseAttack = 30 + Math.floor(Math.random() * 40); // 30～70のランダム基準値
+    const jitter = 0.8 + (Math.random() * 0.4);
+    const timeSeed = (Date.now() % 10) / 100;
+    const finalAttack = Math.max(5, Math.min(100, Math.floor(baseAttack * jitter + timeSeed)));
+    
     return {
       role: 'Attack',
       word: word,
       name: word,
-      attack: 71,
+      baseValue: baseAttack,
+      finalValue: finalAttack,
+      attack: finalAttack,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
       specialEffect: '【基本攻撃】入力単語からの標準攻撃',
       judgeComment: 'フォールバック時の汎用攻撃カード。入力単語の特性から独立した基本値として機能。'
     };
   } else if (role === 'defense') {
+    // ★【デフォルト値の動的化】67固定を解消
+    const baseDefense = 25 + Math.floor(Math.random() * 40); // 25～65のランダム基準値
+    const jitter = 0.8 + (Math.random() * 0.4);
+    const timeSeed = (Date.now() % 10) / 100;
+    const finalDefense = Math.max(5, Math.min(100, Math.floor(baseDefense * jitter + timeSeed)));
+    
     return {
       role: 'Defense',
       word: word,
       name: word,
-      defense: 67,
+      baseValue: baseDefense,
+      finalValue: finalDefense,
+      defense: finalDefense,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
-      supportMessage: '被ダメージ39%軽減（2ターン有効）',
+      supportMessage: '被ダメージ軽減効果',
       specialEffect: '【基本防御】入力単語からの標準防御',
       judgeComment: 'フォールバック時の汎用防御カード。防護性能を重視した基本値として機能。'
     };
@@ -654,6 +724,12 @@ function generateCardFallback(word) {
     const targetStat = supportType === 'heal' ? 'hp' : supportType === 'fieldChange' ? 'field_element' : 'special';
     const duration = supportType === 'fieldChange' ? fieldTurns : 3;
     
+    // ★【Support の baseValue/finalValue も動的化】
+    const baseValue = 30 + Math.floor(Math.random() * 30); // 30～60
+    const jitter = 0.8 + (Math.random() * 0.4);
+    const timeSeed = (Date.now() % 10) / 100;
+    const finalValue = Math.max(5, Math.min(100, Math.floor(baseValue * jitter + timeSeed)));
+    
     return {
       role: 'Support',
       word: word,
@@ -664,6 +740,8 @@ function generateCardFallback(word) {
       supportMessage,
       specialEffect: `【${supportType}】フォールバック効果`,
       judgeComment: 'フォールバック時のサポートカード。supportType自動判定から生成。',
+      baseValue,
+      finalValue,
       // ★【常に含める】fieldEffect 関連フィールドは undefined でなく、常にデフォルト値を含める
       fieldEffect: supportType === 'fieldChange' ? fieldEffect : '',
       fieldMultiplier: supportType === 'fieldChange' ? fieldMultiplier : 1.0,
@@ -1529,7 +1607,26 @@ app.post('/api/judgeCard', async (req, res) => {
 
 // Gemini APIでカード判定
 async function judgeCardByAI(cardName) {
-  const prompt = `【超重要】あなたは JSON 出力専用のゲーム判定エンジンです。
+  const prompt = `【超重要】あなたは JSON 出力専用のゲーム判定エンジンです。必ず以下の指示に従え：
+
+【属性・タイプの厳格ガイドライン】
+1. **属性定義（絶対に混同するな）**：
+   - light（光）：聖なる回復・浄化・希望の力（火と混同禁止）
+   - fire（火）：破壊・爆発・熱による加害（光と区別）
+   - water（水）：妨害・浄化・流動・緩和
+   - earth（土）：堅牢・安定・基盤
+   - thunder（雷）：速度・迅速・電撃
+   - wind（風）：流動・拡散・疾風
+   - dark（闇）：非可視・呪い・影
+
+2. **タイプ判定の優先順位**：
+   - 「場所・環境・自然現象」→ support（field_change）最優先
+   - 「人物・英雄」→ support（stat_boost）優先
+   - 「破壊・斬撃・爆発」→ attack 優先
+   - 「防御・盾」→ defense 優先
+   例：『マグマ』→support(field_change,火), 『閃光』→support(光目くらまし), 『斬撃』→attack(無属性)
+
+【JSON 形式（絶対に守れ）】
 
 『${cardName}』の言葉の意味を分析し、以下の JSON **のみ** を返してください。
 
@@ -1575,9 +1672,15 @@ async function judgeCardByAI(cardName) {
 以下の言葉を判定し、JSON のみを返してください：「${cardName}」`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
     const result = await Promise.race([
-      model.generateContent(prompt),
+      model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024
+        }
+      }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), GEMINI_TIMEOUT_MS))
     ]);
     
@@ -1720,16 +1823,17 @@ function getDefaultCardJudgement(cardName) {
     specialEffectDescription = `${cardName}の力で敵に攻撃を仕かける`;
   }
   
-  // baseValue に (Math.random() * 0.4 + 0.8) を掛けて最終値を算出（±20%の振幅）
-  const randomMultiplier = Math.random() * 0.4 + 0.8;
+  // ★【finalValue 動的計算】baseValue に対して (0.8 + Math.random() * 0.4) を掛ける
+  const randomMultiplier = 0.8 + Math.random() * 0.4; // 0.8 ～ 1.2
   const finalValue = Math.floor(baseValue * randomMultiplier);
   
-  console.log(`⚠️ デフォルトカード使用: ${cardName} -> type=${type}, finalValue=${finalValue}`);
+  console.log(`⚠️ デフォルトカード使用: ${cardName} -> type=${type}, baseValue=${baseValue}, finalValue=${finalValue}`);
   
   return {
     isDefault: true,
     cardName: cardName,
     type: type,
+    baseValue: baseValue,
     finalValue: finalValue,
     specialEffectName: specialEffectName,
     specialEffectDescription: specialEffectDescription,

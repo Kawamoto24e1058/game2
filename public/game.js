@@ -255,21 +255,23 @@ function showCutin(card, duration = 2500, extraComment = '') {
 
     const statsFragment = document.createDocumentFragment();
 
-    // 攻撃値（Attackロールのみ）
+    // ★【クライアント側では finalValue をそのまま使用】攻撃値（Attackロールのみ）
+    // card.attack はサーバーから送信された finalValue（複合ランダム化済み）
     const hasAttack = card.attack !== undefined && card.attack !== null && role === 'attack';
     if (hasAttack) {
       const atkEl = document.createElement('div');
       atkEl.className = 'stat-pill attack-pill';
-      atkEl.textContent = `攻撃値: ${card.attack}`;
+      atkEl.textContent = `攻撃値: ${card.attack}`; // finalValue をそのまま表示
       statsFragment.appendChild(atkEl);
     }
 
-    // 防御力（Defenseロールのみ）
+    // ★【クライアント側では finalValue をそのまま使用】防御力（Defenseロールのみ）
+    // card.defense はサーバーから送信された finalValue（複合ランダム化済み）
     const hasDefense = card.defense !== undefined && card.defense !== null && role === 'defense';
     if (hasDefense) {
       const defEl = document.createElement('div');
       defEl.className = 'stat-pill defense-pill';
-      defEl.textContent = `防御力: ${card.defense}`;
+      defEl.textContent = `防御力: ${card.defense}`; // finalValue をそのまま表示
       statsFragment.appendChild(defEl);
     }
 
@@ -1351,17 +1353,24 @@ function initSocket() {
     const isAttacker = attackerId === playerId;
     const isDefender = defenderId === playerId;
     
+    // ★【サポート判定時に攻撃値表示を制御】
+    const isSupport = (card.role || '').toLowerCase() === 'support';
+    
     // カットイン演出
-    await showCutin(card, 2000);
+    if (!isSupport) {
+      await showCutin(card, 2000);
+    } else {
+      await showSupportOverlay(card, 3000);
+    }
     // 中央プレイエリア表示（提出演出付き）
     showCenterCard({ ...card, isSubmit: true });
     
-    const statLabel = buildRoleStatLabel(card);
+    const statLabel = isSupport ? '' : buildRoleStatLabel(card); // サポート時は統計非表示
     const attr = (card.element || (card.attribute || '')?.toUpperCase());
     const labelText = statLabel ? ` ${statLabel}` : '';
-    const safeWord = card.word || '攻撃カード';
-    appendLog(`${isAttacker ? 'あなた' : '相手'}の攻撃: ${safeWord} (${attr})${labelText}`, 'damage');
-    flashAttackEffect();
+    const safeWord = card.word || (isSupport ? 'サポート' : '攻撃カード');
+    appendLog(`${isAttacker ? 'あなた' : '相手'}の${isSupport ? 'サポート' : '攻撃'}: ${safeWord} (${attr})${labelText}`, isSupport ? 'buff' : 'damage');
+    if (!isSupport) flashAttackEffect();
     toggleInputs(false);
     
     if (isDefender) {
@@ -1453,13 +1462,15 @@ function initSocket() {
     }
 
     updateHealthBars(meHp, opHp);
-    const atkLabel = buildRoleStatLabel(attackCard);
+    // ★【サポート判定時に統計表示を制御】
+    const isAttackSupport = (attackCard.role || '').toLowerCase() === 'support';
+    const atkLabel = isAttackSupport ? '' : buildRoleStatLabel(attackCard);
     const defLabel = buildRoleStatLabel(defenseCard);
     const atkText = atkLabel ? ` [${atkLabel}]` : '';
     const defText = defLabel ? ` [${defLabel}]` : '';
-    const safeAtkWord = attackCard.word || '攻撃';
+    const safeAtkWord = attackCard.word || (isAttackSupport ? 'サポート' : '攻撃');
     const safeDefWord = defenseCard.word || '防御';
-    appendLog(`攻撃: ${safeAtkWord}${atkText} / 防御: ${safeDefWord}${defText}`, 'info');
+    appendLog(`${isAttackSupport ? 'サポート' : '攻撃'}: ${safeAtkWord}${atkText} / 防御: ${safeDefWord}${defText}`, 'info');
 
     if (affinity) {
       const relation = affinity.relation || 'neutral';
