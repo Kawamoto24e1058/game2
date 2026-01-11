@@ -12,14 +12,138 @@ app.use(express.static(path.join(__dirname, 'public')));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// 安全なカード生成ラッパー（現状はフォールバック優先）
-async function generateCardWithTimeout(original, role, fallback) {
+const API_KEY = process.env.GEMINI_API_KEY || 'YOUR_API_KEY_HERE';
+const genAI = new GoogleGenerativeAI(API_KEY);
+
+// ★【ヘルパー関数：baseValueからRankを算出】
+function deriveRankFromValue(baseValue) {
+  if (baseValue >= 999) return 'EX';
+  if (baseValue >= 96) return 'S';
+  if (baseValue >= 86) return 'A';
+  if (baseValue >= 61) return 'B';
+  if (baseValue >= 31) return 'C';
+  if (baseValue >= 11) return 'D';
+  return 'E';
+}
+
+// カード生成タイムアウト付きラッパー
+async function generateCardWithTimeout(original, role, fallback, timeout = 8000) {
   try {
-    return fallback || generateCardFallback(original);
+    const result = await Promise.race([
+      generateCard(original, role),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+    ]);
+    return result;
   } catch (e) {
+    console.warn(`⚠️ カード生成失敗（${original}）、フォールバック使用:`, e.message);
+    return fallback || generateCardFallback(original);
+  }
+}
+
+// Gemini APIによるカード生成（Rank EX対応）
+async function generateCard(original, role = 'attack') {
+  const intentNote = role === 'attack' ? '攻撃カードを生成せよ。' : role === 'defense' ? '防御カードを生成せよ。' : 'サポートカードを生成せよ。';
+  
+  const prompt = `あなたは言葉をバトルカードに変換するAIです。ユーザーが入力した言葉「${original}」から、以下のJSON形式でカードを生成してください。
+
+【Rank EX（規格外）の判定】
+「ブラックホール」「無限」「神」「宇宙創造」「時間停止」「全知全能」など、物理法則を超越し制御不能な概念的な言葉の場合:
+- rank: "EX"
+- baseValue: 999
+- isForbidden: true （★必須★ このフラグを必ず含めること）
+
+【通常のランク制（Tier System）】
+- ランクS (神話/超越): 96〜100 例: 創世、世界級の力
+- ランクA (伝説/最強): 86〜95  例: 核兵器、神の裁き
+- ランクB (強力/強): 61〜85  例: ミサイル、ドラゴン
+- ランクC (実用/中): 31〜60  例: 鉄の剣、ライフル
+- ランクD (一般/弱): 11〜30  例: ナイフ、練習用の剣
+- ランクE (ゴミ/最弱): 1〜10  例: 木の棒、小石
+
+【JSON出力フォーマット】
+{
+  "role": "Attack" | "Defense" | "Support",
+  "name": "カード名",
+  "rank": "EX" | "S" | "A" | "B" | "C" | "D" | "E",
+  "isForbidden": true | false,
+  "attack": 数値（Attack時）,
+  "defense": 数値（Defense時）,
+  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇",
+  "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
+  "specialEffect": "効果説明",
+  "judgeComment": "言葉の背景分析"
+}
+
+${intentNote}
+JSON以外の文字は出力しないでください。`;
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+    });
+    
+    let responseText = result.response.text().trim();
+    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    if (!responseText.startsWith('{')) {
+      throw new Error('Invalid JSON format');
+    }
+    
+    const cardData = JSON.parse(responseText);
+    const cardRole = (cardData.role || 'attack').toLowerCase();
+    
+    let baseValue = cardRole === 'attack' ? Math.max(5, Math.min(999, parseFloat(cardData.attack) || 50)) : cardRole === 'defense' ? Math.max(5, Math.min(999, parseFloat(cardData.defense) || 50)) : 50;
+    
+    // ★【Rank EX対応】isForbidden判定
+    const isForbidden = cardData.isForbidden === true || cardData.rank === 'EX';
+    if (isForbidden) {
+      baseValue = 999;
+      console.log(`⚠️ Rank EX検出: ${original} → baseValue=999, isForbidden=true`);
+    }
+    
+    const variance = isForbidden ? 0 : (Math.floor(Math.random() * 6) - 3);
+    let finalValue = Math.floor(baseValue + variance);
+    if (finalValue < 1) finalValue = 1;
+    if (finalValue > 999) finalValue = 999;
+    
+    if (!Number.isFinite(finalValue)) finalValue = 50;
+    if (!Number.isFinite(baseValue)) baseValue = 50;
+    
+    const aiRank = (cardData.rank || deriveRankFromValue(baseValue)).toString().toUpperCase();
+    const cardName = original || cardData.name || 'unknown';
+    
+    let attack = cardRole === 'attack' ? finalValue : 0;
+    let defense = cardRole === 'defense' ? finalValue : 0;
+    
+    const attribute = (cardData.attribute || 'earth').toLowerCase();
+    const specialEffect = cardData.specialEffect || '【基本効果】標準的な効果';
+    const judgeComment = cardData.judgeComment || '判定コメントなし';
+    
+    return {
+      word: original,
+      attribute,
+      element: cardData.element || undefined,
+      attack,
+      defense,
+      baseValue,
+      finalValue,
+      rank: aiRank,
+      isForbidden: isForbidden,
+      effect: cardRole,
+      tier: attack >= 70 || defense >= 70 ? 'mythical' : attack >= 40 || defense >= 40 ? 'weapon' : 'common',
+      specialEffect,
+      judgeComment,
+      role: cardRole,
+      description: `${attribute.toUpperCase()} [${cardRole.toUpperCase()}] ATK:${attack} DEF:${defense} / ${specialEffect}`
+    };
+  } catch (error) {
+    console.error('❌ Gemini API エラー:', error);
     return generateCardFallback(original);
   }
 }
+
 /*
   "role": "Attack",
   "name": "カード名（30字以内）",
@@ -249,6 +373,9 @@ ${intentNote}`;
 function generateCardFallback(word) {
   const lower = word.toLowerCase();
   
+  // ★【Rank EX判定】禁断の言葉チェック
+  const isForbidden = /ブラックホール|無限|神|宇宙創造|時間停止|全知全能|blackhole|infinity|omnipotent/.test(lower);
+  
   // 役割判定ロジック
   let role = 'attack';
   if (/盾|shield|防|鎧|バリア|壁|要塞|城|砦|盔甲/.test(lower)) {
@@ -268,12 +395,12 @@ function generateCardFallback(word) {
   
   // 役割別フォールバック返却
   if (role === 'attack') {
-    // ★【デフォルト値の動的化】71固定を解消
-    const baseAttack = 30 + Math.floor(Math.random() * 40); // 30～70のランダム基準値
-    const variance = Math.floor(Math.random() * 6) - 3; // -3 ～ +3
+    // ★【Rank EX対応】禁断の言葉は999、それ以外は通常値
+    const baseAttack = isForbidden ? 999 : (30 + Math.floor(Math.random() * 40));
+    const variance = isForbidden ? 0 : (Math.floor(Math.random() * 6) - 3);
     let finalAttack = baseAttack + variance;
     if (finalAttack < 1) finalAttack = 1;
-    if (finalAttack > 100) finalAttack = 100;
+    if (finalAttack > 999) finalAttack = 999;
     
     return {
       role: 'Attack',
@@ -281,20 +408,21 @@ function generateCardFallback(word) {
       name: word,
       baseValue: baseAttack,
       finalValue: finalAttack,
-      rank: deriveRankFromValue(baseAttack),
+      rank: isForbidden ? 'EX' : deriveRankFromValue(baseAttack),
+      isForbidden: isForbidden,
       attack: finalAttack,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
-      specialEffect: '【基本攻撃】入力単語からの標準攻撃',
-      judgeComment: 'フォールバック時の汎用攻撃カード。入力単語の特性から独立した基本値として機能。'
+      specialEffect: isForbidden ? '【禁断の力】制御不能な破壊力' : '【基本攻撃】入力単語からの標準攻撃',
+      judgeComment: isForbidden ? 'Rank EX: 物理法則を超越した概念。使用には高リスクが伴う。' : 'フォールバック時の汎用攻撃カード。入力単語の特性から独立した基本値として機能。'
     };
   } else if (role === 'defense') {
-    // ★【デフォルト値の動的化】67固定を解消
-    const baseDefense = 25 + Math.floor(Math.random() * 40); // 25～65のランダム基準値
-    const variance = Math.floor(Math.random() * 6) - 3; // -3 ～ +3
+    // ★【Rank EX対応】禁断の言葉は999、それ以外は通常値
+    const baseDefense = isForbidden ? 999 : (25 + Math.floor(Math.random() * 40));
+    const variance = isForbidden ? 0 : (Math.floor(Math.random() * 6) - 3);
     let finalDefense = baseDefense + variance;
     if (finalDefense < 1) finalDefense = 1;
-    if (finalDefense > 100) finalDefense = 100;
+    if (finalDefense > 999) finalDefense = 999;
     
     return {
       role: 'Defense',
@@ -302,13 +430,14 @@ function generateCardFallback(word) {
       name: word,
       baseValue: baseDefense,
       finalValue: finalDefense,
-      rank: deriveRankFromValue(baseDefense),
+      rank: isForbidden ? 'EX' : deriveRankFromValue(baseDefense),
+      isForbidden: isForbidden,
       defense: finalDefense,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
-      supportMessage: '被ダメージ軽減効果',
-      specialEffect: '【基本防御】入力単語からの標準防御',
-      judgeComment: 'フォールバック時の汎用防御カード。防護性能を重視した基本値として機能。'
+      supportMessage: isForbidden ? '制御不能な絶対防御' : '被ダメージ軽減効果',
+      specialEffect: isForbidden ? '【禁断の盾】物理法則を超えた防御' : '【基本防御】入力単語からの標準防御',
+      judgeComment: isForbidden ? 'Rank EX: 時空を歪める防御。使用には高リスクが伴う。' : 'フォールバック時の汎用防御カード。防護性能を重視した基本値として機能。'
     };
   } else {
     // Support
@@ -958,15 +1087,68 @@ function handleDefend(roomId, socket, word) {
         const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
         const affinity = getAffinityByElement(atkElem, defElem);
 
-        // 命中・クリティカル判定（ランク別リスク/リターン）
-        let hitLog = attackCard.hitLog || '';
-        const normalizedRank = String(attackCard.rank || attackCard.tier || 'C').toUpperCase();
-        const hitRateMap = { S: 0.6, A: 0.6, B: 0.8, C: 0.95, D: 1.0, E: 1.0 };
-        const critRateMap = { S: 0.1, A: 0.1, B: 0.1, C: 0.1, D: 0.3, E: 0.3 };
-        const hitRate = hitRateMap[normalizedRank] ?? hitRateMap.C;
-        const critRate = critRateMap[normalizedRank] ?? 0.1;
+        // ★【Rank EX特殊処理: 10%命中、90%自爆】
+        if (attackCard.isForbidden === true || attackCard.rank === 'EX') {
+          console.log('⚠️ Rank EX発動判定:', attackCard.word || attackCard.name);
+          const hitRoll = Math.random();
+          const didHit = hitRoll < 0.1; // 10%の確率で成功
+          
+          if (!didHit) {
+            // 90%の確率で自爆: 自分のHPが50%減る
+            const backlashDamage = Math.floor(attacker.hp * 0.5);
+            attacker.hp = Math.max(0, attacker.hp - backlashDamage);
+            attackCard.finalValue = 0;
+            attackCard.attack = 0;
+            attackCard.hitLog = '⚡ 禁断の力が暴走した！自らに反動ダメージ！';
+            attackCard.backlashDamage = backlashDamage;
+            console.log(`💥 Rank EX自爆: ${backlashDamage}ダメージ (${attacker.hp}HP残存)`);
+            
+            // 自爆で死亡した場合、相手の勝利
+            if (attacker.hp <= 0) {
+              const hp = {};
+              room.players.forEach(p => { hp[p.id] = p.hp; });
+              io.to(roomId).emit('turnResolved', {
+                attackerId: attacker.id,
+                defenderId: defender.id,
+                attackCard,
+                defenseCard: null,
+                damage: 0,
+                counterDamage: 0,
+                dotDamage: 0,
+                affinity: null,
+                hp,
+                defenseFailed: false,
+                appliedStatus: [],
+                fieldEffect: room.fieldEffect,
+                statusTick: {},
+                nextTurn: null,
+                winnerId: defender.id,
+                backlashDamage
+              });
+              updateStatus(roomId, `${defender.name} の勝利！（相手が自爆）`);
+              room.pendingAttack = null;
+              return;
+            }
+          } else {
+            // 10%の確率で成功: 999ダメージ確定
+            attackCard.finalValue = 999;
+            attackCard.attack = 999;
+            attackCard.hitLog = '🔥 禁断の力が発動！圧倒的破壊力！';
+            console.log('🔥 Rank EX命中: 999ダメージ確定');
+          }
+          
+          attackCard.hitRate = 0.1;
+          attackCard.critRate = 0;
+        }
+        // 命中・クリティカル判定（通常ランク）
+        else if (attackRole === 'attack') {
+          let hitLog = attackCard.hitLog || '';
+          const normalizedRank = String(attackCard.rank || attackCard.tier || 'C').toUpperCase();
+          const hitRateMap = { S: 0.6, A: 0.6, B: 0.8, C: 0.95, D: 1.0, E: 1.0 };
+          const critRateMap = { S: 0.1, A: 0.1, B: 0.1, C: 0.1, D: 0.3, E: 0.3 };
+          const hitRate = hitRateMap[normalizedRank] ?? hitRateMap.C;
+          const critRate = critRateMap[normalizedRank] ?? 0.1;
 
-        if (attackRole === 'attack') {
           const baseAttackVal = Number(attackCard.finalValue ?? attackCard.attack ?? 0);
           const hitRoll = Math.random();
           const didHit = hitRoll < hitRate;

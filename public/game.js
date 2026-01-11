@@ -1353,6 +1353,17 @@ function initSocket() {
     const isAttacker = attackerId === playerId;
     const isDefender = defenderId === playerId;
     
+    // ★【Rank EX警告表示】
+    if (card.isForbidden === true || card.rank === 'EX') {
+      const warningDiv = document.createElement('div');
+      warningDiv.className = 'floating-text damage';
+      warningDiv.style.cssText = 'color: #FF3333; font-size: 28px; font-weight: bold; text-shadow: 0 0 10px rgba(255,51,51,0.8); position: fixed; top: 30%; left: 50%; transform: translateX(-50%); z-index: 9999; animation: pulse 1s infinite;';
+      warningDiv.textContent = '⚠️ 禁断の力が発動しようとしています...';
+      document.body.appendChild(warningDiv);
+      setTimeout(() => warningDiv.remove(), 3000);
+      appendLog('⚠️ Rank EX発動: 成功率10%、失敗時は自爆ダメージ！', 'damage');
+    }
+    
     // ★【サポート判定時に攻撃値表示を制御】
     const isSupport = (card.role || '').toLowerCase() === 'support';
     
@@ -1382,7 +1393,7 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, statusTick, hp, players, nextTurn, winnerId, defenseFailed, affinity, effectsExpired }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, statusTick, hp, players, nextTurn, winnerId, defenseFailed, affinity, effectsExpired, backlashDamage }) => {
     // ★【超重要：finalValue 未定義ガード】サーバーからの数値チェック
     if (attackCard) {
       if (attackCard.finalValue === undefined || attackCard.finalValue === null) {
@@ -1402,6 +1413,24 @@ function initSocket() {
 
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
+
+    // ★【Rank EX自爆ダメージ表示】
+    if (backlashDamage && backlashDamage > 0) {
+      const backlashDiv = document.createElement('div');
+      backlashDiv.className = 'floating-text damage';
+      backlashDiv.style.cssText = 'color: #FF3333; font-size: 32px; font-weight: bold; text-shadow: 0 0 12px rgba(255,51,51,0.9); position: fixed; top: 40%; left: 50%; transform: translateX(-50%); z-index: 9999;';
+      backlashDiv.textContent = '💥 力が強すぎて暴走した！';
+      document.body.appendChild(backlashDiv);
+      setTimeout(() => backlashDiv.remove(), 3000);
+      
+      appendLog(`⚡ Rank EX暴走！ ${backlashDamage}の反動ダメージ！`, 'damage');
+      showDamageAnimation(attackerId === playerId ? 'my' : 'op', backlashDamage, null);
+    }
+    
+    // ★【Rank EX成功ログ】
+    if (attackCard && attackCard.hitLog && attackCard.hitLog.includes('禁断の力が発動')) {
+      appendLog('🔥 Rank EXが成功！999ダメージ確定！', 'damage');
+    }
 
     // ターン開始時の状態異常処理
     if (statusTick) {
