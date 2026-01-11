@@ -444,16 +444,43 @@ ${intentNote}`;
     });
     let responseText = result.response.text().trim();
     
-    // JSONマークダウン装飾を削除
+    // JSONマークダウン装飾を削除 + 強力クリーニング
     responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
-    // ★【JSON形式の厳密チェック】
-    if (!responseText.startsWith('{')) {
-      console.error('❌ JSON形式エラー: "{" で開始していません');
-      throw new Error('Invalid JSON format: response does not start with "{"');
+    let cleanText = responseText;
+    const firstBrace = cleanText.indexOf('{');
+    const lastBrace = cleanText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      cleanText = cleanText.substring(firstBrace, lastBrace + 1);
     }
     
-    const cardData = JSON.parse(responseText);
+    let cardData;
+    try {
+      cardData = JSON.parse(cleanText);
+    } catch (parseErr) {
+      console.error('❌ JSON.parse 失敗 (generateCard 強力洗浄後):', parseErr.message);
+      console.error('   ↳ Raw AI text:', responseText);
+      // 役割別の絶対安全フォールバック（returnせず続行）
+      if (role === 'support') {
+        cardData = {
+          cardName: '予備サポート',
+          rank: 'E',
+          element: 'light',
+          type: 'heal',
+          flavorText: 'AI失敗時の緊急処置',
+          logic: { target: 'player', actionType: 'heal', value: 30, duration: 0 }
+        };
+      } else {
+        cardData = {
+          cardName: 'エラー修復カード',
+          rank: 'E',
+          element: 'physics',
+          type: 'attack',
+          power: 10,
+          flavorText: 'データの乱れを修正し、物理で殴ることにした。',
+          logic: { target: 'enemy', actionType: 'attack' }
+        };
+      }
+    }
 
     const role = (cardData.role || 'attack').toLowerCase();
     
