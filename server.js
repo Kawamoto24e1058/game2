@@ -60,6 +60,17 @@ function getAffinity(attackerAttr, defenderAttr) {
   return { multiplier: 1.0, relation: 'neutral', isEffective: false };
 }
 
+// ランク推定（Sが最上位）
+function deriveRankFromValue(val) {
+  const score = Number(val) || 0;
+  if (score >= 96) return 'S';
+  if (score >= 86) return 'A';
+  if (score >= 61) return 'B';
+  if (score >= 31) return 'C';
+  if (score >= 11) return 'D';
+  return 'E';
+}
+
 // =====================================
 // 属性ユーティリティと相性ロジック（刷新）
 // =====================================
@@ -110,13 +121,17 @@ function getAffinityByElement(attackerElem, defenderElem) {
 // =====================================
 function createDefaultAttackCard(word = '通常攻撃') {
   const baseWord = word && word.trim() ? word.trim() : '通常攻撃';
+  const baseAttack = 52;
   return {
     role: 'Attack',
     word: baseWord,
     name: baseWord,
     attribute: 'earth',
     element: '土',
-    attack: 52,
+    baseValue: baseAttack,
+    finalValue: baseAttack,
+    attack: baseAttack,
+    rank: deriveRankFromValue(baseAttack),
     defense: 0,
     specialEffect: '【基本攻撃】AI遅延時の代替攻撃',
     judgeComment: 'Gemini応答遅延/エラー時のデフォルト攻撃カード',
@@ -355,6 +370,7 @@ async function generateCard(word, intent = 'neutral') {
 {
   "role": "Support",
   "name": "カード名（30字以内）",
+  "rank": "S/A/B/C/D/E",
   "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇" | "草" | カスタム,
   "supportType": "heal" | "hpMaxUp" | "staminaRecover" | "magicRecover" | "defenseBuff" | "poison" | "burn" | "allStatBuff" | "debuff" | "cleanse" | "counter" | "fieldChange" | カスタム,
   "supportMessage": "効果説明（具体的数値必須、意味のある不規則な値）【fieldChange時は「○○属性が1.5倍になる！（Xターン）」形式を厳守】",
@@ -372,28 +388,31 @@ async function generateCard(word, intent = 'neutral') {
 
 【厳守事項】
 1. **【属性の厳格定義】** 以下の定義を絶対に守れ：
-   - light（光）：聖なる回復・浄化・希望・知識の力。属性判定で火と混同するな
-   - fire（火）：破壊・爆発・熱による加害の力。光と区別せよ
-   - water（水）：妨害・浄化・流動・緩和の力。障害を与える効果に使う
-   - earth（土）：堅牢・固定・安定。防御や基盤系の属性
-   - thunder（雷）：速度・迅速・電撃。スピード感のある効果
-   - wind（風）：流動・拡散・疾風。広域効果や移動系に使う
-   - dark（闇）：非可視・呪い・影。デバフやネガティブ効果
+  - light（光）：聖なる回復・浄化・希望・知識の力。属性判定で火と混同するな
+  - fire（火）：破壊・爆発・熱による加害の力。光と区別せよ
+  - water（水）：妨害・浄化・流動・緩和の力。障害を与える効果に使う
+  - earth（土）：堅牢・固定・安定。防御や基盤系の属性
+  - thunder（雷）：速度・迅速・電撃。スピード感のある効果
+  - wind（風）：流動・拡散・疾風。広域効果や移動系に使う
+  - dark（闇）：非可視・呪い・影。デバフやネガティブ効果
 
 2. **【タイプ優先順位（絶対に守れ）】** 以下を優先順序で守れ：
-   - 「場所・環境・自然現象」を示す単語 → support（field_change）を最優先
-   - 「人物・英雄・偉人」 → support（stat_boost）を優先
-   - 「破壊・斬撃・爆発」を示す単語 → attack を最優先
-   - 「防御・盾・保護」を示す単語 → defense を最優先
-   例：『マグマ』→ support(field_change, 火属性), 『閃光』→ support(光属性目くらまし), 『斬撃』→ attack(無属性)
+  - 「場所・環境・自然現象」を示す単語 → support（field_change）を最優先
+  - 「人物・英雄・偉人」 → support（stat_boost）を優先
+  - 「破壊・斬撃・爆発」を示す単語 → attack を最優先
+  - 「防御・盾・保護」を示す単語 → defense を最優先
+  例：『マグマ』→ support(field_change, 火属性), 『閃光』→ support(光属性目くらまし), 『斬撃』→ attack(無属性)
 
-3. **【baseValue のダイナミック決定】言葉の規模感に応じて 5～100 で変動させよ：**
-   - 小規模（軽い、小さい、微妙）：10～30
-   - 中規模（標準的、普通、通常）：35～65
-   - 大規模（強い、大きい、激しい）：70～90
-   - 超弩級（終極、究極、無限、絶対）：95～100
-   例：「そよ風」→ 15, 「台風」→ 75, 「微かな灯火」→ 12, 「太陽」→ 95
-   **【超重要】0.01単位の小数点まで含めて査定せよ。例：attack: 23.47, defense: 54.89**
+3. **【ランク制（Tier System）で baseValue を必ず決定せよ】**
+  - ランクS (神話/超越): 96〜100 例: 創世、神話存在、世界級の力
+  - ランクA (伝説/最強): 86〜95  例: 核兵器、エクスカリバー、神の裁き
+  - ランクB (強力/強): 61〜85  例: ミサイル、勇者の剣、ドラゴン
+  - ランクC (実用/中): 31〜60  例: 鉄の剣、炎の魔法、ライフル
+  - ランクD (一般/弱): 11〜30  例: ナイフ、こん棒、練習用の剣
+  - ランクE (ゴミ/最弱): 1〜10  例: 木の棒、小石、雑草、空き缶
+  **【最重要】ランクEがランクDを超える数値になることは絶対に禁止。格（スケール）を厳守せよ。**
+  **【超重要】0.01単位の小数点まで含めて査定せよ（例: attack: 23.47）。**
+  - 出力JSONに rank フィールドを必ず含め、S/A/B/C/D/E のいずれかを設定せよ（tier を併記してもよい）。
 
 4. 数値は言葉の意味から導出し、10の倍数や5の倍数は原則禁止
 5. specialEffect は既存のテンプレートをコピーせず、言葉の本質から創造
@@ -478,17 +497,20 @@ ${intentNote}`;
 
     // ★【finalValue 動的計算】AI の baseValue に対して変動値を適用
     // 【言葉の規模感に応じた動的 baseValue】：AI が 5～100 の範囲で設定した値を活かす
-    // ★【finalValue 動的計算】AI の baseValue に対して複合ランダム化を適用
+    // ★【finalValue 計算】AI の baseValue に対して加算型の微小誤差を適用（ランクの壁を越えにくくする）
     // 【言葉の規模感に応じた動的 baseValue】：AI が 5～100 の範囲で設定した値を活かす（小数点含む）
     let baseValue = role === 'attack' ? Math.max(5, Math.min(100, parseFloat(cardData.attack) || 50)) : role === 'defense' ? Math.max(5, Math.min(100, parseFloat(cardData.defense) || 50)) : 50;
     
-    // ★【複合ランダム化】毎回異なる値を絶対に保証
-    const jitter = 0.8 + (Math.random() * 0.4); // 0.8 ～ 1.2のランダムな倍率
-    const timeSeed = (Date.now() % 10) / 100; // ミリ秒単位の時間をわずかに加算（隠し味）
-    let finalValue = Math.floor(baseValue * jitter + timeSeed);
-    
-    // 最小値保証
-    finalValue = Math.max(5, Math.min(100, finalValue));
+    // ★【加算型ばらつき】倍率ではなく加算式に変更（-3〜+3）
+    const variance = Math.floor(Math.random() * 6) - 3; // -3 ～ +3
+    let finalValue = Math.floor(baseValue + variance);
+    if (finalValue < 1) finalValue = 1;
+    if (finalValue > 100) finalValue = 100;
+
+    // ★ ランク決定（AIが返したrank/tierがあれば優先、無ければbaseValueから判定）
+    const aiRank = (cardData.rank || cardData.tier || deriveRankFromValue(baseValue)).toString().toUpperCase();
+    const cardName = original || cardData.name || cardData.word || 'unknown';
+    console.log(`カード: ${cardName} -> ランク判定: ${aiRank} -> 基準値: ${baseValue} -> 最終値: ${finalValue}`);
     
     let attack = role === 'attack' ? finalValue : 0;
     let defense = role === 'defense' ? finalValue : 0;
@@ -515,6 +537,7 @@ ${intentNote}`;
       const mapped = mapElementToAttribute(elementJP);
       attribute = (mapped || 'earth').toLowerCase();
     }
+    console.log('【属性確認】', cardName, ':', elementJP || attribute);
     const specialEffect = cardData.specialEffect || '【基本効果】標準的な効果';
     const judgeComment = cardData.judgeComment || '判定コメントなし';
     
@@ -533,6 +556,7 @@ ${intentNote}`;
       defense,
       baseValue,
       finalValue,
+      rank: aiRank,
       effect: role,
       tier: attack >= 70 || defense >= 70 ? 'mythical' : attack >= 40 || defense >= 40 ? 'weapon' : 'common',
       supportType,
@@ -582,9 +606,10 @@ function generateCardFallback(word) {
   if (role === 'attack') {
     // ★【デフォルト値の動的化】71固定を解消
     const baseAttack = 30 + Math.floor(Math.random() * 40); // 30～70のランダム基準値
-    const jitter = 0.8 + (Math.random() * 0.4);
-    const timeSeed = (Date.now() % 10) / 100;
-    const finalAttack = Math.max(5, Math.min(100, Math.floor(baseAttack * jitter + timeSeed)));
+    const variance = Math.floor(Math.random() * 6) - 3; // -3 ～ +3
+    let finalAttack = baseAttack + variance;
+    if (finalAttack < 1) finalAttack = 1;
+    if (finalAttack > 100) finalAttack = 100;
     
     return {
       role: 'Attack',
@@ -592,6 +617,7 @@ function generateCardFallback(word) {
       name: word,
       baseValue: baseAttack,
       finalValue: finalAttack,
+      rank: deriveRankFromValue(baseAttack),
       attack: finalAttack,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
@@ -601,9 +627,10 @@ function generateCardFallback(word) {
   } else if (role === 'defense') {
     // ★【デフォルト値の動的化】67固定を解消
     const baseDefense = 25 + Math.floor(Math.random() * 40); // 25～65のランダム基準値
-    const jitter = 0.8 + (Math.random() * 0.4);
-    const timeSeed = (Date.now() % 10) / 100;
-    const finalDefense = Math.max(5, Math.min(100, Math.floor(baseDefense * jitter + timeSeed)));
+    const variance = Math.floor(Math.random() * 6) - 3; // -3 ～ +3
+    let finalDefense = baseDefense + variance;
+    if (finalDefense < 1) finalDefense = 1;
+    if (finalDefense > 100) finalDefense = 100;
     
     return {
       role: 'Defense',
@@ -611,6 +638,7 @@ function generateCardFallback(word) {
       name: word,
       baseValue: baseDefense,
       finalValue: finalDefense,
+      rank: deriveRankFromValue(baseDefense),
       defense: finalDefense,
       attribute,
       element: (attr => ({ fire:'火', water:'水', wind:'風', earth:'土', thunder:'雷', light:'光', dark:'闇' }[attr] || '土'))(attribute),
@@ -726,9 +754,10 @@ function generateCardFallback(word) {
     
     // ★【Support の baseValue/finalValue も動的化】
     const baseValue = 30 + Math.floor(Math.random() * 30); // 30～60
-    const jitter = 0.8 + (Math.random() * 0.4);
-    const timeSeed = (Date.now() % 10) / 100;
-    const finalValue = Math.max(5, Math.min(100, Math.floor(baseValue * jitter + timeSeed)));
+    const variance = Math.floor(Math.random() * 6) - 3; // -3 ～ +3
+    let finalValue = baseValue + variance;
+    if (finalValue < 1) finalValue = 1;
+    if (finalValue > 100) finalValue = 100;
     
     return {
       role: 'Support',
@@ -742,6 +771,7 @@ function generateCardFallback(word) {
       judgeComment: 'フォールバック時のサポートカード。supportType自動判定から生成。',
       baseValue,
       finalValue,
+      rank: deriveRankFromValue(baseValue),
       // ★【常に含める】fieldEffect 関連フィールドは undefined でなく、常にデフォルト値を含める
       fieldEffect: supportType === 'fieldChange' ? fieldEffect : '',
       fieldMultiplier: supportType === 'fieldChange' ? fieldMultiplier : 1.0,
@@ -1234,6 +1264,45 @@ function handleDefend(roomId, socket, word) {
     const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
     const affinity = getAffinityByElement(atkElem, defElem);
 
+    // 命中・クリティカル判定（ランク別リスク/リターン）
+    let hitLog = attackCard.hitLog || '';
+    const normalizedRank = String(attackCard.rank || attackCard.tier || 'C').toUpperCase();
+    const hitRateMap = { S: 0.6, A: 0.6, B: 0.8, C: 0.95, D: 1.0, E: 1.0 };
+    const critRateMap = { S: 0.1, A: 0.1, B: 0.1, C: 0.1, D: 0.3, E: 0.3 };
+    const hitRate = hitRateMap[normalizedRank] ?? hitRateMap.C;
+    const critRate = critRateMap[normalizedRank] ?? 0.1;
+
+    if (attackRole === 'attack') {
+      const baseAttackVal = Number(attackCard.finalValue ?? attackCard.attack ?? 0);
+      const hitRoll = Math.random();
+      const didHit = hitRoll < hitRate;
+
+      if (!didHit) {
+        attackCard.finalValue = 0;
+        attackCard.attack = 0;
+        hitLog = 'ミス！攻撃が当たらなかった！';
+      } else {
+        const critRoll = Math.random();
+        const isCrit = critRoll < critRate;
+        if (isCrit) {
+          const boosted = Math.round(baseAttackVal * 1.5);
+          const clamped = Math.min(100, Math.max(0, boosted));
+          attackCard.finalValue = clamped;
+          attackCard.attack = clamped;
+          hitLog = 'クリティカルヒット！';
+        } else {
+          attackCard.finalValue = baseAttackVal;
+          attackCard.attack = baseAttackVal;
+          hitLog = 'ヒット';
+        }
+      }
+
+      attackCard.hitRate = hitRate;
+      attackCard.critRate = critRate;
+      attackCard.hitLog = hitLog;
+      console.log('🎯 命中判定', { rank: normalizedRank, hitRate, critRate, hitRoll, hitLog, finalValue: attackCard.finalValue });
+    }
+
     // === Attack vs Defense 標準バトル ===
     if (attackRole === 'attack' && defenseRole === 'defense') {
       console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
@@ -1375,7 +1444,8 @@ function handleDefend(roomId, socket, word) {
       fieldEffect: room.fieldEffect,
       nextTurn: winnerId ? null : room.players[room.turnIndex].id,
       winnerId,
-      effectsExpired
+      effectsExpired,
+      hitLog: attackCard.hitLog || hitLog || ''
     });
 
     console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex].id, appliedStatus });
@@ -1433,7 +1503,8 @@ function handleDefend(roomId, socket, word) {
         statusTick: tickStatusEffects(room),
         fieldEffect: room.fieldEffect,
         nextTurn: room.players[room.turnIndex].id,
-        winnerId: null
+        winnerId: null,
+        hitLog: ''
       });
 
       // 【完全同期】フォールバック時もターン交代と turnUpdate を emit
