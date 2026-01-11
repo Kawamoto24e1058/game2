@@ -1,5 +1,3 @@
-const SOCKET_URL = 'https://create-cards.onrender.com';
-
 let socket = null;
 let playerId = null;
 let playerName = '';
@@ -1310,9 +1308,7 @@ function initSocket() {
       }
       return '';
     }
-  socket = io(SOCKET_URL, {
-    transports: ['websocket'],
-  });
+  socket = io();
   socket.on('connect', () => {
     console.log('connected', socket.id);
   });
