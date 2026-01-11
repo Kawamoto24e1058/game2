@@ -40,48 +40,78 @@ async function generateCardWithTimeout(original, role, fallback, timeout = 8000)
   }
 }
 
-// Gemini APIによるカード生成（Rank EX対応）
+// ★【AI創作呪文】Gemini APIによる高度なカード生成
 async function generateCard(original, role = 'attack') {
   const intentNote = role === 'attack' ? '攻撃カードを生成せよ。' : role === 'defense' ? '防御カードを生成せよ。' : 'サポートカードを生成せよ。';
   
-  const prompt = `あなたは言葉をバトルカードに変換するAIです。ユーザーが入力した言葉「${original}」から、以下のJSON形式でカードを生成してください。
+  const prompt = `【あなたの役割】
+あなたはベテランのファンタジーRPGゲームデザイナーです。
+入力された言葉の「概念」「物理法則」「ロマン」を解釈し、ゲームデータに変換してください。
 
-【Rank EX（規格外）の判定】
-「ブラックホール」「無限」「神」「宇宙創造」「時間停止」「全知全能」など、物理法則を超越し制御不能な概念的な言葉の場合:
-- rank: "EX"
-- baseValue: 999
-- isForbidden: true （★必須★ このフラグを必ず含めること）
+【思考プロセス】
+1. 「ブラックホール」なら → 威力999だが、cost=100（最大）、hitRate=10（ほぼ当たらない）、属性void（虚無）、type=physics
+2. 「ただのパンチ」なら → 威力10、cost=0、hitRate=100、属性physics（物理）
+3. 「愛」なら → 威力0、type=heal（回復）、属性light
+4. 言葉が持つ「代償」を必ず考慮せよ。タダで最強の力は手に入らない。
 
-【通常のランク制（Tier System）】
-- ランクS (神話/超越): 96〜100 例: 創世、世界級の力
-- ランクA (伝説/最強): 86〜95  例: 核兵器、神の裁き
-- ランクB (強力/強): 61〜85  例: ミサイル、ドラゴン
-- ランクC (実用/中): 31〜60  例: 鉄の剣、ライフル
-- ランクD (一般/弱): 11〜30  例: ナイフ、練習用の剣
-- ランクE (ゴミ/最弱): 1〜10  例: 木の棒、小石
+【入力された言葉】
+"${original}"
 
 【JSON出力フォーマット】
 {
-  "role": "Attack" | "Defense" | "Support",
-  "name": "カード名",
+  "cardName": "入力された名前",
   "rank": "EX" | "S" | "A" | "B" | "C" | "D" | "E",
+  "element": "fire" | "water" | "wind" | "earth" | "light" | "dark" | "void" | "physics",
+  "type": "attack" | "magic" | "heal" | "buff" | "summon" | "enchant" | "defense" | "support",
+  "power": 0〜999,
+  "cost": 0〜100,
+  "hitRate": 0〜100,
+  "flavorText": "20文字以内のカッコいい説明文",
   "isForbidden": true | false,
-  "attack": 数値（Attack時）,
-  "defense": 数値（Defense時）,
-  "element": "火" | "水" | "風" | "土" | "雷" | "光" | "闇",
-  "attribute": "fire" | "water" | "wind" | "earth" | "thunder" | "light" | "dark",
-  "specialEffect": "効果説明",
-  "judgeComment": "言葉の背景分析"
+  "role": "Attack" | "Defense" | "Support"
 }
 
-${intentNote}
-JSON以外の文字は出力しないでください。`;
+【ランク基準】
+- EX（規格外）: ブラックホール、無限、神、宇宙創造など物理法則超越（power=999, isForbidden=true, cost=100, hitRate=10）
+- S（神話/超越）: 96〜100 例: 創世の光、竜王の咆哮
+- A（伝説/最強）: 86〜95 例: 核爆発、隕石落下
+- B（強力/強）: 61〜85 例: ミサイル、ドラゴンの炎
+- C（実用/中）: 31〜60 例: 鉄の剣、雷撃魔法
+- D（一般/弱）: 11〜30 例: 石投げ、小さな火球
+- E（ゴミ/最弱）: 1〜10 例: 木の棒、弱い風
+
+【属性ガイド】
+- fire: 炎、爆発、熱
+- water: 水、氷、流動
+- wind: 風、竜巻、気流
+- earth: 土、岩、重力
+- light: 光、聖、回復
+- dark: 闇、呪い、毒
+- void: 虚無、消滅、時空歪曲
+- physics: 物理攻撃、打撃、切断
+
+【typeガイド】
+- attack: 物理攻撃
+- magic: 魔法攻撃
+- heal: 回復
+- buff: 強化
+- summon: 召喚
+- enchant: 付与
+- defense: 防御
+- support: サポート
+
+【重要】
+- powerが高いほど、costとhitRateにペナルティを課すこと
+- flavorTextは必ず20文字以内で、その技の本質を表現すること
+- JSON以外の文字は一切出力しないこと
+
+${intentNote}`;
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+      generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
     });
     
     let responseText = result.response.text().trim();
@@ -92,51 +122,87 @@ JSON以外の文字は出力しないでください。`;
     }
     
     const cardData = JSON.parse(responseText);
-    const cardRole = (cardData.role || 'attack').toLowerCase();
     
-    let baseValue = cardRole === 'attack' ? Math.max(5, Math.min(999, parseFloat(cardData.attack) || 50)) : cardRole === 'defense' ? Math.max(5, Math.min(999, parseFloat(cardData.defense) || 50)) : 50;
+    // ★【AI創作呪文パラメータ受け取り】
+    const cardName = cardData.cardName || original;
+    const rank = (cardData.rank || 'C').toString().toUpperCase();
+    const element = cardData.element || 'earth';
+    const type = cardData.type || 'attack';
+    const power = Math.max(0, Math.min(999, parseInt(cardData.power) || 50));
+    const cost = Math.max(0, Math.min(100, parseInt(cardData.cost) || 0));
+    const hitRate = Math.max(0, Math.min(100, parseInt(cardData.hitRate) || 95));
+    const flavorText = cardData.flavorText || '【呪文】未知の力';
+    const isForbidden = cardData.isForbidden === true || rank === 'EX';
     
-    // ★【Rank EX対応】isForbidden判定
-    const isForbidden = cardData.isForbidden === true || cardData.rank === 'EX';
-    if (isForbidden) {
-      baseValue = 999;
-      console.log(`⚠️ Rank EX検出: ${original} → baseValue=999, isForbidden=true`);
+    console.log(`🎴 AI創作カード生成: ${cardName} | Rank ${rank} | Power ${power} | Cost ${cost} | Hit ${hitRate}%`);
+    console.log(`   → Element: ${element}, Type: ${type}, Flavor: ${flavorText}`);
+    
+    // ★【代償システム: costによる命中率補正】
+    // cost が高いほど、命中率を下げる（リスク = 報酬）
+    let adjustedHitRate = hitRate;
+    if (cost > 50) {
+      const penalty = Math.floor((cost - 50) * 0.5); // cost 51-100 → 0-25% ペナルティ
+      adjustedHitRate = Math.max(10, hitRate - penalty);
+      console.log(`   ⚠️ 高コスト補正: Hit ${hitRate}% → ${adjustedHitRate}% (cost ${cost})`);
     }
     
-    const variance = isForbidden ? 0 : (Math.floor(Math.random() * 6) - 3);
-    let finalValue = Math.floor(baseValue + variance);
-    if (finalValue < 1) finalValue = 1;
-    if (finalValue > 999) finalValue = 999;
+    // ★【Rank EX特殊処理】
+    let finalPower = power;
+    if (isForbidden || rank === 'EX') {
+      finalPower = 999;
+      console.log(`   ⚠️ Rank EX検出: ${original} → power=999, cost=100, hitRate=${adjustedHitRate}%`);
+    }
+    
+    // ランダム補正（±3）
+    const variance = isForbidden ? 0 : (Math.floor(Math.random() * 7) - 3);
+    let finalValue = Math.max(1, Math.min(999, finalPower + variance));
     
     if (!Number.isFinite(finalValue)) finalValue = 50;
-    if (!Number.isFinite(baseValue)) baseValue = 50;
     
-    const aiRank = (cardData.rank || deriveRankFromValue(baseValue)).toString().toUpperCase();
-    const cardName = original || cardData.name || 'unknown';
+    // 役割判定（後方互換性のため）
+    const cardRole = (cardData.role || type).toLowerCase();
+    const isAttack = cardRole.includes('attack') || type === 'attack' || type === 'magic' || type === 'summon';
+    const isDefense = cardRole.includes('defense') || type === 'defense';
+    const isSupport = cardRole.includes('support') || type === 'heal' || type === 'buff' || type === 'enchant';
     
-    let attack = cardRole === 'attack' ? finalValue : 0;
-    let defense = cardRole === 'defense' ? finalValue : 0;
+    let attack = isAttack ? finalValue : 0;
+    let defense = isDefense ? finalValue : 0;
     
-    const attribute = (cardData.attribute || 'earth').toLowerCase();
-    const specialEffect = cardData.specialEffect || '【基本効果】標準的な効果';
-    const judgeComment = cardData.judgeComment || '判定コメントなし';
+    // 属性マッピング（日本語変換）
+    const elementMap = {
+      fire: '火', water: '水', wind: '風', earth: '土', 
+      light: '光', dark: '闇', thunder: '雷',
+      void: '虚無', physics: '物理'
+    };
+    const elementJP = elementMap[element] || '土';
+    
+    // attributeフィールド（旧システム互換性）
+    const legacyAttribute = element === 'void' ? 'dark' : element === 'physics' ? 'earth' : element;
     
     return {
       word: original,
-      attribute,
-      element: cardData.element || undefined,
+      name: cardName,
+      attribute: legacyAttribute,
+      element: elementJP,
       attack,
       defense,
-      baseValue,
+      baseValue: finalPower,
       finalValue,
-      rank: aiRank,
-      isForbidden: isForbidden,
-      effect: cardRole,
-      tier: attack >= 70 || defense >= 70 ? 'mythical' : attack >= 40 || defense >= 40 ? 'weapon' : 'common',
-      specialEffect,
-      judgeComment,
-      role: cardRole,
-      description: `${attribute.toUpperCase()} [${cardRole.toUpperCase()}] ATK:${attack} DEF:${defense} / ${specialEffect}`
+      rank,
+      isForbidden,
+      // ★【新パラメータ】
+      cardType: type,
+      power: finalPower,
+      cost,
+      hitRate: adjustedHitRate,
+      flavorText,
+      // 旧システム互換
+      effect: isSupport ? 'support' : isAttack ? 'attack' : 'defense',
+      role: isSupport ? 'support' : isAttack ? 'attack' : 'defense',
+      tier: finalValue >= 70 ? 'mythical' : finalValue >= 40 ? 'weapon' : 'common',
+      specialEffect: flavorText,
+      judgeComment: `AI解析: ${type}タイプ、${elementJP}属性、cost=${cost}`,
+      description: `${elementJP} [${type}] Power:${finalValue} Cost:${cost} Hit:${adjustedHitRate}% / ${flavorText}`
     };
   } catch (error) {
     console.error('❌ Gemini API エラー:', error);
@@ -1140,14 +1206,23 @@ function handleDefend(roomId, socket, word) {
           attackCard.hitRate = 0.1;
           attackCard.critRate = 0;
         }
-        // 命中・クリティカル判定（通常ランク）
+        // ★【AI創作呪文: hitRateによる命中判定】
         else if (attackRole === 'attack') {
           let hitLog = attackCard.hitLog || '';
+          
+          // ★【AI指定のhitRateを優先使用】
+          const aiHitRate = attackCard.hitRate;
           const normalizedRank = String(attackCard.rank || attackCard.tier || 'C').toUpperCase();
+          
+          // デフォルト命中率（ランクベース）
           const hitRateMap = { S: 0.6, A: 0.6, B: 0.8, C: 0.95, D: 1.0, E: 1.0 };
           const critRateMap = { S: 0.1, A: 0.1, B: 0.1, C: 0.1, D: 0.3, E: 0.3 };
-          const hitRate = hitRateMap[normalizedRank] ?? hitRateMap.C;
+          
+          // ★【AI創作呪文: hitRateがあればそれを使用、なければランクベース】
+          let hitRate = aiHitRate !== undefined ? (aiHitRate / 100) : (hitRateMap[normalizedRank] ?? hitRateMap.C);
           const critRate = critRateMap[normalizedRank] ?? 0.1;
+          
+          console.log(`🎯 命中判定: Rank ${normalizedRank}, AI hitRate=${aiHitRate}%, 最終=${Math.floor(hitRate * 100)}%`);
 
           const baseAttackVal = Number(attackCard.finalValue ?? attackCard.attack ?? 0);
           const hitRoll = Math.random();

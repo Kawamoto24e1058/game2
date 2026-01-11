@@ -219,7 +219,9 @@ function showCutin(card, duration = 2500, extraComment = '') {
       '土': 'linear-gradient(135deg, rgba(121,85,72,0.35), rgba(158,118,104,0.35))',
       '風': 'linear-gradient(135deg, rgba(0,150,136,0.35), rgba(0,188,212,0.35))',
       '光': 'linear-gradient(135deg, rgba(255,215,0,0.35), rgba(255,255,255,0.35))',
-      '闇': 'linear-gradient(135deg, rgba(63,81,181,0.35), rgba(103,58,183,0.35))'
+      '闇': 'linear-gradient(135deg, rgba(63,81,181,0.35), rgba(103,58,183,0.35))',
+      '虚無': 'linear-gradient(135deg, rgba(138,43,226,0.35), rgba(75,0,130,0.35))',
+      '物理': 'linear-gradient(135deg, rgba(96,125,139,0.35), rgba(120,144,156,0.35))'
     };
     const elementIconMap = {
       '火': '🔥',
@@ -229,7 +231,9 @@ function showCutin(card, duration = 2500, extraComment = '') {
       '土': '🪨',
       '風': '🍃',
       '光': '✨',
-      '闇': '🌑'
+      '闇': '🌑',
+      '虚無': '⚫',
+      '物理': '⚔️'
     };
     const defaultGradient = 'linear-gradient(135deg, rgba(100, 150, 255, 0.25), rgba(200, 100, 255, 0.25))';
     const bgGradient = elementDisplayJP ? (elementColorMap[elementDisplayJP] || defaultGradient) : defaultGradient;
@@ -316,19 +320,27 @@ function showCutin(card, duration = 2500, extraComment = '') {
     const elementDisplay = elementJP ? `${elementJP}` : attribute;
     cutinTier.textContent = `${elementDisplay}${tierDisplay} ${roleDisplay}`;
 
-    // 特殊効果を表示（supportMessage が存在する場合は併記）
-    let specialInfo = card.specialEffect || 'なし';
+    // ★【AI創作呪文: flavorText優先表示】
+    let specialInfo = card.flavorText || card.specialEffect || 'なし';
     if (card.supportMessage) {
-      const safeSpecial = card.specialEffect || '効果';
+      const safeSpecial = card.flavorText || card.specialEffect || '効果';
       const safeSupport = card.supportMessage || '効果発動';
       specialInfo = `${safeSpecial}\n→ ${safeSupport}`;
     }
     cutinSpecial.textContent = `特殊効果: ${specialInfo}`;
 
-    // コメント（審判コメント + 追加コメント）
-    const comments = [card.judgeComment || '判定コメントなし'];
-    if (extraComment) comments.push(extraComment);
-    cutinComment.textContent = comments.join(' / ');
+    // ★【AI創作呪文: cost/hitRate表示】
+    const comments = [];
+    if (card.cost !== undefined && card.hitRate !== undefined) {
+      comments.push(`Cost:${card.cost} Hit:${card.hitRate}%`);
+    }
+    if (card.judgeComment) {
+      comments.push(card.judgeComment);
+    }
+    if (extraComment) {
+      comments.push(extraComment);
+    }
+    cutinComment.textContent = comments.join(' / ') || '判定コメントなし';
 
     cutinModal.classList.remove('hidden');
 
@@ -1380,7 +1392,14 @@ function initSocket() {
     const attr = (card.element || (card.attribute || '')?.toUpperCase());
     const labelText = statLabel ? ` ${statLabel}` : '';
     const safeWord = card.word || (isSupport ? 'サポート' : '攻撃カード');
-    appendLog(`${isAttacker ? 'あなた' : '相手'}の${isSupport ? 'サポート' : '攻撃'}: ${safeWord} (${attr})${labelText}`, isSupport ? 'buff' : 'damage');
+    
+    // ★【AI創作呪文: flavorText表示】
+    let logMessage = `${isAttacker ? 'あなた' : '相手'}の${isSupport ? 'サポート' : '攻撃'}: ${safeWord} (${attr})${labelText}`;
+    if (card.flavorText) {
+      logMessage += ` "【${card.flavorText}】"`;
+    }
+    appendLog(logMessage, isSupport ? 'buff' : 'damage');
+    
     if (!isSupport) flashAttackEffect();
     toggleInputs(false);
     
