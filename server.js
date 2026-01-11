@@ -12,6 +12,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
+// ★【環境変数を優先】Render、Heroku、Vercel対応
+const PORT = process.env.PORT || 3000;
+
 const API_KEY = process.env.GEMINI_API_KEY || 'YOUR_API_KEY_HERE';
 const genAI = new GoogleGenerativeAI(API_KEY);
 
@@ -2369,6 +2372,7 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+// ★【Render対応：環境変数を優先、グレースフルシャットダウン対応】
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
