@@ -57,20 +57,31 @@ async function getBestModel() {
       return activeModelName;
     }
     
-    // 最新モデルを優先（1.5-flash > 1.5-pro > pro の順）
-    const preferredOrder = ['1.5-flash', '1.5-pro', 'pro'];
-    for (const keyword of preferredOrder) {
-      const found = availableModels.find(m => m.name.includes(keyword));
-      if (found) {
-        activeModelName = found.name;
-        console.log(`✅ 自動選択されたモデル: ${activeModelName}`);
-        return activeModelName;
-      }
+    // 【優先順位】無料枠制限が緩い Flash モデルを優先
+    // 1. 最優先: "flash" かつ "1.5" を含むモデル（例：gemini-1.5-flash-001）
+    const flashWithVersion = availableModels.find(m => 
+      m.name.toLowerCase().includes('flash') && 
+      m.name.includes('1.5')
+    );
+    if (flashWithVersion) {
+      activeModelName = flashWithVersion.name;
+      console.log(`✅ 優先選択（Flash 1.5）: ${activeModelName}`);
+      return activeModelName;
     }
     
-    // フォールバック: 最初のモデル
+    // 2. 次点: "flash" を含むその他のモデル
+    const anyFlash = availableModels.find(m => 
+      m.name.toLowerCase().includes('flash')
+    );
+    if (anyFlash) {
+      activeModelName = anyFlash.name;
+      console.log(`✅ 優先選択（Flash）: ${activeModelName}`);
+      return activeModelName;
+    }
+    
+    // 3. 予備: リストの最初のモデル
     activeModelName = availableModels[0].name;
-    console.log(`✅ 自動選択されたモデル: ${activeModelName}`);
+    console.log(`✅ 自動選択されたモデル（フォールバック）: ${activeModelName}`);
     return activeModelName;
     
   } catch (error) {
