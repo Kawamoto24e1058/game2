@@ -1348,6 +1348,18 @@ function initSocket() {
     updateSupportCounter();
     const myTurn = currentTurn === playerId;
     updateTurnIndicator(myTurn);
+    
+    // ★【ステータス更新】プレイヤー名とHP/MP表示を初期化
+    if (me && op) {
+      document.getElementById('my-name').textContent = me.name || 'Player';
+      document.getElementById('rival-name').textContent = op.name || 'Rival';
+      myHp = me.hp;
+      opponentHp = op.hp;
+      myMp = 50;
+      opMp = 50;
+      updateStatusPanel();
+    }
+    
     toggleInputs(myTurn);
     const wins = getWinCount();
     setStatus(myTurn ? 'あなたのターン、攻撃の言葉を入力してください' : '相手のターンを待っています');
@@ -1356,6 +1368,30 @@ function initSocket() {
       appendLog(`あなたの通算勝利数: ${wins}`, 'info');
     }
   });
+
+  // ★【新規：ステータス更新イベントリスナー】
+  socket.on('statusUpdate', ({ players }) => {
+    if (!players) return;
+    const me = players.find(p => p.id === playerId);
+    const op = players.find(p => p.id !== playerId);
+    if (me) {
+      myHp = me.hp;
+      myMp = me.mp || 50;
+    }
+    if (op) {
+      opponentHp = op.hp;
+      opMp = op.mp || 50;
+    }
+    updateStatusPanel();
+  });
+
+  // ★【ステータスパネル更新関数】
+  function updateStatusPanel() {
+    document.getElementById('my-hp').textContent = Math.max(0, myHp);
+    document.getElementById('my-mp').textContent = Math.max(0, myMp);
+    document.getElementById('rival-hp').textContent = Math.max(0, opponentHp);
+    document.getElementById('rival-mp').textContent = Math.max(0, opMp);
+  }
 
   socket.on('attackDeclared', async ({ attackerId, defenderId, card }) => {
     const isAttacker = attackerId === playerId;
@@ -1428,6 +1464,22 @@ function initSocket() {
 
     const meHp = hp[playerId] ?? myHp;
     const opHp = Object.entries(hp).find(([id]) => id !== playerId)?.[1] ?? opponentHp;
+
+    // ★【ステータス更新】HP/MP情報を反映
+    myHp = meHp;
+    if (players && players.length > 0) {
+      const meData = players.find(p => p.id === playerId);
+      const opData = players.find(p => p.id !== playerId);
+      if (meData) {
+        myMp = meData.mp || 50;
+      }
+      if (opData) {
+        opponentHp = opData.hp;
+        opMp = opData.mp || 50;
+      }
+    }
+    updateStatusPanel();
+    updateHealthBars(myHp, opponentHp);
 
     // ★【Rank EX自爆ダメージ表示】
     if (backlashDamage && backlashDamage > 0) {
@@ -1788,6 +1840,19 @@ function initSocket() {
     myHp = hp[playerId];
     const opponentId = Object.keys(hp).find(id => id !== playerId);
     opponentHp = hp[opponentId];
+
+    // ★【ステータス更新】サポート使用後のHP/MP情報を反映
+    if (players && players.length > 0) {
+      const meData = players.find(p => p.id === playerId);
+      const opData = players.find(p => p.id !== playerId);
+      if (meData) {
+        myMp = meData.mp || 50;
+      }
+      if (opData) {
+        opMp = opData.mp || 50;
+      }
+    }
+    updateStatusPanel();
 
     updateHealthBars(myHp, opponentHp);
 

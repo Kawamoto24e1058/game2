@@ -620,6 +620,47 @@ h2 {
   letter-spacing: 2px;
 }
 
+/* ステータス表示パネル */
+.status-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  border: 2px solid #d8edff;
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.player-status, .enemy-status {
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(118, 199, 255, 0.15), rgba(141, 245, 208, 0.15));
+  border-radius: 10px;
+  border: 1px solid rgba(118, 199, 255, 0.3);
+}
+
+.player-status div, .enemy-status div {
+  margin-bottom: 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.player-status div:last-child, .enemy-status div:last-child {
+  margin-bottom: 0;
+  font-size: 14px;
+}
+
+#my-name, #rival-name {
+  color: var(--blue-sky-dark);
+  font-weight: 700;
+}
+
+#my-hp, #rival-hp, #my-mp, #rival-mp {
+  color: #183153;
+  font-weight: 700;
+}
+
 .battle-arena {
   display: grid;
   grid-template-columns: 1fr 80px 1fr;

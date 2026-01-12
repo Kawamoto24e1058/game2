@@ -1216,12 +1216,52 @@ function handlePlayWord(roomId, socket, word) {
           if (card.finalValue > 100) card.finalValue = 100;
           if (card.finalValue < 1) card.finalValue = 1;
           
+          // ★【MP不足時の救済処理】
+          if (!attacker.mp) attacker.mp = 50;
+          const cardCost = card.cost || 0;
+          let costMessage = '';
+          let powerReduction = false;
+          
+          if (attacker.mp < cardCost) {
+            // MP不足：威力半減、MP使い切り
+            powerReduction = true;
+            card.power = Math.floor((card.power || 0) / 2);
+            card.finalValue = Math.floor((card.finalValue || 0) / 2);
+            costMessage = `(消費: ${cardCost}, 残MP: 0) ※エネルギー不足により威力が半減した！`;
+            attacker.mp = 0;
+            console.log(`⚠️ MP不足: ${attacker.name} (MP: ${attacker.mp} < コスト: ${cardCost}) → 威力半減`);
+          } else {
+            // MP十分：通常消費
+            attacker.mp = Math.max(0, attacker.mp - cardCost);
+            costMessage = `(消費: ${cardCost}, 残MP: ${attacker.mp})`;
+          }
+          
+          // flavorText にコスト情報を追記
+          if (card.flavorText) {
+            card.flavorText = `${card.flavorText} ${costMessage}`;
+          } else {
+            card.flavorText = costMessage;
+          }
+          
           room.usedWordsGlobal.add(lower);
           attacker.usedWords.add(lower);
           room.pendingAttack = { attackerId: attacker.id, defenderId: defender.id, card };
           room.phase = 'defense';
           // ★【フラグ設定】防御待機中なので、攻撃後のターン交代は「実行しない」
           room.isWaitingForDefense = true;
+
+          // ★【ステータス更新通知】攻撃発動直後にHP/MPを通知
+          const statusUpdate = {
+            players: room.players.map(p => ({
+              id: p.id,
+              name: p.name,
+              hp: p.hp,
+              maxHp: p.maxHp || STARTING_HP,
+              mp: p.mp || 50,
+              maxMp: p.maxMp || 50
+            }))
+          };
+          io.to(roomId).emit('statusUpdate', statusUpdate);
 
           io.to(roomId).emit('attackDeclared', {
             attackerId: attacker.id,
@@ -1372,6 +1412,35 @@ function handleDefend(roomId, socket, word) {
       try {
         console.log('🛡️ 防御カード生成完了:', defenseCard);
         
+        // ★【MP不足時の救済処理】
+        if (!defender.mp) defender.mp = 50;
+        const cardCost = defenseCard.cost || 0;
+        let costMessage = '';
+        let powerReduction = false;
+        
+        if (defender.mp < cardCost) {
+          // MP不足：防御力半減、MP使い切り
+          powerReduction = true;
+          defenseCard.defense = Math.floor((defenseCard.defense || 0) / 2);
+          if (defenseCard.logic && defenseCard.logic.value) {
+            defenseCard.logic.value = Math.max(0.1, defenseCard.logic.value / 2);
+          }
+          costMessage = `(消費: ${cardCost}, 残MP: 0) ※エネルギー不足により防御力が半減した！`;
+          defender.mp = 0;
+          console.log(`⚠️ MP不足: ${defender.name} (MP: ${defender.mp} < コスト: ${cardCost}) → 防御力半減`);
+        } else {
+          // MP十分：通常消費
+          defender.mp = Math.max(0, defender.mp - cardCost);
+          costMessage = `(消費: ${cardCost}, 残MP: ${defender.mp})`;
+        }
+        
+        // flavorText にコスト情報を追記
+        if (defenseCard.flavorText) {
+          defenseCard.flavorText = `${defenseCard.flavorText} ${costMessage}`;
+        } else {
+          defenseCard.flavorText = costMessage;
+        }
+        
         // ★【防御モード強制処理】AIの判定に関わらず防御成功として扱う
         console.log('🛡️ 防御モード: 強制的に防御用データに上書きします');
         defenseCard.type = "defense";
@@ -1387,7 +1456,7 @@ function handleDefend(roomId, socket, word) {
           target: "self",
           actionType: "buff",
           effect: "damageReduction",
-          value: 0.5, // ダメージ50%カット
+          value: powerReduction ? 0.25 : 0.5, // MP不足時は25%カット、通常時は50%カット
           duration: 1
         };
 
@@ -1659,6 +1728,19 @@ function handleDefend(roomId, socket, word) {
         const finishedIndex = (room.turnIndex - 1 + room.players.length) % room.players.length;
         const finishedPlayerId = room.players[finishedIndex]?.id;
         const effectsExpired = tickActiveEffects(room, finishedPlayerId);
+
+        // ★【ステータス更新通知】アクション直後にHP/MP情報を送信
+        const statusUpdate = {
+          players: room.players.map(p => ({
+            id: p.id,
+            name: p.name,
+            hp: p.hp,
+            maxHp: p.maxHp || STARTING_HP,
+            mp: p.mp || 50,
+            maxMp: p.maxMp || 50
+          }))
+        };
+        io.to(roomId).emit('statusUpdate', statusUpdate);
 
         io.to(roomId).emit('turnResolved', {
           attackerId: attacker.id,
@@ -2411,6 +2493,33 @@ io.on('connection', (socket) => {
         const card = await generateCardWithTimeout(cleanWord, 'support', generateCardFallback(cleanWord));
         if (card.baseValue && !Number.isFinite(card.baseValue)) { card.baseValue = 50; }
 
+        // ★【MP不足時の救済処理】
+        if (!player.mp) player.mp = 50;
+        const cardCost = card.cost || 0;
+        let costMessage = '';
+        let powerReduction = false;
+        
+        if (player.mp < cardCost) {
+          // MP不足：効果値半減、MP使い切り
+          powerReduction = true;
+          card.baseValue = Math.floor((card.baseValue || 0) / 2);
+          card.finalValue = Math.floor((card.finalValue || 0) / 2);
+          costMessage = `(消費: ${cardCost}, 残MP: 0) ※エネルギー不足により効果が半減した！`;
+          player.mp = 0;
+          console.log(`⚠️ MP不足: ${player.name} (MP: ${player.mp} < コスト: ${cardCost}) → 効果半減`);
+        } else {
+          // MP十分：通常消費
+          player.mp = Math.max(0, player.mp - cardCost);
+          costMessage = `(消費: ${cardCost}, 残MP: ${player.mp})`;
+        }
+        
+        // supportMessage にコスト情報を追記
+        if (card.supportMessage) {
+          card.supportMessage = `${card.supportMessage} ${costMessage}`;
+        } else {
+          card.supportMessage = costMessage;
+        }
+
         // ★【重要：サポートモード確認】
         console.log(`🎯 supportAction実行: word="${cleanWord}", card.type="${card.cardType || card.type}", card.role="${card.role}"`);
         
@@ -2617,6 +2726,19 @@ io.on('connection', (socket) => {
 
         const finishedPlayerId = player.id;
         const effectsExpired = tickActiveEffects(room, finishedPlayerId);
+
+        // ★【ステータス更新通知】サポート使用直後にHP/MP情報を送信
+        const statusUpdate = {
+          players: room.players.map(p => ({
+            id: p.id,
+            name: p.name,
+            hp: p.hp,
+            maxHp: p.maxHp || STARTING_HP,
+            mp: p.mp || 50,
+            maxMp: p.maxMp || 50
+          }))
+        };
+        io.to(roomId).emit('statusUpdate', statusUpdate);
 
         io.to(roomId).emit('supportUsed', { playerId: player.id, card: cardData, hp, players, supportRemaining: 3 - player.supportUsed, winnerId, nextTurn: winnerId ? null : room.players[room.turnIndex].id, appliedStatus, fieldEffect: room.fieldEffect, fieldState: room.fieldState, statusTick, effectsExpired });
 
