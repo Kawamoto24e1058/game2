@@ -3,7 +3,6 @@ const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(express.json());
@@ -23,7 +22,7 @@ const STARTING_HP = 100;
 const GEMINI_TIMEOUT_MS = 8000;
 
 const API_KEY = process.env.GEMINI_API_KEY || 'YOUR_API_KEY_HERE';
-const genAI = new GoogleGenerativeAI(API_KEY);
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 // ★【ヘルパー関数：baseValueからRankを算出】
 function deriveRankFromValue(baseValue) {
@@ -246,14 +245,22 @@ ${intentNote}`;
 
   let responseText = '';
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
+    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
+      })
     });
     
-    // 生テキスト（デバッグ用に保持）
-    responseText = (result?.response?.text?.() || '').trim();
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    responseText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
     responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     
     // ★【JSON抽出処理】マークダウンやテキスト装飾を除去してJSONだけを取り出す
@@ -502,15 +509,22 @@ ${intentNote}`;
 ${intentNote}`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2048
-      }
+    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+      })
     });
-    let responseText = result.response.text().trim();
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    let responseText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
     
     // JSONマークダウン装飾を削除 + 強力クリーニング
     responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -2043,19 +2057,29 @@ async function judgeCardByAI(cardName) {
 以下の言葉を判定し、JSON のみを返してください：「${cardName}」`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
-    const result = await Promise.race([
-      model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024
-        }
-      }),
+    const performRequest = async () => {
+      const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
+      }
+      
+      const data = await response.json();
+      return (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    };
+    
+    const responseText = await Promise.race([
+      performRequest(),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), GEMINI_TIMEOUT_MS))
     ]);
-    
-    let responseText = result.response.text().trim();
     console.log(`📝 Gemini raw response: ${responseText}`);
     
     // ★【厳密な JSON 抽出】複数のマークダウン装飾パターンに対応
@@ -2938,25 +2962,7 @@ function advanceTurnIndexWithSkips(room) {
   return room.turnIndex;
 }
 
-// =====================================
-// 利用可能なモデル一覧を取得（デバッグ用）
-// =====================================
-async function listAvailableModels() {
-  try {
-    console.log('📋 Gemini APIで利用可能なモデル一覧を取得中...');
-    const modelList = await genAI.listModels();
-    console.log('✅ 利用可能なモデル一覧:');
-    modelList.models.forEach(model => {
-      console.log(`   - ${model.name}`);
-    });
-  } catch (e) {
-    console.error('❌ モデル一覧取得失敗:', e.message);
-  }
-}
-
 // ★【Render対応：環境変数を優先、グレースフルシャットダウン対応】
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  // サーバー起動時にモデル一覧を出力
-  listAvailableModels();
 });
