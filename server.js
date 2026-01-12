@@ -246,7 +246,7 @@ ${intentNote}`;
 
   let responseText = '';
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
@@ -502,7 +502,7 @@ ${intentNote}`;
 ${intentNote}`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
@@ -2043,7 +2043,7 @@ async function judgeCardByAI(cardName) {
 以下の言葉を判定し、JSON のみを返してください：「${cardName}」`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
     const result = await Promise.race([
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -2938,7 +2938,25 @@ function advanceTurnIndexWithSkips(room) {
   return room.turnIndex;
 }
 
+// =====================================
+// 利用可能なモデル一覧を取得（デバッグ用）
+// =====================================
+async function listAvailableModels() {
+  try {
+    console.log('📋 Gemini APIで利用可能なモデル一覧を取得中...');
+    const modelList = await genAI.listModels();
+    console.log('✅ 利用可能なモデル一覧:');
+    modelList.models.forEach(model => {
+      console.log(`   - ${model.name}`);
+    });
+  } catch (e) {
+    console.error('❌ モデル一覧取得失敗:', e.message);
+  }
+}
+
 // ★【Render対応：環境変数を優先、グレースフルシャットダウン対応】
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  // サーバー起動時にモデル一覧を出力
+  listAvailableModels();
 });
