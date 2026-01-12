@@ -1304,6 +1304,30 @@ function handleDefend(roomId, socket, word) {
       try {
         console.log('🛡️ 防御カード生成完了:', defenseCard);
         
+        // ★【防御モード強制処理】AIの判定に関わらず防御成功として扱う
+        console.log('🛡️ 防御モード: 強制的に防御用データに上書きします');
+        defenseCard.type = "defense";
+        defenseCard.cardType = "defense";
+        defenseCard.role = "defense";
+        defenseCard.effect = "defense";
+        defenseCard.element = "physics"; // 属性は物理で固定（汎用性のため）
+        defenseCard.power = 0; // 防御に威力は不要
+        defenseCard.hitRate = 100; // 絶対に成功させる
+        
+        // ロジックも防御用に強制固定
+        defenseCard.logic = {
+          target: "self",
+          actionType: "buff",
+          effect: "damageReduction",
+          value: 0.5, // ダメージ50%カット
+          duration: 1
+        };
+
+        // もしAIが「失敗」系のフレーバーテキストを出していたら書き換える
+        if (defenseCard.flavorText && (defenseCard.flavorText.includes("失敗") || defenseCard.flavorText.includes("暴発") || defenseCard.flavorText.includes("暴走"))) {
+          defenseCard.flavorText = `${cleanWord}により、堅牢な守りを展開した！`;
+        }
+        
         // ★【防御カードの finalValue チェック】
         if (!Number.isFinite(defenseCard.finalValue) || defenseCard.finalValue === null || defenseCard.finalValue === undefined) {
           console.log(`⚠️ 防御カードの finalValue が異常: ${defenseCard.finalValue} → 修正します`);
