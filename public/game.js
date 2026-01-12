@@ -108,6 +108,45 @@ function screenShake() {
   }
 }
 
+/**
+ * 激しいシェイク演出（弱点・大ダメージ用）
+ */
+function screenShakeHard() {
+  const battleSection = document.getElementById('battleSection');
+  if (battleSection) {
+    battleSection.classList.add('screen-shake-hard');
+    setTimeout(() => battleSection.classList.remove('screen-shake-hard'), 600);
+  }
+}
+
+/**
+ * 属性フラッシュ演出（画面全体を属性色に光らせる）
+ * @param {string} element - 属性 (fire, water, wood, light, dark, physics)
+ */
+function showElementFlash(element) {
+  const flash = document.createElement('div');
+  flash.className = `element-flash ${element || 'physics'}`;
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 400);
+}
+
+/**
+ * 弱点ヒット時の演出（シェイク + フラッシュ + ログ）
+ */
+function playWeaknessEffect(element, damage) {
+  screenShakeHard();
+  showElementFlash(element);
+  appendLog(`【弱点！】防御を貫通して ${damage} のダメージ！`, 'damage');
+}
+
+/**
+ * 耐性ヒット時の演出（控えめな演出 + ログ）
+ */
+function playResistanceEffect() {
+  screenShake();
+  appendLog('【耐性】攻撃はいまひとつのようだ…', 'info');
+}
+
 // パーティクル演出: ダメージ数値がHPバーへ飛んでいく
 function createDamageParticle(startX, startY, targetElementId, damage, isHeal = false) {
   const particle = document.createElement('div');
@@ -1444,7 +1483,7 @@ function initSocket() {
     }
   });
 
-  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, statusTick, hp, players, nextTurn, winnerId, defenseFailed, affinity, effectsExpired, backlashDamage }) => {
+  socket.on('turnResolved', async ({ attackerId, defenderId, attackCard, defenseCard, damage, counterDamage, dotDamage, appliedStatus, fieldEffect, statusTick, hp, players, nextTurn, winnerId, defenseFailed, affinity, effectsExpired, backlashDamage, isWeakness, isResistance, isCritical, element }) => {
     // ★【超重要：finalValue 未定義ガード】サーバーからの数値チェック
     if (attackCard) {
       if (attackCard.finalValue === undefined || attackCard.finalValue === null) {
@@ -1537,8 +1576,19 @@ function initSocket() {
     // ダメージ表示
     if (damage > 0) {
       showDamageAnimation(defenderId === playerId ? 'my' : 'op', damage, affinity);
-      // ダメージ計算時のインパクト演出（常時）
-      screenShake();
+      
+      // ★【属性相性演出】
+      if (isWeakness && damage >= 25) {
+        // 弱点ヒット時の激しい演出
+        playWeaknessEffect(element || 'physics', damage);
+      } else if (isResistance) {
+        // 耐性ヒット時の控えめな演出
+        playResistanceEffect();
+      } else {
+        // 通常のダメージ時の演出
+        screenShake();
+        showElementFlash(element || 'physics');
+      }
     }
 
     // カウンターダメージ表示（トゲ系）

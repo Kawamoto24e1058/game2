@@ -1483,6 +1483,8 @@ function handleDefend(roomId, socket, word) {
         let damage = 0;
         let counterDamage = 0;
         let dotDamage = 0;
+        let isCritical = false;
+        let affinity = null;
         let defenseFailed = false;
         const appliedStatus = [];
         const attackerMaxHp = attacker.maxHp || STARTING_HP;
@@ -1491,7 +1493,7 @@ function handleDefend(roomId, socket, word) {
         // 属性相性計算（element優先）
         const atkElem = attackCard.element || attributeToElementJP(attackCard.attribute);
         const defElem = defenseCard.element || attributeToElementJP(defenseCard.attribute);
-        const affinity = getAffinityByElement(atkElem, defElem);
+        affinity = getAffinityByElement(atkElem, defElem);
 
         // ★【Rank EX特殊処理: 10%命中、90%自爆】
         if (attackCard.isForbidden === true || attackCard.rank === 'EX') {
@@ -1597,7 +1599,10 @@ function handleDefend(roomId, socket, word) {
         // === Attack vs Defense 標準バトル ===
         if (attackRole === 'attack' && defenseRole === 'defense') {
           console.log('⚔️ 【標準バトル】Attack vs Defense: ダメージ計算フェーズ');
-          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          const dmgResult = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          damage = dmgResult.damage;
+          affinity = dmgResult.affinity;
+          isCritical = dmgResult.isCritical;
           // 次ターン用の防御予約（前ターンに確実適用）
           defender.reservedDefense = Number(defenseCard?.defense) || 0;
           defender.hp = Math.max(0, defender.hp - damage);
@@ -1606,8 +1611,10 @@ function handleDefend(roomId, socket, word) {
         // === Attack vs Attack 衝突 ===
         else if (attackRole === 'attack' && defenseRole === 'attack') {
           console.log('⚔️ 【衝突】Attack vs Attack: 双方ダメージ');
-          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
-          counterDamage = calculateDamage(defenseCard, attackCard, defender, attacker, false, room);
+          const dmgResult1 = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          damage = dmgResult1.damage;
+          const dmgResult2 = calculateDamage(defenseCard, attackCard, defender, attacker, false, room);
+          counterDamage = dmgResult2.damage;
           defender.hp = Math.max(0, defender.hp - damage);
           attacker.hp = Math.max(0, attacker.hp - counterDamage);
         }
@@ -1622,10 +1629,9 @@ function handleDefend(roomId, socket, word) {
         // === Defense vs Attack: 防御態勢フェーズ ===
         else if (attackRole === 'defense' && defenseRole === 'attack') {
           console.log('🛡️ 【防御態勢】Defense が攻撃判定をスキップ: 防御力を適用');
-          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          const dmgResult = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          damage = dmgResult.damage;
           // Defense ロール（攻撃側）のdifference フィールドは攻撃力がないため最小ダメージ
-          defenseRole === 'attack' && 
-            ((damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room)));
           attacker.hp = Math.max(0, attacker.hp - counterDamage);
         }
         
@@ -1670,7 +1676,8 @@ function handleDefend(roomId, socket, word) {
         // === デフォルト（未想定） ===
         else {
           console.log(`⚠️ 未想定の役割組み合わせ: Attack[${attackRole}] vs Defense[${defenseRole}]`);
-          damage = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          const dmgResult = calculateDamage(attackCard, defenseCard, attacker, defender, false, room);
+          damage = dmgResult.damage;
           defender.hp = Math.max(0, defender.hp - damage);
         }
 
@@ -1760,7 +1767,11 @@ function handleDefend(roomId, socket, word) {
           nextTurn: winnerId ? null : room.players[room.turnIndex].id,
           winnerId,
           effectsExpired,
-          hitLog: attackCard.hitLog || hitLog || ''
+          hitLog: attackCard.hitLog || hitLog || '',
+          isWeakness: affinity?.isWeakness || false,
+          isResistance: affinity?.isResistance || false,
+          isCritical: isCritical || false,
+          element: affinity?.element || 'physics'
         });
 
         console.log('✅ ターン解決完了:', { damage, counterDamage, dotDamage, winnerId, nextTurn: room.players[room.turnIndex]?.id, appliedStatus });
@@ -2416,7 +2427,8 @@ io.on('connection', (socket) => {
         if (attacker && defender) {
           const defaultDefenseCard = createDefaultDefenseCard('エラー');
           const attackCard = room.pendingAttack.card;
-          const damage = calculateDamage(attackCard, defaultDefenseCard, attacker, defender, false, room);
+          const dmgResult = calculateDamage(attackCard, defaultDefenseCard, attacker, defender, false, room);
+          const damage = dmgResult.damage;
           defender.hp = Math.max(0, defender.hp - damage);
           
           const hp = {};
@@ -2786,19 +2798,123 @@ io.on('connection', (socket) => {
 });
 
 // =====================================
-// 属性相性の計算関数
+// 属性相性の計算関数（拡張版）
 // =====================================
+/**
+ * 属性相性を判定し、ダメージ倍率と弱点/耐性フラグを返す
+ * @param {string} attackEl - 攻撃側の属性 (fire, wood, water, light, dark, physics)
+ * @param {string} defenseEl - 防御側の属性
+ * @returns {object} { mult: 倍率, isWeakness: boolean, isResistance: boolean }
+ */
 function getAffinityByElement(attackEl, defenseEl) {
-  if (!attackEl || !defenseEl) return 1.0;
+  if (!attackEl || !defenseEl) return { mult: 1.0, isWeakness: false, isResistance: false, relation: 'normal' };
   
-  // 簡易的な相性ロジック
-  // 同じ属性なら半減（抵抗）
-  if (attackEl === defenseEl) return 0.5;
+  // 正規化
+  const atkNorm = String(attackEl || '').toLowerCase().trim();
+  const defNorm = String(defenseEl || '').toLowerCase().trim();
   
-  // ここに有利不利のロジックを追加可能
-  // 例: 水は火に強い (2.0) など
-  // 今回はエラー回避のため、基本は等倍(1.0)を返す
-  return 1.0;
+  // 属性ループ: fire > wood > water > fire
+  const affinity = {
+    'fire': 'wood',    // 火は森に強い
+    'wood': 'water',   // 森は水に強い
+    'water': 'fire',   // 水は火に強い
+    'light': 'dark',   // 光は闇に強い
+    'dark': 'light'    // 闇は光に強い
+  };
+  
+  // 同じ属性なら耐性
+  if (atkNorm === defNorm) {
+    return { mult: 0.5, isWeakness: false, isResistance: true, relation: 'resistant' };
+  }
+  
+  // 弱点チェック
+  if (affinity[atkNorm] === defNorm) {
+    return { mult: 1.5, isWeakness: true, isResistance: false, relation: 'weakness' };
+  }
+  
+  // 物理属性は相性なし
+  if (atkNorm === 'physics' || defNorm === 'physics') {
+    return { mult: 1.0, isWeakness: false, isResistance: false, relation: 'normal' };
+  }
+  
+  // それ以外は等倍
+  return { mult: 1.0, isWeakness: false, isResistance: false, relation: 'normal' };
+}
+
+/**
+ * ダメージ計算関数（属性相性と防御貫通ロジック対応）
+ * @param {object} attackCard - 攻撃カード
+ * @param {object} defenseCard - 防御カード
+ * @param {object} attacker - 攻撃者プレイヤー
+ * @param {object} defender - 防御者プレイヤー
+ * @param {boolean} isCounter - カウンター判定
+ * @param {object} room - ゲームルーム
+ * @returns {object} { damage, affinity, isWeakness, isCritical }
+ */
+function calculateDamage(attackCard, defenseCard, attacker, defender, isCounter, room) {
+  // 基本値の取得
+  const basePower = Number(attackCard?.power || attackCard?.finalValue || attackCard?.baseValue || 0) || 0;
+  const baseDefense = Number(defenseCard?.defense || defenseCard?.finalValue || defenseCard?.baseValue || 0) || 0;
+  
+  // 攻撃倍率（プレイヤーのatkMultiplier）
+  const atkMult = (attacker?.atkMultiplier || 1.0);
+  const adjustedPower = basePower * atkMult;
+  
+  // 防御倍率（プレイヤーのdefMultiplier）
+  const defMult = (defender?.defMultiplier || 1.0);
+  const adjustedDefense = baseDefense * defMult;
+  
+  // 属性相性計算
+  const atkElem = attackCard?.element || 'physics';
+  const defElem = defenseCard?.element || 'physics';
+  const affinityData = getAffinityByElement(atkElem, defElem);
+  const affinityMult = affinityData.mult;
+  const isWeakness = affinityData.isWeakness;
+  const isResistance = affinityData.isResistance;
+  
+  // 防御貫通ロジック（Guard Break System）
+  let finalDefense = adjustedDefense;
+  let isCritical = false;
+  
+  // 防御カードが防御モード(type === 'defense')の場合
+  if (defenseCard?.type === 'defense' && defenseCard?.logic?.effect === 'damageReduction') {
+    const baseDamageReduction = defenseCard?.logic?.value || 0.5; // デフォルト50%カット
+    
+    if (isWeakness) {
+      // 弱点を突いた場合：防御効果を半減させる
+      finalDefense = baseDamageReduction * 0.5; // 元の50%なら25%に
+      isCritical = true;
+    } else if (isResistance) {
+      // 耐性属性で攻撃された場合：防御効果を1.2倍にする
+      finalDefense = Math.min(0.9, baseDamageReduction * 1.2); // 最大90%カット
+    } else if (atkElem === 'physics' || defElem === 'physics') {
+      // 物理vs魔法またはその逆：防御効果を0.8倍にする
+      finalDefense = baseDamageReduction * 0.8;
+    }
+  } else {
+    // 防御モード以外の場合、防御数値をそのまま使う
+    finalDefense = adjustedDefense / 100; // 正規化（0～1の範囲）
+  }
+  
+  // ダメージ計算式
+  // Damage = AttackPower * affinityMult * (1 - FinalDefense)
+  let damage = Math.max(0, Math.round(adjustedPower * affinityMult * (1 - Math.min(0.95, finalDefense))));
+  
+  // 最小ダメージを1に（完全に無効化は避ける）
+  if (damage < 1 && adjustedPower > 0) {
+    damage = 1;
+  }
+  
+  console.log(`💥 ダメージ計算: power=${basePower}, defense=${baseDefense}, affinityMult=${affinityMult}, finalDefense=${finalDefense}, damage=${damage}, isWeakness=${isWeakness}, isCritical=${isCritical}`);
+  
+  return {
+    damage,
+    affinity: affinityData,
+    isWeakness,
+    isResistance,
+    isCritical,
+    element: atkElem
+  };
 }
 
 // =====================================

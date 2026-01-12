@@ -1331,9 +1331,53 @@ h2 {
   20%, 40%, 60%, 80% { transform: translateX(5px); }
 }
 
+/* 激しいシェイク（弱点・大ダメージ用） */
+@keyframes screenShakeHard {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  10% { transform: translateX(-10px) translateY(-10px); }
+  20% { transform: translateX(10px) translateY(10px); }
+  30% { transform: translateX(-10px) translateY(10px); }
+  40% { transform: translateX(10px) translateY(-10px); }
+  50% { transform: translateX(-8px) translateY(0); }
+  60% { transform: translateX(8px) translateY(0); }
+  70% { transform: translateX(-5px) translateY(0); }
+  80% { transform: translateX(5px) translateY(0); }
+  90% { transform: translateX(-2px) translateY(0); }
+}
+
 .screen-shake {
   animation: screenShake 0.5s ease-in-out;
 }
+
+.screen-shake-hard {
+  animation: screenShakeHard 0.6s ease-in-out;
+}
+
+/* 属性フラッシュ（画面全体を一瞬光らせる） */
+@keyframes elementFlash {
+  0% { background-color: transparent; }
+  50% { background-color: currentColor; opacity: 0.6; }
+  100% { background-color: transparent; }
+}
+
+.element-flash {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2999;
+  animation: elementFlash 0.4s ease-out forwards;
+}
+
+/* 属性別フラッシュカラー */
+.element-flash.fire { --flash-color: rgba(255, 50, 50, 0.8); }
+.element-flash.water { --flash-color: rgba(50, 150, 255, 0.8); }
+.element-flash.wood { --flash-color: rgba(50, 200, 50, 0.8); }
+.element-flash.light { --flash-color: rgba(255, 255, 100, 0.8); }
+.element-flash.dark { --flash-color: rgba(150, 50, 200, 0.8); }
+.element-flash.physics { --flash-color: rgba(200, 200, 200, 0.8); }
 
 /* 属性相性メッセージ */
 .affinity-message {
