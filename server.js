@@ -246,7 +246,7 @@ ${intentNote}`;
 
   let responseText = '';
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.8, maxOutputTokens: 2048 }
@@ -502,7 +502,7 @@ ${intentNote}`;
 ${intentNote}`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
@@ -2043,7 +2043,7 @@ async function judgeCardByAI(cardName) {
 以下の言葉を判定し、JSON のみを返してください：「${cardName}」`;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await Promise.race([
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
