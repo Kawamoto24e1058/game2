@@ -22,7 +22,7 @@ const STARTING_HP = 100;
 const GEMINI_TIMEOUT_MS = 8000;
 
 const API_KEY = process.env.GEMINI_API_KEY || 'YOUR_API_KEY_HERE';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
 
 // ★【ヘルパー関数：baseValueからRankを算出】
 function deriveRankFromValue(baseValue) {
