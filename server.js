@@ -22,7 +22,64 @@ const STARTING_HP = 100;
 const GEMINI_TIMEOUT_MS = 8000;
 
 const API_KEY = process.env.GEMINI_API_KEY || 'YOUR_API_KEY_HERE';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// ★【動的モデル選択】利用可能なモデルを自動取得してキャッシュ
+let activeModelName = null;
+
+async function getBestModel() {
+  if (activeModelName) return activeModelName;
+  
+  try {
+    console.log('🔍 Gemini APIモデル一覧を取得中...');
+    const response = await fetch(`${GEMINI_API_BASE}/models?key=${API_KEY}`);
+    
+    if (!response.ok) {
+      console.warn('⚠️ モデル一覧取得失敗、デフォルト "models/gemini-pro" を使用');
+      activeModelName = 'models/gemini-pro';
+      return activeModelName;
+    }
+    
+    const data = await response.json();
+    const models = data.models || [];
+    
+    // generateContent をサポートし、名前に gemini を含むモデルを抽出
+    const availableModels = models.filter(m => 
+      m.name && 
+      m.name.toLowerCase().includes('gemini') &&
+      m.supportedGenerationMethods &&
+      m.supportedGenerationMethods.includes('generateContent')
+    );
+    
+    if (availableModels.length === 0) {
+      console.warn('⚠️ 利用可能なGeminiモデルなし、デフォルト "models/gemini-pro" を使用');
+      activeModelName = 'models/gemini-pro';
+      return activeModelName;
+    }
+    
+    // 最新モデルを優先（1.5-flash > 1.5-pro > pro の順）
+    const preferredOrder = ['1.5-flash', '1.5-pro', 'pro'];
+    for (const keyword of preferredOrder) {
+      const found = availableModels.find(m => m.name.includes(keyword));
+      if (found) {
+        activeModelName = found.name;
+        console.log(`✅ 自動選択されたモデル: ${activeModelName}`);
+        return activeModelName;
+      }
+    }
+    
+    // フォールバック: 最初のモデル
+    activeModelName = availableModels[0].name;
+    console.log(`✅ 自動選択されたモデル: ${activeModelName}`);
+    return activeModelName;
+    
+  } catch (error) {
+    console.error('❌ モデル一覧取得エラー:', error.message);
+    activeModelName = 'models/gemini-pro';
+    console.log(`⚠️ フォールバック: ${activeModelName}`);
+    return activeModelName;
+  }
+}
 
 // ★【ヘルパー関数：baseValueからRankを算出】
 function deriveRankFromValue(baseValue) {
@@ -248,7 +305,9 @@ ${intentNote}`;
 
   let responseText = '';
   try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+    const modelName = await getBestModel();
+    const apiUrl = `${GEMINI_API_BASE}/${modelName}:generateContent`;
+    const response = await fetch(`${apiUrl}?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -516,7 +575,9 @@ ${intentNote}`;
   console.log("API Key Status:", process.env.GEMINI_API_KEY ? "Set" : "Missing");
 
   try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+    const modelName = await getBestModel();
+    const apiUrl = `${GEMINI_API_BASE}/${modelName}:generateContent`;
+    const response = await fetch(`${apiUrl}?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2070,7 +2131,9 @@ async function judgeCardByAI(cardName) {
 
   try {
     const performRequest = async () => {
-      const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
+      const modelName = await getBestModel();
+      const apiUrl = `${GEMINI_API_BASE}/${modelName}:generateContent`;
+      const response = await fetch(`${apiUrl}?key=${API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
