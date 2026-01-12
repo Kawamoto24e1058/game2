@@ -2571,6 +2571,43 @@ io.on('connection', (socket) => {
   });
 });
 
+// =====================================
+// 属性相性の計算関数
+// =====================================
+function getAffinityByElement(attackEl, defenseEl) {
+  if (!attackEl || !defenseEl) return 1.0;
+  
+  // 簡易的な相性ロジック
+  // 同じ属性なら半減（抵抗）
+  if (attackEl === defenseEl) return 0.5;
+  
+  // ここに有利不利のロジックを追加可能
+  // 例: 水は火に強い (2.0) など
+  // 今回はエラー回避のため、基本は等倍(1.0)を返す
+  return 1.0;
+}
+
+// =====================================
+// スキップ判定付きターン進行関数
+// =====================================
+function advanceTurnIndexWithSkips(room) {
+  // まずターンを1つ進める
+  let nextIndex = (room.turnIndex + 1) % room.players.length;
+  let nextPlayer = room.players[nextIndex];
+
+  // もし次のプレイヤーが「行動不能（canAction: false）」なら、さらに飛ばす
+  if (nextPlayer.canAction === false) {
+    console.log(`Player ${nextPlayer.id} is skipped due to inability to act.`);
+    // スキップしたことを通知（必要なら）
+    // スキップされたのでフラグを戻して、さらに次の人へ
+    nextPlayer.canAction = true; 
+    nextIndex = (nextIndex + 1) % room.players.length;
+  }
+
+  room.turnIndex = nextIndex;
+  return room.turnIndex;
+}
+
 // ★【Render対応：環境変数を優先、グレースフルシャットダウン対応】
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
