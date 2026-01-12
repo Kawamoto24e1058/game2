@@ -149,6 +149,35 @@ async function generateCard(original, role = 'attack') {
 - 絶対に "attack", "magic", "summon" を返さないこと
 ` : '';
   
+  // ★【新規：防御モード時のバランス調整】
+  const defenseModeNote = role === 'defense' ? `
+【★防御モード：バランス調整ルール★】
+ユーザーの入力した単語『${original}』から防御カードを生成してください。
+ただし、以下のゲームバランス制約を厳守すること：
+
+1. **防御力とコストのトレードオフ**:
+   - 強い防御（power: 70～100, ダメージカット率75～95%）ほど、高いコスト（cost: 40～70）を設定すること。
+   - 中程度の防御（power: 40～69）なら、cost: 15～39。
+   - 弱い防御（power: 10～39）なら、cost: 0～14。
+
+2. **強すぎる言葉へのペナルティ**:
+   - 『無敵』『絶対』『完璧』などの強すぎる言葉には、成功率（hitRate）を下げる（例: 30～60%）か、コストを非常に高くするペナルティを与えること。
+   - 普通の言葉（『盾』『壁』『銃』）ならhitRate: 85～100%。
+
+3. **データ構造**:
+   - type: "defense" (必須)
+   - element: "physics" または "earth" (基本)
+   - power: 10～100 (防御力を表す)
+   - cost: 0～70 (powerに応じて調整)
+   - hitRate: 30～100 (強すぎる言葉は低く)
+   - role: "Defense" (必須)
+
+4. **具体例**:
+   - 『盾』→ power:50, cost:10, hitRate:95
+   - 『無敵』→ power:95, cost:60, hitRate:40
+   - 『壁』→ power:60, cost:20, hitRate:90
+` : '';
+  
   const prompt = `【あなたの役割】
 あなたはベテランのファンタジーRPGゲームデザイナーです。
 入力された言葉の「概念」「物理法則」「ロマン」を解釈し、ゲームデータに変換してください。
@@ -160,6 +189,7 @@ async function generateCard(original, role = 'attack') {
 4. 言葉が持つ「代償」を必ず考慮せよ。タダで最強の力は手に入らない。
 
 ${supportModeNote}
+${defenseModeNote}
 
 【入力された言葉】
 "${original}"
@@ -243,6 +273,30 @@ ${intentNote}`;
       console.error('   ↳ Extracted JSON:', jsonText);
       // 二重try-catchの内側で失敗: 役割別フォールバック
       if (role === 'support') return createBasicSupportFallback(original);
+      if (role === 'defense') {
+        // ★【防御モード用フォールバック】標準的な防御カードを返す
+        return {
+          word: original,
+          name: 'とっさの防御',
+          cardName: 'とっさの防御',
+          role: 'defense',
+          effect: 'defense',
+          cardType: 'defense',
+          type: 'defense',
+          element: 'physics',
+          attribute: 'earth',
+          power: 30,
+          defense: 30,
+          baseValue: 30,
+          finalValue: 30,
+          cost: 0,
+          hitRate: 100,
+          flavorText: 'とっさに身を守る基本防御。',
+          specialEffect: '【基本防御】ダメージ30%カット',
+          judgeComment: 'AIパース失敗のため標準防御を使用',
+          logic: { target: 'self', actionType: 'buff', effect: 'damageReduction', value: 0.3, duration: 1 }
+        };
+      }
       return {
         word: original,
         name: original,
