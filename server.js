@@ -119,6 +119,15 @@ async function generateCardWithTimeout(original, role, fallback, timeout = 8000)
   }
 }
 
+// =====================================
+// JSON抽出ヘルパー関数
+// =====================================
+function extractJSON(text) {
+  // 文字列の中から最初の '{' と 最後の '}' を見つけて切り抜く
+  const match = text.match(/\{[\s\S]*\}/);
+  return match ? match[0] : null;
+}
+
 // ★【AI創作呪文】Gemini APIによる高度なカード生成
 async function generateCard(original, role = 'attack') {
   const intentNote = role === 'attack' ? '攻撃カードを生成せよ。' : role === 'defense' ? '防御カードを生成せよ。' : 'サポートカードを生成せよ。';
@@ -217,16 +226,21 @@ ${intentNote}`;
     responseText = (result?.response?.text?.() || '').trim();
     responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     
-    if (!responseText.startsWith('{')) {
-      throw new Error('Invalid JSON format: not starting with "{"');
+    // ★【JSON抽出処理】マークダウンやテキスト装飾を除去してJSONだけを取り出す
+    const jsonText = extractJSON(responseText);
+    if (!jsonText) {
+      console.error('❌ JSONが見つかりませんでした');
+      console.log('Raw AI Output:', responseText);
+      throw new Error('JSONが見つかりませんでした: ' + responseText.substring(0, 100));
     }
     
     let cardData;
     try {
-      cardData = JSON.parse(responseText);
+      cardData = JSON.parse(jsonText);
     } catch (parseErr) {
       console.error('❌ JSON.parse 失敗 (generateCard):', parseErr.message);
-      console.error('   ↳ Raw AI text:', responseText);
+      console.log('Raw AI Output:', responseText);
+      console.error('   ↳ Extracted JSON:', jsonText);
       // 二重try-catchの内側で失敗: 役割別フォールバック
       if (role === 'support') return createBasicSupportFallback(original);
       return {
