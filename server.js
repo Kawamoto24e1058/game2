@@ -243,6 +243,9 @@ ${defenseModeNote}
 
 ${intentNote}`;
 
+  // ★【APIキー確認ログ】
+  console.log("API Key Status:", process.env.GEMINI_API_KEY ? "Set" : "Missing");
+
   let responseText = '';
   try {
     const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
@@ -255,8 +258,9 @@ ${intentNote}`;
     });
     
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
+      const errorBody = await response.text();
+      console.error("Gemini API Error Detail (generateCard):", response.status, errorBody);
+      throw new Error(`Gemini API Error: ${response.status} - ${errorBody}`);
     }
     
     const data = await response.json();
@@ -276,7 +280,7 @@ ${intentNote}`;
       cardData = JSON.parse(jsonText);
     } catch (parseErr) {
       console.error('❌ JSON.parse 失敗 (generateCard):', parseErr.message);
-      console.log('Raw AI Output:', responseText);
+      console.error('AI returned non-JSON text:', responseText);
       console.error('   ↳ Extracted JSON:', jsonText);
       // 二重try-catchの内側で失敗: 役割別フォールバック
       if (role === 'support') return createBasicSupportFallback(original);
@@ -508,6 +512,9 @@ ${intentNote}`;
 
 ${intentNote}`;
 
+  // ★【APIキー確認ログ】
+  console.log("API Key Status:", process.env.GEMINI_API_KEY ? "Set" : "Missing");
+
   try {
     const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
       method: 'POST',
@@ -519,8 +526,9 @@ ${intentNote}`;
     });
     
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
+      const errorBody = await response.text();
+      console.error("Gemini API Error Detail (generateSupportCard):", response.status, errorBody);
+      throw new Error(`Gemini API Error: ${response.status} - ${errorBody}`);
     }
     
     const data = await response.json();
@@ -539,8 +547,9 @@ ${intentNote}`;
     try {
       cardData = JSON.parse(cleanText);
     } catch (parseErr) {
-      console.error('❌ JSON.parse 失敗 (generateCard 強力洗浄後):', parseErr.message);
-      console.error('   ↳ Raw AI text:', responseText);
+      console.error('❌ JSON.parse 失敗 (generateSupportCard):', parseErr.message);
+      console.error('AI returned non-JSON text:', responseText);
+      console.error('   ↳ Cleaned text:', cleanText);
       // 役割別の絶対安全フォールバック（returnせず続行）
       if (role === 'support') {
         cardData = {
@@ -2056,6 +2065,9 @@ async function judgeCardByAI(cardName) {
 
 以下の言葉を判定し、JSON のみを返してください：「${cardName}」`;
 
+  // ★【APIキー確認ログ】
+  console.log("API Key Status:", process.env.GEMINI_API_KEY ? "Set" : "Missing");
+
   try {
     const performRequest = async () => {
       const response = await fetch(`${GEMINI_API_URL}?key=${API_KEY}`, {
@@ -2068,8 +2080,9 @@ async function judgeCardByAI(cardName) {
       });
       
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini API Error: ${response.status} - ${errorText}`);
+        const errorBody = await response.text();
+        console.error("Gemini API Error Detail (judgeCardByAI):", response.status, errorBody);
+        throw new Error(`Gemini API Error: ${response.status} - ${errorBody}`);
       }
       
       const data = await response.json();
